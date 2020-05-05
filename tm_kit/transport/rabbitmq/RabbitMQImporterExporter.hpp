@@ -12,7 +12,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
     class RabbitMQImporterExporter {
     public:
         using M = infra::RealTimeMonad<Env>;
-        static std::shared_ptr<typename M::template Importer<basic::ByteDataWithTopic>> createImporter(ConnectionLocator const &exchangeLocator, std::string const &topic="", std::optional<ByteDataHook> wireToUserHook=std::nullopt) {
+        static std::shared_ptr<typename M::template Importer<basic::ByteDataWithTopic>> createImporter(ConnectionLocator const &exchangeLocator, std::string const &topic="", std::optional<WireToUserHook> wireToUserHook=std::nullopt) {
             class LocalI final : public M::template AbstractImporter<basic::ByteDataWithTopic> {
             private:
                 ConnectionLocator exchangeLocator_;

@@ -36,7 +36,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                     );
                 }
             };
-            return M::importer(new LocalI(locator, topic));
+            return M::importer(new LocalI(locator, topic, wireToUserHook));
         }
         template <class T>
         static std::shared_ptr<typename M::template Importer<basic::TypedDataWithTopic<T>>> createTypedImporter(ConnectionLocator const &locator, std::variant<MulticastComponent::NoTopicSelection, std::string, std::regex> const &topic=MulticastComponent::NoTopicSelection(), std::optional<WireToUserHook> wireToUserHook=std::nullopt) {
