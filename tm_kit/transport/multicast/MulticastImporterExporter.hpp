@@ -90,7 +90,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 }
                 virtual void handle(typename M::template InnerData<basic::ByteDataWithTopic> &&data) override final {
                     if (env_) {
-                        publisher_(std::move(data), ttl_);
+                        publisher_(std::move(data.timedData.value), ttl_);
                     }
                 }
             };
