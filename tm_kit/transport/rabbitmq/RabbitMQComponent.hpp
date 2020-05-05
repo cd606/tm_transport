@@ -26,19 +26,22 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
     public:
         RabbitMQComponent();
         ~RabbitMQComponent();
+
+        //The std::string const & parameters in the callbacks are content encoding schemes
+
         //for exchanges, the identifier in locator is the exchange name
         //for subscription, the topic can be in rabbitmq wildcard format
         void rabbitmq_addExchangeSubscriptionClient(ConnectionLocator const &locator,
                         std::string const &topic,
-                        std::function<void(basic::ByteDataWithTopic &&)> client,
+                        std::function<void(std::string const &, basic::ByteDataWithTopic &&)> client,
                         std::optional<WireToUserHook> wireToUserHook = std::nullopt);
-        std::function<void(basic::ByteDataWithTopic &&)> rabbitmq_getExchangePublisher(ConnectionLocator const &locator, std::optional<UserToWireHook> userToWireHook = std::nullopt);
+        std::function<void(std::string const &, basic::ByteDataWithTopic &&)> rabbitmq_getExchangePublisher(ConnectionLocator const &locator, std::optional<UserToWireHook> userToWireHook = std::nullopt);
         //for RPC queues, the identifier in locator is the queue name
-        std::function<void(basic::ByteDataWithID &&)> rabbitmq_setRPCQueueClient(ConnectionLocator const &locator,
-                        std::function<void(basic::ByteDataWithID &&)> client,
+        std::function<void(std::string const &, basic::ByteDataWithID &&)> rabbitmq_setRPCQueueClient(ConnectionLocator const &locator,
+                        std::function<void(std::string const &, basic::ByteDataWithID &&)> client,
                         std::optional<ByteDataHookPair> hookPair = std::nullopt); //the return value is the requester
-        std::function<void(basic::ByteDataWithID &&)> rabbitmq_setRPCQueueServer(ConnectionLocator const &locator,
-                        std::function<void(basic::ByteDataWithID &&)> server,
+        std::function<void(std::string const &, basic::ByteDataWithID &&)> rabbitmq_setRPCQueueServer(ConnectionLocator const &locator,
+                        std::function<void(std::string const &, basic::ByteDataWithID &&)> server,
                         std::optional<ByteDataHookPair> hookPair = std::nullopt); //the return value is the replier
     };
 

@@ -27,7 +27,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                     env->rabbitmq_addExchangeSubscriptionClient(
                         exchangeLocator_
                         , topic_
-                        , [this,env](basic::ByteDataWithTopic &&d) {
+                        , [this,env](std::string const &, basic::ByteDataWithTopic &&d) {
                             this->publish(M::template pureInnerData<basic::ByteDataWithTopic>(env, std::move(d)));
                         }
                         , wireToUserHook_
@@ -52,7 +52,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                     env->rabbitmq_addExchangeSubscriptionClient(
                         exchangeLocator_
                         , topic_
-                        , [this,env](basic::ByteDataWithTopic &&d) {
+                        , [this,env](std::string const &, basic::ByteDataWithTopic &&d) {
                             T t;
                             if (t.ParseFromString(d.content)) {
                                 this->publish(M::template pureInnerData<basic::TypedDataWithTopic<T>>(env, {std::move(d.topic), std::move(t)}));
@@ -69,7 +69,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             private:
                 ConnectionLocator exchangeLocator_;
                 Env *env_;
-                std::function<void(basic::ByteDataWithTopic &&)> publisher_;
+                std::function<void(std::string const &, basic::ByteDataWithTopic &&)> publisher_;
                 std::optional<UserToWireHook> userToWireHook_;
             public:
                 LocalE(ConnectionLocator const &exchangeLocator, std::optional<UserToWireHook> userToWireHook)
@@ -82,7 +82,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 }
                 virtual void handle(typename M::template InnerData<basic::ByteDataWithTopic> &&data) override final {
                     if (env_) {
-                        publisher_(std::move(data.timedData.value));
+                        publisher_("", std::move(data.timedData.value));
                     }
                 }
             };
@@ -94,7 +94,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             private:
                 ConnectionLocator exchangeLocator_;
                 Env *env_;
-                std::function<void(basic::ByteDataWithTopic &&)> publisher_;
+                std::function<void(std::string const &, basic::ByteDataWithTopic &&)> publisher_;
                 std::optional<UserToWireHook> userToWireHook_;
             public:
                 LocalE(ConnectionLocator const &exchangeLocator, std::optional<UserToWireHook> userToWireHook)
@@ -109,7 +109,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                     if (env_) {
                         std::string s;
                         data.timedData.value.content.SerializeToString(&s);
-                        publisher_({std::move(data.timedData.value.topic), std::move(s)});
+                        publisher_("", {std::move(data.timedData.value.topic), std::move(s)});
                     }
                 }
             };

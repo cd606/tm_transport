@@ -25,20 +25,20 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             private:
                 Env *env_;
                 ConnectionLocator locator_;
-                std::function<void(basic::ByteDataWithID &&)> requester_;
+                std::function<void(std::string const &, basic::ByteDataWithID &&)> requester_;
                 std::optional<ByteDataHookPair> hooks_;
             public:
                 LocalCore(ConnectionLocator const &locator, std::optional<ByteDataHookPair> hooks) : env_(nullptr), locator_(locator), hooks_(hooks) {}
                 virtual void start(Env *env) override final {
                     env_ = env;
-                    requester_ = env->rabbitmq_setRPCQueueClient(locator_, [this](basic::ByteDataWithID &&data) {
+                    requester_ = env->rabbitmq_setRPCQueueClient(locator_, [this](std::string const &, basic::ByteDataWithID &&data) {
                         typename M::template Key<basic::ByteData> reply {Env::id_from_string(data.id), { std::move(data.content) }};
                         this->publish(env_, std::move(reply), false);
                     }, hooks_);
                 }
                 virtual void handle(typename M::template InnerData<typename M::template Key<basic::ByteData>> &&data) override final {
                     if (env_) {
-                        requester_({Env::id_to_string(data.timedData.value.id()), std::move(data.timedData.value.key())});
+                        requester_("", {Env::id_to_string(data.timedData.value.id()), std::move(data.timedData.value.key())});
                     }     
                 }
             };
@@ -52,13 +52,13 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             private:
                 Env *env_;
                 ConnectionLocator locator_;
-                std::function<void(basic::ByteDataWithID &&)> requester_;
+                std::function<void(std::string const &, basic::ByteDataWithID &&)> requester_;
                 std::optional<ByteDataHookPair> hooks_;
             public:
                 LocalCore(ConnectionLocator const &locator, std::optional<ByteDataHookPair> hooks) : env_(nullptr), locator_(locator), hooks_(hooks) {}
                 virtual void start(Env *env) override final {
                     env_ = env;
-                    requester_ = env->rabbitmq_setRPCQueueClient(locator_, [this](basic::ByteDataWithID &&data) {
+                    requester_ = env->rabbitmq_setRPCQueueClient(locator_, [this](std::string const &, basic::ByteDataWithID &&data) {
                         B result;
                         if (!result.ParseFromString(std::move(data.content))) {
                             return;
@@ -70,7 +70,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                     if (env_) {
                         std::string s;
                         data.timedData.value.key().SerializeToString(&s);
-                        requester_({Env::id_to_string(data.timedData.value.id()), std::move(s)});
+                        requester_("", {Env::id_to_string(data.timedData.value.id()), std::move(s)});
                     }     
                 }
             };
@@ -89,7 +89,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 virtual void start(Env *env) override final {
                     env->rabbitmq_setRPCQueueServer(
                         locator_
-                        , [this,env](basic::ByteDataWithID &&d) {
+                        , [this,env](std::string const &, basic::ByteDataWithID &&d) {
                             this->publish(M::template pureInnerData<basic::ByteDataWithID>(env, std::move(d)));
                         }
                         , hooks_
@@ -105,17 +105,17 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             class LocalI final : public M::template AbstractImporter<basic::ByteDataWithID> {
             private:
                 ConnectionLocator locator_;
-                std::shared_ptr<std::function<void(basic::ByteDataWithID &&)>> replierPtr_;
+                std::shared_ptr<std::function<void(std::string const &, basic::ByteDataWithID &&)>> replierPtr_;
                 std::optional<ByteDataHookPair> hooks_;
             public:
-                LocalI(ConnectionLocator const &locator, std::shared_ptr<std::function<void(basic::ByteDataWithID &&)>> const & replierPtr, std::optional<ByteDataHookPair> hooks)
+                LocalI(ConnectionLocator const &locator, std::shared_ptr<std::function<void(std::string const &, basic::ByteDataWithID &&)>> const & replierPtr, std::optional<ByteDataHookPair> hooks)
                     : locator_(locator), replierPtr_(replierPtr), hooks_(hooks)
                 {
                 }
                 virtual void start(Env *env) override final {
                     *replierPtr_ = env->rabbitmq_setRPCQueueServer(
                         locator_
-                        , [this,env](basic::ByteDataWithID &&d) {
+                        , [this,env](std::string const &, basic::ByteDataWithID &&d) {
                             this->publish(M::template pureInnerData<basic::ByteDataWithID>(env, std::move(d)));
                         }
                         , hooks_
@@ -126,9 +126,9 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             private:
                 ConnectionLocator locator_;
                 Env *env_;
-                std::shared_ptr<std::function<void(basic::ByteDataWithID &&)>> replierPtr_;
+                std::shared_ptr<std::function<void(std::string const &, basic::ByteDataWithID &&)>> replierPtr_;
             public:
-                LocalE(ConnectionLocator const &locator, std::shared_ptr<std::function<void(basic::ByteDataWithID &&)>> const &replierPtr)
+                LocalE(ConnectionLocator const &locator, std::shared_ptr<std::function<void(std::string const &, basic::ByteDataWithID &&)>> const &replierPtr)
                     : locator_(locator), env_(nullptr), replierPtr_(replierPtr)
                 {
                 }
@@ -137,12 +137,12 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 }
                 virtual void handle(typename M::template InnerData<basic::ByteDataWithID> &&data) override final {
                     if (env_) {
-                        (*replierPtr_)(std::move(data.timedData.value));
+                        (*replierPtr_)("", std::move(data.timedData.value));
                     }
                 }
             };
-            auto replierPtr = std::make_shared<std::function<void(basic::ByteDataWithID &&)>>(
-                [](basic::ByteDataWithID &&) {}
+            auto replierPtr = std::make_shared<std::function<void(std::string const &, basic::ByteDataWithID &&)>>(
+                [](std::string const &, basic::ByteDataWithID &&) {}
             );
             return { M::importer(new LocalI(locator, replierPtr, hooks)), M::exporter(new LocalE(locator, replierPtr)) };
         }
@@ -222,10 +222,10 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         //The following "oneShot" functions are helper functions that are not intended to go into runner logic
         static std::future<basic::ByteDataWithID> oneShotRemoteCall(Env *env, ConnectionLocator const &rpcQueueLocator, basic::ByteDataWithID &&request, std::optional<ByteDataHookPair> hooks = std::nullopt) {
             std::shared_ptr<std::promise<basic::ByteDataWithID>> ret = std::make_shared<std::promise<basic::ByteDataWithID>>();
-            auto requester = env->rabbitmq_setRPCQueueClient(rpcQueueLocator, [ret](basic::ByteDataWithID &&data) {
+            auto requester = env->rabbitmq_setRPCQueueClient(rpcQueueLocator, [ret](std::string const &, basic::ByteDataWithID &&data) {
                 ret->set_value(std::move(data));
             }, hooks);
-            requester(std::move(request));
+            requester("", std::move(request));
             return ret->get_future();
         }
 
@@ -236,20 +236,20 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             std::string byteData;
             keyInput.key().SerializeToString(&byteData);
             
-            auto requester = env->rabbitmq_setRPCQueueClient(rpcQueueLocator, [ret](basic::ByteDataWithID &&data) {
+            auto requester = env->rabbitmq_setRPCQueueClient(rpcQueueLocator, [ret](std::string const &, basic::ByteDataWithID &&data) {
                 B val;
                 if (val.ParseFromString(data.content)) {
                     ret->set_value(std::move(val));
                 }
             }, hooks);
-            requester(basic::ByteDataWithID {Env::id_to_string(keyInput.id()), std::move(byteData)});
+            requester("", basic::ByteDataWithID {Env::id_to_string(keyInput.id()), std::move(byteData)});
             return ret->get_future();
         }
 
         static void oneShotRemoteCallNoReply(Env *env, ConnectionLocator const &rpcQueueLocator, basic::ByteDataWithID &&request, std::optional<ByteDataHookPair> hooks = std::nullopt) {
-            auto requester = env->rabbitmq_setRPCQueueClient(rpcQueueLocator, [](basic::ByteDataWithID &&) {
+            auto requester = env->rabbitmq_setRPCQueueClient(rpcQueueLocator, [](std::string const &, basic::ByteDataWithID &&) {
             }, hooks);
-            requester(std::move(request));
+            requester("", std::move(request));
         }
 
         template <class A>
@@ -258,9 +258,9 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             std::string byteData;
             keyInput.key().SerializeToString(&byteData);
             
-            auto requester = env->rabbitmq_setRPCQueueClient(rpcQueueLocator, [](basic::ByteDataWithID &&) {
+            auto requester = env->rabbitmq_setRPCQueueClient(rpcQueueLocator, [](std::string const &, basic::ByteDataWithID &&) {
             }, hooks);
-            requester(basic::ByteDataWithID {Env::id_to_string(keyInput.id()), std::move(byteData)});
+            requester("", basic::ByteDataWithID {Env::id_to_string(keyInput.id()), std::move(byteData)});
         }
     };
 
