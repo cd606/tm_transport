@@ -50,13 +50,14 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         }
     public:
         using M = infra::RealTimeMonad<Env>;
+        using Identity = typename Env::IdentityType;
 
         //for the pairs of hooks, if present, the first one is always in the direction of "input to facility",
         //and the second one is always in the direction of "output from facility"
-        static typename M::template OnOrderFacility<basic::ByteData, basic::ByteData> createRPCOnOrderFacility(
+        static typename M::template OnOrderFacility<std::tuple<Identity, basic::ByteData>, basic::ByteData> createRPCOnOrderFacility(
             ConnectionLocator const &locator
             , std::optional<ByteDataHookPair> hooks = std::nullopt) { 
-            class LocalCore final : public virtual infra::RealTimeMonadComponents<Env>::IExternalComponent, public virtual infra::RealTimeMonadComponents<Env>::template AbstractOnOrderFacility<basic::ByteData, basic::ByteData> {
+            class LocalCore final : public virtual infra::RealTimeMonadComponents<Env>::IExternalComponent, public virtual infra::RealTimeMonadComponents<Env>::template AbstractOnOrderFacility<std::tuple<Identity,basic::ByteData>, basic::ByteData> {
             private:
                 Env *env_;
                 ConnectionLocator locator_;
@@ -72,19 +73,22 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                         this->publish(env_, std::move(reply), (std::get<1>(parseRes)?std::get<1>(parseRes)->isFinal:false));
                     }, hooks_);
                 }
-                virtual void handle(typename M::template InnerData<typename M::template Key<basic::ByteData>> &&data) override final {
+                virtual void handle(typename M::template InnerData<typename M::template Key<std::tuple<Identity, basic::ByteData>>> &&data) override final {
                     if (env_) {
-                        requester_("", {Env::id_to_string(data.timedData.value.id()), std::move(data.timedData.value.key())});
+                        requester_("", {
+                            Env::id_to_string(data.timedData.value.id())
+                            , Env::attach_identity(std::move(data.timedData.value.key())).content
+                        });
                     }     
                 }
             };
             return M::fromAbstractOnOrderFacility(new LocalCore(locator, hooks));
         }
         template <class A, class B>
-        static std::shared_ptr<typename M::template OnOrderFacility<A, B>> createTypedRPCOnOrderFacility(
+        static std::shared_ptr<typename M::template OnOrderFacility<std::tuple<Identity,A>, B>> createTypedRPCOnOrderFacility(
             ConnectionLocator const &locator
             , std::optional<ByteDataHookPair> hooks = std::nullopt) {
-            class LocalCore final : public virtual infra::RealTimeMonadComponents<Env>::IExternalComponent, public virtual infra::RealTimeMonadComponents<Env>::template AbstractOnOrderFacility<A,B> {
+            class LocalCore final : public virtual infra::RealTimeMonadComponents<Env>::IExternalComponent, public virtual infra::RealTimeMonadComponents<Env>::template AbstractOnOrderFacility<std::tuple<Identity,A>,B> {
             private:
                 Env *env_;
                 ConnectionLocator locator_;
@@ -103,11 +107,20 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                         this->publish(env_, typename M::template Key<B> {Env::id_from_string(std::get<0>(parseRes).id), std::move(result)}, (std::get<1>(parseRes)?std::get<1>(parseRes)->isFinal:false));
                     }, hooks_);
                 }
-                virtual void handle(typename M::template InnerData<typename M::template Key<A>> &&data) override final {
+                virtual void handle(typename M::template InnerData<typename M::template Key<std::tuple<Identity,A>>> &&data) override final {
                     if (env_) {
-                        std::string s;
-                        data.timedData.value.key().SerializeToString(&s);
-                        requester_("", {Env::id_to_string(data.timedData.value.id()), std::move(s)});
+                        basic::ByteData s = { basic::SerializationActions<M>::template serializeFunc<A>(
+                            std::get<1>(data.timedData.value.key())
+                        ) };
+                        requester_(""
+                            , basic::ByteDataWithID {
+                                Env::id_to_string(data.timedData.value.id())
+                                , env_->attach_identity({
+                                    std::get<0>(data.timedData.value.key())
+                                    , std::move(s)
+                                }).content
+                            }
+                        );
                     }     
                 }
             };
@@ -188,80 +201,105 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             );
             return { M::importer(new LocalI(locator, replierPtr, hooks)), M::exporter(new LocalE(locator, replierPtr, contentEncoding)) };
         }
+    private:
+        template <class A>
+        static auto checkIdentityAndDeserialize()
+            -> typename infra::MonadRunner<M>::template ActionPtr<basic::ByteDataWithID, typename M::template Key<std::tuple<Identity,A>>>
+        {
+            return M::template liftMaybe<basic::ByteDataWithID>(
+                [](typename basic::ByteDataWithID &&input) -> std::optional<typename M::template Key<std::tuple<Identity,A>>> {
+                    auto checkIdentityRes = Env::check_identity(basic::ByteData {std::move(input.content)});
+                    if (!checkIdentityRes) {
+                        return std::nullopt;
+                    }
+                    auto parseRes = basic::SerializationActions<M>::template deserializeFunc<A>(std::move(std::get<1>(*checkIdentityRes).content));
+                    if (!parseRes) {
+                        return std::nullopt;
+                    }
+                    return typename M::template Key<std::tuple<Identity, A>> {
+                        Env::id_from_string(input.id)
+                        , std::tuple<Identity, A> {
+                            std::move(std::get<0>(*checkIdentityRes))
+                            , std::move(*parseRes)
+                        }
+                    };
+                }
+            );
+        }
     public:
         template <class A, class B>
         static void wrapOnOrderFacility(
             infra::MonadRunner<M> &runner
-            , std::shared_ptr<typename M::template OnOrderFacility<A,B>> const &toBeWrapped
+            , std::shared_ptr<typename M::template OnOrderFacility<std::tuple<Identity,A>,B>> const &toBeWrapped
             , ConnectionLocator const &rpcQueueLocator
             , std::string const &wrapperItemsNamePrefix
             , std::optional<ByteDataHookPair> hooks = std::nullopt
             , bool encodeFinalFlagInReply = false
         ) {
             auto importerExporterPair = createOnOrderFacilityRPCConnectorIncomingAndOutgoingLegs(rpcQueueLocator, hooks, (encodeFinalFlagInReply?"with_final":""));
-            auto translator1 = basic::SerializationActions<M>::template deserializeWithKey<A>();
-            auto translator2 = basic::SerializationActions<M>::template serializeWithKey<A,B>();
+            auto deserializer = checkIdentityAndDeserialize<A>();
+            auto serializer = basic::SerializationActions<M>::template serializeWithKey<std::tuple<Identity,A>,B>();
 
             runner.registerImporter(std::get<0>(importerExporterPair), wrapperItemsNamePrefix+"_incomingLeg");
             runner.registerExporter(std::get<1>(importerExporterPair), wrapperItemsNamePrefix+"_outgoingLeg");
-            runner.registerAction(translator1, wrapperItemsNamePrefix+"_deserializer");
-            runner.registerAction(translator2, wrapperItemsNamePrefix+"_serializer");
-            runner.execute(translator1, runner.importItem(std::get<0>(importerExporterPair)));
-            runner.placeOrderWithFacility(runner.actionAsSource(translator1), toBeWrapped, runner.actionAsSink(translator2));
-            runner.connect(runner.actionAsSource(translator2), runner.exporterAsSink(std::get<1>(importerExporterPair)));
+            runner.registerAction(deserializer, wrapperItemsNamePrefix+"_deserializer");
+            runner.registerAction(serializer, wrapperItemsNamePrefix+"_serializer");
+            runner.execute(deserializer, runner.importItem(std::get<0>(importerExporterPair)));
+            runner.placeOrderWithFacility(runner.actionAsSource(deserializer), toBeWrapped, runner.actionAsSink(serializer));
+            runner.connect(runner.actionAsSource(serializer), runner.exporterAsSink(std::get<1>(importerExporterPair)));
         }
         template <class A, class B>
         static void wrapOnOrderFacilityWithoutReply(
             infra::MonadRunner<M> &runner
-            , std::shared_ptr<typename M::template OnOrderFacility<A,B>> const &toBeWrapped
+            , std::shared_ptr<typename M::template OnOrderFacility<std::tuple<Identity,A>,B>> const &toBeWrapped
             , ConnectionLocator const &rpcQueueLocator
             , std::string const &wrapperItemsNamePrefix
             , std::optional<ByteDataHookPair> hooks = std::nullopt
         ) {
             auto importer = createOnOrderFacilityRPCConnectorIncomingLegOnly(rpcQueueLocator, hooks);
-            auto translator = basic::SerializationActions<M>::template deserializeWithKey<A>();
+            auto deserializer = checkIdentityAndDeserialize<A>();
 
             runner.registerImporter(importer, wrapperItemsNamePrefix+"_incomingLeg");
-            runner.registerAction(translator, wrapperItemsNamePrefix+"_deserializer");
-            runner.execute(translator, runner.importItem(importer));
-            runner.placeOrderWithFacilityAndForget(runner.actionAsSource(translator), toBeWrapped);
+            runner.registerAction(deserializer, wrapperItemsNamePrefix+"_deserializer");
+            runner.execute(deserializer, runner.importItem(importer));
+            runner.placeOrderWithFacilityAndForget(runner.actionAsSource(deserializer), toBeWrapped);
         }
         template <class A, class B, class C>
         static void wrapLocalOnOrderFacility(
             infra::MonadRunner<M> &runner
-            , std::shared_ptr<typename M::template LocalOnOrderFacility<A,B,C>> const &toBeWrapped
+            , std::shared_ptr<typename M::template LocalOnOrderFacility<std::tuple<Identity,A>,B,C>> const &toBeWrapped
             , ConnectionLocator const &rpcQueueLocator
             , std::string const &wrapperItemsNamePrefix
             , std::optional<ByteDataHookPair> hooks = std::nullopt
             , bool encodeFinalFlagInReply = false
         ) {
             auto importerExporterPair = createOnOrderFacilityRPCConnectorIncomingAndOutgoingLegs(rpcQueueLocator, hooks, (encodeFinalFlagInReply?"with_final":""));
-            auto translator1 = basic::SerializationActions<M>::template deserializeWithKey<A>();
-            auto translator2 = basic::SerializationActions<M>::template serializeWithKey<A,B>();
+            auto deserializer = checkIdentityAndDeserialize<A>();
+            auto serializer = basic::SerializationActions<M>::template serializeWithKey<std::tuple<Identity,A>,B>();
 
             runner.registerImporter(std::get<0>(importerExporterPair), wrapperItemsNamePrefix+"_incomingLeg");
             runner.registerExporter(std::get<1>(importerExporterPair), wrapperItemsNamePrefix+"_outgoingLeg");
-            runner.registerAction(translator1, wrapperItemsNamePrefix+"_deserializer");
-            runner.registerAction(translator2, wrapperItemsNamePrefix+"_serializer");
-            runner.execute(translator1, runner.importItem(std::get<0>(importerExporterPair)));
-            runner.placeOrderWithLocalFacility(runner.actionAsSource(translator1), toBeWrapped, runner.actionAsSink(translator2));
-            runner.connect(runner.actionAsSource(translator2), runner.exporterAsSink(std::get<1>(importerExporterPair)));
+            runner.registerAction(deserializer, wrapperItemsNamePrefix+"_deserializer");
+            runner.registerAction(serializer, wrapperItemsNamePrefix+"_serializer");
+            runner.execute(deserializer, runner.importItem(std::get<0>(importerExporterPair)));
+            runner.placeOrderWithLocalFacility(runner.actionAsSource(deserializer), toBeWrapped, runner.actionAsSink(serializer));
+            runner.connect(runner.actionAsSource(serializer), runner.exporterAsSink(std::get<1>(importerExporterPair)));
         }
         template <class A, class B, class C>
         static void wrapLocalOnOrderFacilityWithoutReply(
             infra::MonadRunner<M> &runner
-            , std::shared_ptr<typename M::template LocalOnOrderFacility<A,B,C>> const &toBeWrapped
+            , std::shared_ptr<typename M::template LocalOnOrderFacility<std::tuple<Identity,A>,B,C>> const &toBeWrapped
             , ConnectionLocator const &rpcQueueLocator
             , std::string const &wrapperItemsNamePrefix
             , std::optional<ByteDataHookPair> hooks = std::nullopt
         ) {
             auto importer = createOnOrderFacilityRPCConnectorIncomingLegOnly(rpcQueueLocator, hooks);
-            auto translator = basic::SerializationActions<M>::template deserializeWithKey<A>();
+            auto deserializer = checkIdentityAndDeserialize<A>();
 
             runner.registerImporter(importer, wrapperItemsNamePrefix+"_incomingLeg");
-            runner.registerAction(translator, wrapperItemsNamePrefix+"_deserializer");
-            runner.execute(translator, runner.importItem(importer));
-            runner.placeOrderWithLocalFacilityAndForget(runner.actionAsSource(translator), toBeWrapped);
+            runner.registerAction(deserializer, wrapperItemsNamePrefix+"_deserializer");
+            runner.execute(deserializer, runner.importItem(importer));
+            runner.placeOrderWithLocalFacilityAndForget(runner.actionAsSource(deserializer), toBeWrapped);
         }
 
         template <class A, class B>
@@ -302,22 +340,31 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         }
 
         //The following "oneShot" functions are helper functions that are not intended to go into runner logic
-        static std::future<basic::ByteData> oneShotRemoteCall(Env *env, ConnectionLocator const &rpcQueueLocator, basic::ByteDataWithID &&request, std::optional<ByteDataHookPair> hooks = std::nullopt) {
+        static std::future<basic::ByteData> oneShotRemoteCall(Env *env, ConnectionLocator const &rpcQueueLocator, std::tuple<Identity, basic::ByteData> &&request, std::optional<ByteDataHookPair> hooks = std::nullopt) {
             std::shared_ptr<std::promise<basic::ByteData>> ret = std::make_shared<std::promise<basic::ByteData>>();
+            typename M::template Key<std::tuple<Identity, basic::ByteData>> keyInput = infra::withtime_utils::keyify<std::tuple<Identity, basic::ByteData>,typename M::EnvironmentType>(std::move(request));
             auto requester = env->rabbitmq_setRPCQueueClient(rpcQueueLocator, [ret](std::string const &contentEncoding, basic::ByteDataWithID &&data) {
                 auto parseRes = parseReplyData(contentEncoding, std::move(data));
                 ret->set_value(std::move(std::get<0>(parseRes).content));
             }, hooks);
-            requester("", std::move(request));
+            requester("", {
+                Env::id_to_string(keyInput.id())
+                , Env::attach_identity(std::move(keyInput.key())).content
+            });
             return ret->get_future();
         }
 
         template <class A, class B>
-        static std::future<B> typedOneShotRemoteCall(Env *env, ConnectionLocator const &rpcQueueLocator, A &&request, std::optional<ByteDataHookPair> hooks = std::nullopt) {
+        static std::future<B> typedOneShotRemoteCall(Env *env, ConnectionLocator const &rpcQueueLocator, std::tuple<Identity, A> &&request, std::optional<ByteDataHookPair> hooks = std::nullopt) {
             std::shared_ptr<std::promise<B>> ret = std::make_shared<std::promise<B>>();
-            typename M::template Key<A> keyInput = infra::withtime_utils::keyify<A,typename M::EnvironmentType>(std::move(request));
-            std::string byteData;
-            keyInput.key().SerializeToString(&byteData);
+            std::string byteData = basic::SerializationActions<M>::template serializeFunc<A>(
+                std::get<1>(request)
+            );
+            std::tuple<Identity, basic::ByteData> serializedReq {
+                std::move(std::get<0>(request))
+                , {std::move(byteData)}
+            };
+            typename M::template Key<std::tuple<Identity, basic::ByteData>> keyInput = infra::withtime_utils::keyify<std::tuple<Identity, basic::ByteData>,typename M::EnvironmentType>(std::move(serializedReq));
             
             auto requester = env->rabbitmq_setRPCQueueClient(rpcQueueLocator, [ret](std::string const &contentEncoding, basic::ByteDataWithID &&data) {
                 auto parseRes = parseReplyData(contentEncoding, std::move(data));
@@ -326,25 +373,40 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                     ret->set_value(std::move(val));
                 }
             }, hooks);
-            requester("", basic::ByteDataWithID {Env::id_to_string(keyInput.id()), std::move(byteData)});
+            requester("", {
+                Env::id_to_string(keyInput.id())
+                , Env::attach_identity(std::move(keyInput.key())).content
+            });
             return ret->get_future();
         }
 
         static void oneShotRemoteCallNoReply(Env *env, ConnectionLocator const &rpcQueueLocator, basic::ByteDataWithID &&request, std::optional<ByteDataHookPair> hooks = std::nullopt) {
-            auto requester = env->rabbitmq_setRPCQueueClient(rpcQueueLocator, [](std::string const &, basic::ByteDataWithID &&) {
+            typename M::template Key<std::tuple<Identity, basic::ByteData>> keyInput = infra::withtime_utils::keyify<std::tuple<Identity, basic::ByteData>,typename M::EnvironmentType>(std::move(request));
+            auto requester = env->rabbitmq_setRPCQueueClient(rpcQueueLocator, [](std::string const &contentEncoding, basic::ByteDataWithID &&data) {
             }, hooks);
-            requester("", std::move(request));
+            requester("", {
+                Env::id_to_string(keyInput.id())
+                , Env::attach_identity(std::move(keyInput.key())).content
+            });
         }
 
         template <class A>
-        static void typedOneShotRemoteCallNoReply(Env *env, ConnectionLocator const &rpcQueueLocator, A &&request, std::optional<ByteDataHookPair> hooks = std::nullopt) {
-            typename M::template Key<A> keyInput = infra::withtime_utils::keyify<A,typename M::EnvironmentType>(std::move(request));
-            std::string byteData;
-            keyInput.key().SerializeToString(&byteData);
+        static void typedOneShotRemoteCallNoReply(Env *env, ConnectionLocator const &rpcQueueLocator, std::tuple<Identity, A> &&request, std::optional<ByteDataHookPair> hooks = std::nullopt) {
+            std::string byteData = basic::SerializationActions<M>::template serializeFunc<A>(
+                std::get<1>(request)
+            );
+            std::tuple<Identity, basic::ByteData> serializedReq {
+                std::move(std::get<0>(request))
+                , {std::move(byteData)}
+            };
+            typename M::template Key<std::tuple<Identity, basic::ByteData>> keyInput = infra::withtime_utils::keyify<std::tuple<Identity, basic::ByteData>,typename M::EnvironmentType>(std::move(serializedReq));
             
             auto requester = env->rabbitmq_setRPCQueueClient(rpcQueueLocator, [](std::string const &, basic::ByteDataWithID &&) {
             }, hooks);
-            requester("", basic::ByteDataWithID {Env::id_to_string(keyInput.id()), std::move(byteData)});
+            requester("", {
+                Env::id_to_string(keyInput.id())
+                , Env::attach_identity(std::move(keyInput.key())).content
+            });
         }
     };
 
