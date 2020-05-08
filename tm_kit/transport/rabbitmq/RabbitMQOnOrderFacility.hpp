@@ -264,6 +264,43 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             runner.placeOrderWithLocalFacilityAndForget(runner.actionAsSource(translator), toBeWrapped);
         }
 
+        template <class A, class B>
+        static auto facilityWrapper(
+            ConnectionLocator const &rpcQueueLocator
+            , std::string const &wrapperItemsNamePrefix
+            , std::optional<ByteDataHookPair> hooks = std::nullopt
+            , bool encodeFinalFlagInReply = false
+        ) -> typename infra::MonadRunner<M>::template FacilityWrapper<A,B> {
+            return { std::bind(wrapOnOrderFacility<A,B>, std::placeholders::_1, std::placeholders::_2, rpcQueueLocator, wrapperItemsNamePrefix, hooks, encodeFinalFlagInReply) };
+        }
+        template <class A, class B>
+        static auto facilityWrapperWithoutReply(
+            ConnectionLocator const &rpcQueueLocator
+            , std::string const &wrapperItemsNamePrefix
+            , std::optional<ByteDataHookPair> hooks = std::nullopt
+            , bool encodeFinalFlagInReply = false
+        ) -> typename infra::MonadRunner<M>::template FacilityWrapper<A,B> {
+            return { std::bind(wrapOnOrderFacilityWithoutReply<A,B>, std::placeholders::_1, std::placeholders::_2, rpcQueueLocator, wrapperItemsNamePrefix, hooks, encodeFinalFlagInReply) };
+        }
+        template <class A, class B, class C>
+        static auto localFacilityWrapper(
+            ConnectionLocator const &rpcQueueLocator
+            , std::string const &wrapperItemsNamePrefix
+            , std::optional<ByteDataHookPair> hooks = std::nullopt
+            , bool encodeFinalFlagInReply = false
+        ) -> typename infra::MonadRunner<M>::template LocalFacilityWrapper<A,B,C> {
+            return { std::bind(wrapLocalOnOrderFacility<A,B,C>, std::placeholders::_1, std::placeholders::_2, rpcQueueLocator, wrapperItemsNamePrefix, hooks, encodeFinalFlagInReply) };
+        }
+        template <class A, class B, class C>
+        static auto localFacilityWrapperWithoutReply(
+            ConnectionLocator const &rpcQueueLocator
+            , std::string const &wrapperItemsNamePrefix
+            , std::optional<ByteDataHookPair> hooks = std::nullopt
+            , bool encodeFinalFlagInReply = false
+        ) -> typename infra::MonadRunner<M>::template LocalFacilityWrapper<A,B,C> {
+            return { std::bind(wrapLocalOnOrderFacilityWithoutReply<A,B,C>, std::placeholders::_1, std::placeholders::_2, rpcQueueLocator, wrapperItemsNamePrefix, hooks, encodeFinalFlagInReply) };
+        }
+
         //The following "oneShot" functions are helper functions that are not intended to go into runner logic
         static std::future<basic::ByteData> oneShotRemoteCall(Env *env, ConnectionLocator const &rpcQueueLocator, basic::ByteDataWithID &&request, std::optional<ByteDataHookPair> hooks = std::nullopt) {
             std::shared_ptr<std::promise<basic::ByteData>> ret = std::make_shared<std::promise<basic::ByteData>>();
