@@ -50,7 +50,6 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         }
     public:
         using M = infra::RealTimeMonad<Env>;
-        using Identity = typename Env::IdentityType;
 
         //for the pairs of hooks, if present, the first one is always in the direction of "input to facility",
         //and the second one is always in the direction of "output from facility"
@@ -200,12 +199,18 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         }
     private:
         template <class A>
+        static auto simplyDeserialize()
+            -> typename infra::MonadRunner<M>::template ActionPtr<basic::ByteDataWithID, typename M::template Key<A>>
+        {
+            return basic::SerializationActions<M>::template deserializeWithKey<A>();
+        }
+        template <class A, class Identity>
         static auto checkIdentityAndDeserialize()
             -> typename infra::MonadRunner<M>::template ActionPtr<basic::ByteDataWithID, typename M::template Key<std::tuple<Identity,A>>>
         {
             return M::template kleisli<basic::ByteDataWithID>(
                 [](typename M::template InnerData<basic::ByteDataWithID> &&input) -> typename M::template Data<typename M::template Key<std::tuple<Identity,A>>> {
-                    auto checkIdentityRes = input.environment->check_identity(basic::ByteData {std::move(input.timedData.value.content)});
+                    auto checkIdentityRes = input.environment->check_identity(basic::ByteData {std::move(input.timedData.value.content)}, (A *) nullptr);
                     if (!checkIdentityRes) {
                         return std::nullopt;
                     }
@@ -228,122 +233,241 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             );
         }
     public:
-        template <class A, class B>
-        static void wrapOnOrderFacility(
-            infra::MonadRunner<M> &runner
-            , std::shared_ptr<typename M::template OnOrderFacility<std::tuple<Identity,A>,B>> const &toBeWrapped
-            , ConnectionLocator const &rpcQueueLocator
-            , std::string const &wrapperItemsNamePrefix
-            , std::optional<ByteDataHookPair> hooks = std::nullopt
-            , bool encodeFinalFlagInReply = false
-        ) {
-            auto importerExporterPair = createOnOrderFacilityRPCConnectorIncomingAndOutgoingLegs(rpcQueueLocator, hooks, (encodeFinalFlagInReply?"with_final":""));
-            auto deserializer = checkIdentityAndDeserialize<A>();
-            auto serializer = basic::SerializationActions<M>::template serializeWithKey<std::tuple<Identity,A>,B>();
+        class WithoutIdentity {
+        public:
+            template <class A, class B>
+            static void wrapOnOrderFacility(
+                infra::MonadRunner<M> &runner
+                , std::shared_ptr<typename M::template OnOrderFacility<A,B>> const &toBeWrapped
+                , ConnectionLocator const &rpcQueueLocator
+                , std::string const &wrapperItemsNamePrefix
+                , std::optional<ByteDataHookPair> hooks = std::nullopt
+                , bool encodeFinalFlagInReply = false
+            ) {
+                auto importerExporterPair = createOnOrderFacilityRPCConnectorIncomingAndOutgoingLegs(rpcQueueLocator, hooks, (encodeFinalFlagInReply?"with_final":""));
+                auto deserializer = simplyDeserialize<A>();
+                auto serializer = basic::SerializationActions<M>::template serializeWithKey<A,B>();
 
-            runner.registerImporter(std::get<0>(importerExporterPair), wrapperItemsNamePrefix+"_incomingLeg");
-            runner.registerExporter(std::get<1>(importerExporterPair), wrapperItemsNamePrefix+"_outgoingLeg");
-            runner.registerAction(deserializer, wrapperItemsNamePrefix+"_deserializer");
-            runner.registerAction(serializer, wrapperItemsNamePrefix+"_serializer");
-            runner.execute(deserializer, runner.importItem(std::get<0>(importerExporterPair)));
-            runner.placeOrderWithFacility(runner.actionAsSource(deserializer), toBeWrapped, runner.actionAsSink(serializer));
-            runner.connect(runner.actionAsSource(serializer), runner.exporterAsSink(std::get<1>(importerExporterPair)));
-        }
-        template <class A, class B>
-        static void wrapOnOrderFacilityWithoutReply(
-            infra::MonadRunner<M> &runner
-            , std::shared_ptr<typename M::template OnOrderFacility<std::tuple<Identity,A>,B>> const &toBeWrapped
-            , ConnectionLocator const &rpcQueueLocator
-            , std::string const &wrapperItemsNamePrefix
-            , std::optional<ByteDataHookPair> hooks = std::nullopt
-        ) {
-            auto importer = createOnOrderFacilityRPCConnectorIncomingLegOnly(rpcQueueLocator, hooks);
-            auto deserializer = checkIdentityAndDeserialize<A>();
+                runner.registerImporter(std::get<0>(importerExporterPair), wrapperItemsNamePrefix+"_incomingLeg");
+                runner.registerExporter(std::get<1>(importerExporterPair), wrapperItemsNamePrefix+"_outgoingLeg");
+                runner.registerAction(deserializer, wrapperItemsNamePrefix+"_deserializer");
+                runner.registerAction(serializer, wrapperItemsNamePrefix+"_serializer");
+                runner.execute(deserializer, runner.importItem(std::get<0>(importerExporterPair)));
+                runner.placeOrderWithFacility(runner.actionAsSource(deserializer), toBeWrapped, runner.actionAsSink(serializer));
+                runner.connect(runner.actionAsSource(serializer), runner.exporterAsSink(std::get<1>(importerExporterPair)));
+            }
+            template <class A, class B>
+            static void wrapOnOrderFacilityWithoutReply(
+                infra::MonadRunner<M> &runner
+                , std::shared_ptr<typename M::template OnOrderFacility<A,B>> const &toBeWrapped
+                , ConnectionLocator const &rpcQueueLocator
+                , std::string const &wrapperItemsNamePrefix
+                , std::optional<ByteDataHookPair> hooks = std::nullopt
+            ) {
+                auto importer = createOnOrderFacilityRPCConnectorIncomingLegOnly(rpcQueueLocator, hooks);
+                auto deserializer = simplyDeserialize<A>();
 
-            runner.registerImporter(importer, wrapperItemsNamePrefix+"_incomingLeg");
-            runner.registerAction(deserializer, wrapperItemsNamePrefix+"_deserializer");
-            runner.execute(deserializer, runner.importItem(importer));
-            runner.placeOrderWithFacilityAndForget(runner.actionAsSource(deserializer), toBeWrapped);
-        }
-        template <class A, class B, class C>
-        static void wrapLocalOnOrderFacility(
-            infra::MonadRunner<M> &runner
-            , std::shared_ptr<typename M::template LocalOnOrderFacility<std::tuple<Identity,A>,B,C>> const &toBeWrapped
-            , ConnectionLocator const &rpcQueueLocator
-            , std::string const &wrapperItemsNamePrefix
-            , std::optional<ByteDataHookPair> hooks = std::nullopt
-            , bool encodeFinalFlagInReply = false
-        ) {
-            auto importerExporterPair = createOnOrderFacilityRPCConnectorIncomingAndOutgoingLegs(rpcQueueLocator, hooks, (encodeFinalFlagInReply?"with_final":""));
-            auto deserializer = checkIdentityAndDeserialize<A>();
-            auto serializer = basic::SerializationActions<M>::template serializeWithKey<std::tuple<Identity,A>,B>();
+                runner.registerImporter(importer, wrapperItemsNamePrefix+"_incomingLeg");
+                runner.registerAction(deserializer, wrapperItemsNamePrefix+"_deserializer");
+                runner.execute(deserializer, runner.importItem(importer));
+                runner.placeOrderWithFacilityAndForget(runner.actionAsSource(deserializer), toBeWrapped);
+            }
+            template <class A, class B, class C>
+            static void wrapLocalOnOrderFacility(
+                infra::MonadRunner<M> &runner
+                , std::shared_ptr<typename M::template LocalOnOrderFacility<A,B,C>> const &toBeWrapped
+                , ConnectionLocator const &rpcQueueLocator
+                , std::string const &wrapperItemsNamePrefix
+                , std::optional<ByteDataHookPair> hooks = std::nullopt
+                , bool encodeFinalFlagInReply = false
+            ) {
+                auto importerExporterPair = createOnOrderFacilityRPCConnectorIncomingAndOutgoingLegs(rpcQueueLocator, hooks, (encodeFinalFlagInReply?"with_final":""));
+                auto deserializer = simplyDeserialize<A>();
+                auto serializer = basic::SerializationActions<M>::template serializeWithKey<A,B>();
 
-            runner.registerImporter(std::get<0>(importerExporterPair), wrapperItemsNamePrefix+"_incomingLeg");
-            runner.registerExporter(std::get<1>(importerExporterPair), wrapperItemsNamePrefix+"_outgoingLeg");
-            runner.registerAction(deserializer, wrapperItemsNamePrefix+"_deserializer");
-            runner.registerAction(serializer, wrapperItemsNamePrefix+"_serializer");
-            runner.execute(deserializer, runner.importItem(std::get<0>(importerExporterPair)));
-            runner.placeOrderWithLocalFacility(runner.actionAsSource(deserializer), toBeWrapped, runner.actionAsSink(serializer));
-            runner.connect(runner.actionAsSource(serializer), runner.exporterAsSink(std::get<1>(importerExporterPair)));
-        }
-        template <class A, class B, class C>
-        static void wrapLocalOnOrderFacilityWithoutReply(
-            infra::MonadRunner<M> &runner
-            , std::shared_ptr<typename M::template LocalOnOrderFacility<std::tuple<Identity,A>,B,C>> const &toBeWrapped
-            , ConnectionLocator const &rpcQueueLocator
-            , std::string const &wrapperItemsNamePrefix
-            , std::optional<ByteDataHookPair> hooks = std::nullopt
-        ) {
-            auto importer = createOnOrderFacilityRPCConnectorIncomingLegOnly(rpcQueueLocator, hooks);
-            auto deserializer = checkIdentityAndDeserialize<A>();
+                runner.registerImporter(std::get<0>(importerExporterPair), wrapperItemsNamePrefix+"_incomingLeg");
+                runner.registerExporter(std::get<1>(importerExporterPair), wrapperItemsNamePrefix+"_outgoingLeg");
+                runner.registerAction(deserializer, wrapperItemsNamePrefix+"_deserializer");
+                runner.registerAction(serializer, wrapperItemsNamePrefix+"_serializer");
+                runner.execute(deserializer, runner.importItem(std::get<0>(importerExporterPair)));
+                runner.placeOrderWithLocalFacility(runner.actionAsSource(deserializer), toBeWrapped, runner.actionAsSink(serializer));
+                runner.connect(runner.actionAsSource(serializer), runner.exporterAsSink(std::get<1>(importerExporterPair)));
+            }
+            template <class A, class B, class C>
+            static void wrapLocalOnOrderFacilityWithoutReply(
+                infra::MonadRunner<M> &runner
+                , std::shared_ptr<typename M::template LocalOnOrderFacility<A,B,C>> const &toBeWrapped
+                , ConnectionLocator const &rpcQueueLocator
+                , std::string const &wrapperItemsNamePrefix
+                , std::optional<ByteDataHookPair> hooks = std::nullopt
+            ) {
+                auto importer = createOnOrderFacilityRPCConnectorIncomingLegOnly(rpcQueueLocator, hooks);
+                auto deserializer = simplyDeserialize<A>();
 
-            runner.registerImporter(importer, wrapperItemsNamePrefix+"_incomingLeg");
-            runner.registerAction(deserializer, wrapperItemsNamePrefix+"_deserializer");
-            runner.execute(deserializer, runner.importItem(importer));
-            runner.placeOrderWithLocalFacilityAndForget(runner.actionAsSource(deserializer), toBeWrapped);
-        }
+                runner.registerImporter(importer, wrapperItemsNamePrefix+"_incomingLeg");
+                runner.registerAction(deserializer, wrapperItemsNamePrefix+"_deserializer");
+                runner.execute(deserializer, runner.importItem(importer));
+                runner.placeOrderWithLocalFacilityAndForget(runner.actionAsSource(deserializer), toBeWrapped);
+            }
+            
+            template <class A, class B>
+            static auto facilityWrapper(
+                ConnectionLocator const &rpcQueueLocator
+                , std::string const &wrapperItemsNamePrefix
+                , std::optional<ByteDataHookPair> hooks = std::nullopt
+                , bool encodeFinalFlagInReply = false
+            ) -> typename infra::MonadRunner<M>::template FacilityWrapper<A,B> {
+                return { std::bind(wrapOnOrderFacility<A,B>, std::placeholders::_1, std::placeholders::_2, rpcQueueLocator, wrapperItemsNamePrefix, hooks, encodeFinalFlagInReply) };
+            }
+            template <class A, class B>
+            static auto facilityWrapperWithoutReply(
+                ConnectionLocator const &rpcQueueLocator
+                , std::string const &wrapperItemsNamePrefix
+                , std::optional<ByteDataHookPair> hooks = std::nullopt
+                , bool encodeFinalFlagInReply = false
+            ) -> typename infra::MonadRunner<M>::template FacilityWrapper<A,B> {
+                return { std::bind(wrapOnOrderFacilityWithoutReply<A,B>, std::placeholders::_1, std::placeholders::_2, rpcQueueLocator, wrapperItemsNamePrefix, hooks, encodeFinalFlagInReply) };
+            }
+            template <class A, class B, class C>
+            static auto localFacilityWrapper(
+                ConnectionLocator const &rpcQueueLocator
+                , std::string const &wrapperItemsNamePrefix
+                , std::optional<ByteDataHookPair> hooks = std::nullopt
+                , bool encodeFinalFlagInReply = false
+            ) -> typename infra::MonadRunner<M>::template LocalFacilityWrapper<A,B,C> {
+                return { std::bind(wrapLocalOnOrderFacility<A,B,C>, std::placeholders::_1, std::placeholders::_2, rpcQueueLocator, wrapperItemsNamePrefix, hooks, encodeFinalFlagInReply) };
+            }
+            template <class A, class B, class C>
+            static auto localFacilityWrapperWithoutReply(
+                ConnectionLocator const &rpcQueueLocator
+                , std::string const &wrapperItemsNamePrefix
+                , std::optional<ByteDataHookPair> hooks = std::nullopt
+                , bool encodeFinalFlagInReply = false
+            ) -> typename infra::MonadRunner<M>::template LocalFacilityWrapper<A,B,C> {
+                return { std::bind(wrapLocalOnOrderFacilityWithoutReply<A,B,C>, std::placeholders::_1, std::placeholders::_2, rpcQueueLocator, wrapperItemsNamePrefix, hooks, encodeFinalFlagInReply) };
+            }
+        };
+        
+        template <class Identity>
+        class WithIdentity {
+        public:
+            template <class A, class B>
+            static void wrapOnOrderFacility(
+                infra::MonadRunner<M> &runner
+                , std::shared_ptr<typename M::template OnOrderFacility<std::tuple<Identity,A>,B>> const &toBeWrapped
+                , ConnectionLocator const &rpcQueueLocator
+                , std::string const &wrapperItemsNamePrefix
+                , std::optional<ByteDataHookPair> hooks = std::nullopt
+                , bool encodeFinalFlagInReply = false
+            ) {
+                auto importerExporterPair = createOnOrderFacilityRPCConnectorIncomingAndOutgoingLegs(rpcQueueLocator, hooks, (encodeFinalFlagInReply?"with_final":""));
+                auto deserializer = checkIdentityAndDeserialize<A, Identity>();
+                auto serializer = basic::SerializationActions<M>::template serializeWithKey<std::tuple<Identity,A>,B>();
 
-        template <class A, class B>
-        static auto facilityWrapper(
-            ConnectionLocator const &rpcQueueLocator
-            , std::string const &wrapperItemsNamePrefix
-            , std::optional<ByteDataHookPair> hooks = std::nullopt
-            , bool encodeFinalFlagInReply = false
-        ) -> typename infra::MonadRunner<M>::template FacilityWrapper<std::tuple<Identity,A>,B> {
-            return { std::bind(wrapOnOrderFacility<A,B>, std::placeholders::_1, std::placeholders::_2, rpcQueueLocator, wrapperItemsNamePrefix, hooks, encodeFinalFlagInReply) };
-        }
-        template <class A, class B>
-        static auto facilityWrapperWithoutReply(
-            ConnectionLocator const &rpcQueueLocator
-            , std::string const &wrapperItemsNamePrefix
-            , std::optional<ByteDataHookPair> hooks = std::nullopt
-            , bool encodeFinalFlagInReply = false
-        ) -> typename infra::MonadRunner<M>::template FacilityWrapper<std::tuple<Identity,A>,B> {
-            return { std::bind(wrapOnOrderFacilityWithoutReply<A,B>, std::placeholders::_1, std::placeholders::_2, rpcQueueLocator, wrapperItemsNamePrefix, hooks, encodeFinalFlagInReply) };
-        }
-        template <class A, class B, class C>
-        static auto localFacilityWrapper(
-            ConnectionLocator const &rpcQueueLocator
-            , std::string const &wrapperItemsNamePrefix
-            , std::optional<ByteDataHookPair> hooks = std::nullopt
-            , bool encodeFinalFlagInReply = false
-        ) -> typename infra::MonadRunner<M>::template LocalFacilityWrapper<std::tuple<Identity,A>,B,C> {
-            return { std::bind(wrapLocalOnOrderFacility<A,B,C>, std::placeholders::_1, std::placeholders::_2, rpcQueueLocator, wrapperItemsNamePrefix, hooks, encodeFinalFlagInReply) };
-        }
-        template <class A, class B, class C>
-        static auto localFacilityWrapperWithoutReply(
-            ConnectionLocator const &rpcQueueLocator
-            , std::string const &wrapperItemsNamePrefix
-            , std::optional<ByteDataHookPair> hooks = std::nullopt
-            , bool encodeFinalFlagInReply = false
-        ) -> typename infra::MonadRunner<M>::template LocalFacilityWrapper<std::tuple<Identity,A>,B,C> {
-            return { std::bind(wrapLocalOnOrderFacilityWithoutReply<A,B,C>, std::placeholders::_1, std::placeholders::_2, rpcQueueLocator, wrapperItemsNamePrefix, hooks, encodeFinalFlagInReply) };
-        }
+                runner.registerImporter(std::get<0>(importerExporterPair), wrapperItemsNamePrefix+"_incomingLeg");
+                runner.registerExporter(std::get<1>(importerExporterPair), wrapperItemsNamePrefix+"_outgoingLeg");
+                runner.registerAction(deserializer, wrapperItemsNamePrefix+"_deserializer");
+                runner.registerAction(serializer, wrapperItemsNamePrefix+"_serializer");
+                runner.execute(deserializer, runner.importItem(std::get<0>(importerExporterPair)));
+                runner.placeOrderWithFacility(runner.actionAsSource(deserializer), toBeWrapped, runner.actionAsSink(serializer));
+                runner.connect(runner.actionAsSource(serializer), runner.exporterAsSink(std::get<1>(importerExporterPair)));
+            }
+            template <class A, class B>
+            static void wrapOnOrderFacilityWithoutReply(
+                infra::MonadRunner<M> &runner
+                , std::shared_ptr<typename M::template OnOrderFacility<std::tuple<Identity,A>,B>> const &toBeWrapped
+                , ConnectionLocator const &rpcQueueLocator
+                , std::string const &wrapperItemsNamePrefix
+                , std::optional<ByteDataHookPair> hooks = std::nullopt
+            ) {
+                auto importer = createOnOrderFacilityRPCConnectorIncomingLegOnly(rpcQueueLocator, hooks);
+                auto deserializer = checkIdentityAndDeserialize<A, Identity>();
+
+                runner.registerImporter(importer, wrapperItemsNamePrefix+"_incomingLeg");
+                runner.registerAction(deserializer, wrapperItemsNamePrefix+"_deserializer");
+                runner.execute(deserializer, runner.importItem(importer));
+                runner.placeOrderWithFacilityAndForget(runner.actionAsSource(deserializer), toBeWrapped);
+            }
+            template <class A, class B, class C>
+            static void wrapLocalOnOrderFacility(
+                infra::MonadRunner<M> &runner
+                , std::shared_ptr<typename M::template LocalOnOrderFacility<std::tuple<Identity,A>,B,C>> const &toBeWrapped
+                , ConnectionLocator const &rpcQueueLocator
+                , std::string const &wrapperItemsNamePrefix
+                , std::optional<ByteDataHookPair> hooks = std::nullopt
+                , bool encodeFinalFlagInReply = false
+            ) {
+                auto importerExporterPair = createOnOrderFacilityRPCConnectorIncomingAndOutgoingLegs(rpcQueueLocator, hooks, (encodeFinalFlagInReply?"with_final":""));
+                auto deserializer = checkIdentityAndDeserialize<A,Identity>();
+                auto serializer = basic::SerializationActions<M>::template serializeWithKey<std::tuple<Identity,A>,B>();
+
+                runner.registerImporter(std::get<0>(importerExporterPair), wrapperItemsNamePrefix+"_incomingLeg");
+                runner.registerExporter(std::get<1>(importerExporterPair), wrapperItemsNamePrefix+"_outgoingLeg");
+                runner.registerAction(deserializer, wrapperItemsNamePrefix+"_deserializer");
+                runner.registerAction(serializer, wrapperItemsNamePrefix+"_serializer");
+                runner.execute(deserializer, runner.importItem(std::get<0>(importerExporterPair)));
+                runner.placeOrderWithLocalFacility(runner.actionAsSource(deserializer), toBeWrapped, runner.actionAsSink(serializer));
+                runner.connect(runner.actionAsSource(serializer), runner.exporterAsSink(std::get<1>(importerExporterPair)));
+            }
+            template <class A, class B, class C>
+            static void wrapLocalOnOrderFacilityWithoutReply(
+                infra::MonadRunner<M> &runner
+                , std::shared_ptr<typename M::template LocalOnOrderFacility<std::tuple<Identity,A>,B,C>> const &toBeWrapped
+                , ConnectionLocator const &rpcQueueLocator
+                , std::string const &wrapperItemsNamePrefix
+                , std::optional<ByteDataHookPair> hooks = std::nullopt
+            ) {
+                auto importer = createOnOrderFacilityRPCConnectorIncomingLegOnly(rpcQueueLocator, hooks);
+                auto deserializer = checkIdentityAndDeserialize<A,Identity>();
+
+                runner.registerImporter(importer, wrapperItemsNamePrefix+"_incomingLeg");
+                runner.registerAction(deserializer, wrapperItemsNamePrefix+"_deserializer");
+                runner.execute(deserializer, runner.importItem(importer));
+                runner.placeOrderWithLocalFacilityAndForget(runner.actionAsSource(deserializer), toBeWrapped);
+            }
+
+            template <class A, class B>
+            static auto facilityWrapper(
+                ConnectionLocator const &rpcQueueLocator
+                , std::string const &wrapperItemsNamePrefix
+                , std::optional<ByteDataHookPair> hooks = std::nullopt
+                , bool encodeFinalFlagInReply = false
+            ) -> typename infra::MonadRunner<M>::template FacilityWrapper<std::tuple<Identity,A>,B> {
+                return { std::bind(wrapOnOrderFacility<Identity,A,B>, std::placeholders::_1, std::placeholders::_2, rpcQueueLocator, wrapperItemsNamePrefix, hooks, encodeFinalFlagInReply) };
+            }
+            template <class A, class B>
+            static auto facilityWrapperWithoutReply(
+                ConnectionLocator const &rpcQueueLocator
+                , std::string const &wrapperItemsNamePrefix
+                , std::optional<ByteDataHookPair> hooks = std::nullopt
+                , bool encodeFinalFlagInReply = false
+            ) -> typename infra::MonadRunner<M>::template FacilityWrapper<std::tuple<Identity,A>,B> {
+                return { std::bind(wrapOnOrderFacilityWithoutReply<Identity,A,B>, std::placeholders::_1, std::placeholders::_2, rpcQueueLocator, wrapperItemsNamePrefix, hooks, encodeFinalFlagInReply) };
+            }
+            template <class A, class B, class C>
+            static auto localFacilityWrapperWithIdentity(
+                ConnectionLocator const &rpcQueueLocator
+                , std::string const &wrapperItemsNamePrefix
+                , std::optional<ByteDataHookPair> hooks = std::nullopt
+                , bool encodeFinalFlagInReply = false
+            ) -> typename infra::MonadRunner<M>::template LocalFacilityWrapper<std::tuple<Identity,A>,B,C> {
+                return { std::bind(wrapLocalOnOrderFacility<Identity,A,B,C>, std::placeholders::_1, std::placeholders::_2, rpcQueueLocator, wrapperItemsNamePrefix, hooks, encodeFinalFlagInReply) };
+            }
+            template <class A, class B, class C>
+            static auto localFacilityWrapperWithoutReply(
+                ConnectionLocator const &rpcQueueLocator
+                , std::string const &wrapperItemsNamePrefix
+                , std::optional<ByteDataHookPair> hooks = std::nullopt
+                , bool encodeFinalFlagInReply = false
+            ) -> typename infra::MonadRunner<M>::template LocalFacilityWrapper<std::tuple<Identity,A>,B,C> {
+                return { std::bind(wrapLocalOnOrderFacilityWithoutReply<Identity,A,B,C>, std::placeholders::_1, std::placeholders::_2, rpcQueueLocator, wrapperItemsNamePrefix, hooks, encodeFinalFlagInReply) };
+            }
+        };
 
         //The following "oneShot" functions are helper functions that are not intended to go into runner logic
         static std::future<basic::ByteData> oneShotRemoteCall(Env *env, ConnectionLocator const &rpcQueueLocator, basic::ByteData &&request, std::optional<ByteDataHookPair> hooks = std::nullopt) {
             std::shared_ptr<std::promise<basic::ByteData>> ret = std::make_shared<std::promise<basic::ByteData>>();
-            typename M::template Key<std::tuple<Identity, basic::ByteData>> keyInput = infra::withtime_utils::keyify<basic::ByteData,typename M::EnvironmentType>(std::move(request));
+            typename M::template Key<basic::ByteData> keyInput = infra::withtime_utils::keyify<basic::ByteData,typename M::EnvironmentType>(std::move(request));
             auto requester = env->rabbitmq_setRPCQueueClient(rpcQueueLocator, [ret](std::string const &contentEncoding, basic::ByteDataWithID &&data) {
                 auto parseRes = parseReplyData(contentEncoding, std::move(data));
                 ret->set_value(std::move(std::get<0>(parseRes).content));
@@ -376,7 +500,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         }
 
         static void oneShotRemoteCallNoReply(Env *env, ConnectionLocator const &rpcQueueLocator, basic::ByteData &&request, std::optional<ByteDataHookPair> hooks = std::nullopt) {
-            typename M::template Key<std::tuple<Identity, basic::ByteData>> keyInput = infra::withtime_utils::keyify<basic::ByteData,typename M::EnvironmentType>(std::move(request));
+            typename M::template Key<basic::ByteData> keyInput = infra::withtime_utils::keyify<basic::ByteData,typename M::EnvironmentType>(std::move(request));
             auto requester = env->rabbitmq_setRPCQueueClient(rpcQueueLocator, [](std::string const &contentEncoding, basic::ByteDataWithID &&data) {
             }, hooks);
             requester("", {

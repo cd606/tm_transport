@@ -7,43 +7,39 @@
 
 namespace dev { namespace cd606 { namespace tm { namespace transport {
 
-    template <typename Identity>
-    class SimpleIdentityCheckerComponent {
+    template <class Identity, class Request>
+    class ClientSideSimpleIdentityAttacherComponent {
     private:
         std::string serializedIdentity_;
         uint64_t serializedIdentityLength_;
     public:
-        using IdentityType = Identity;
-        template <class T>
-        using WithIdentityAttached = std::tuple<Identity, T>;
-
-        SimpleIdentityCheckerComponent() : serializedIdentity_(), serializedIdentityLength_(0) {}
-        SimpleIdentityCheckerComponent(Identity const &identity) 
+        ClientSideSimpleIdentityAttacherComponent() : serializedIdentity_(), serializedIdentityLength_(0) {}
+        ClientSideSimpleIdentityAttacherComponent(Identity const &identity) 
             : serializedIdentity_(
                 basic::SerializationFunctions::serializeFunc<Identity>(identity)
             )
             , serializedIdentityLength_(serializedIdentity_.length())
         {  
         }
-        SimpleIdentityCheckerComponent(SimpleIdentityCheckerComponent const &) = default;
-        SimpleIdentityCheckerComponent &operator=(SimpleIdentityCheckerComponent const &) = default;
-        SimpleIdentityCheckerComponent(SimpleIdentityCheckerComponent &&) = default;
-        SimpleIdentityCheckerComponent &operator=(SimpleIdentityCheckerComponent &&) = default;
-        ~SimpleIdentityCheckerComponent() {}
+        ClientSideSimpleIdentityAttacherComponent(ClientSideSimpleIdentityAttacherComponent const &) = default;
+        ClientSideSimpleIdentityAttacherComponent &operator=(ClientSideSimpleIdentityAttacherComponent const &) = default;
+        ClientSideSimpleIdentityAttacherComponent(ClientSideSimpleIdentityAttacherComponent &&) = default;
+        ClientSideSimpleIdentityAttacherComponent &operator=(ClientSideSimpleIdentityAttacherComponent &&) = default;
+        ~ClientSideSimpleIdentityAttacherComponent() {}
 
-        //The reason we put in a "notUsed" parameter is to allow some
-        //identity checker components to overload against different types.
-        //This parameter will always be nullptr when called, only its type
-        //is used.
-        template <class T>
-        basic::ByteData attach_identity(basic::ByteData &&d, T *notUsed) {
+        basic::ByteData attach_identity(basic::ByteData &&d, Request *notUsed) {
             std::ostringstream oss;
             oss.write(reinterpret_cast<char const *>(&serializedIdentityLength_), sizeof(uint64_t));
             oss.write(serializedIdentity_.c_str(), serializedIdentityLength_);
             oss.write(d.content.c_str(), d.content.length());
             return {oss.str()};
         }
-        static std::optional<WithIdentityAttached<basic::ByteData>> check_identity(basic::ByteData &&d) {
+    };
+
+    template <class Identity, class Request>
+    class ServerSideSimpleIdentityCheckerComponent {
+    public:
+        static std::optional<std::tuple<Identity, basic::ByteData>> check_identity(basic::ByteData &&d, Request *notUsed) {
             std::size_t sizeLeft = d.content.length();
             const char *p = d.content.c_str();
             if (sizeLeft < sizeof(uint64_t)) {
@@ -65,7 +61,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
             sizeLeft -= prefixLen;
             p += prefixLen;
             basic::ByteData content { std::string(p, p+sizeLeft) };
-            return WithIdentityAttached<basic::ByteData> {std::move(*identity), std::move(content)};
+            return std::tuple<Identity, basic::ByteData> {std::move(*identity), std::move(content)};
         }
     };
 
