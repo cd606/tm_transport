@@ -2,13 +2,14 @@
 #define TM_KIT_TRANSPORT_SIMPLE_IDENTITY_CHECKER_COMPONENT_HPP_
 
 #include <tm_kit/basic/ByteData.hpp>
+#include <tm_kit/transport/AbstractIdentityCheckerComponent.hpp>
 #include <sstream>
 #include <cstring>
 
 namespace dev { namespace cd606 { namespace tm { namespace transport {
 
     template <class Identity, class Request>
-    class ClientSideSimpleIdentityAttacherComponent {
+    class ClientSideSimpleIdentityAttacherComponent : public ClientSideAbstractIdentityAttacherComponent<Identity,Request> {
     private:
         std::string serializedIdentity_;
         uint64_t serializedIdentityLength_;
@@ -27,7 +28,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
         ClientSideSimpleIdentityAttacherComponent &operator=(ClientSideSimpleIdentityAttacherComponent &&) = default;
         ~ClientSideSimpleIdentityAttacherComponent() {}
 
-        basic::ByteData attach_identity(basic::ByteData &&d, Request *notUsed) {
+        virtual basic::ByteData attach_identity(basic::ByteData &&d) override final {
             std::ostringstream oss;
             oss.write(reinterpret_cast<char const *>(&serializedIdentityLength_), sizeof(uint64_t));
             oss.write(serializedIdentity_.c_str(), serializedIdentityLength_);
@@ -37,9 +38,9 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
     };
 
     template <class Identity, class Request>
-    class ServerSideSimpleIdentityCheckerComponent {
+    class ServerSideSimpleIdentityCheckerComponent : public ServerSideAbstractIdentityCheckerComponent<Identity,Request> {
     public:
-        static std::optional<std::tuple<Identity, basic::ByteData>> check_identity(basic::ByteData &&d, Request *notUsed) {
+        virtual std::optional<std::tuple<Identity, basic::ByteData>> check_identity(basic::ByteData &&d) override final {
             std::size_t sizeLeft = d.content.length();
             const char *p = d.content.c_str();
             if (sizeLeft < sizeof(uint64_t)) {

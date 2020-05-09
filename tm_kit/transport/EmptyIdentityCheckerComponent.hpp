@@ -2,28 +2,21 @@
 #define TM_KIT_TRANSPORT_EMPTY_IDENTITY_CHECKER_COMPONENT_HPP_
 
 #include <tm_kit/basic/ByteData.hpp>
+#include <tm_kit/transport/AbstractIdentityCheckerComponent.hpp>
 
 namespace dev { namespace cd606 { namespace tm { namespace transport {
-
-    //In both components, the Request * parameter is never used and only
-    //there for type differentiation. This is the norm for all identity
-    //checker components. 
-
     template <class Identity, class Request>
-    class ClientSideEmptyIdentityAttacherComponent {
+    class ClientSideEmptyIdentityAttacherComponent : public ClientSideAbstractIdentityAttacherComponent<Identity,Request> {
     public:
-        static basic::ByteData attach_identity(basic::ByteData &&d, Request *notUsed) {
+        virtual basic::ByteData attach_identity(basic::ByteData &&d) override final {
             return std::move(d);
         }
     };
 
-    //The server-side component is indexed by request type AND 
-    //identity type.
-
     template <class Identity, class Request>
-    class ServerSideEmptyIdentityCheckerComponent {
+    class ServerSideEmptyIdentityCheckerComponent : public ServerSideAbstractIdentityCheckerComponent<Identity,Request> {
     public:
-        static std::optional<std::tuple<Identity, basic::ByteData>> check_identity(basic::ByteData &&d, Request *notUsed) {
+        virtual std::optional<std::tuple<Identity, basic::ByteData>> check_identity(basic::ByteData &&d) override final {
             return std::tuple<Identity, basic::ByteData> {Identity {}, std::move(d)};
         }
     };

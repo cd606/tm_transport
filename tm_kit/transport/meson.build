@@ -2,6 +2,7 @@ tm_transport_headers = [
       'ConnectionLocator.hpp'
       , 'ByteDataHook.hpp'
       , 'BoostUUIDComponent.hpp'
+      , 'AbstractIdentityCheckerComponent.hpp'
       , 'EmptyIdentityCheckerComponent.hpp'
       , 'SimpleIdentityCheckerComponent.hpp'
     ]
