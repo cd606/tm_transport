@@ -9,19 +9,33 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
 
     template <typename Identity>
     class SimpleIdentityCheckerComponent {
+    private:
+        std::string serializedIdentity_;
+        uint64_t serializedIdentityLength_;
     public:
         using IdentityType = Identity;
         template <class T>
         using WithIdentityAttached = std::tuple<Identity, T>;
-        static basic::ByteData attach_identity(WithIdentityAttached<basic::ByteData> &&d) {
+
+        SimpleIdentityCheckerComponent() : serializedIdentity_(), serializedIdentityLength_(0) {}
+        SimpleIdentityCheckerComponent(Identity const &identity) 
+            : serializedIdentity_(
+                basic::SerializationFunctions::serializeFunc<Identity>(identity)
+            )
+            , serializedIdentityLength_(serializedIdentity_.length())
+        {  
+        }
+        SimpleIdentityCheckerComponent(SimpleIdentityCheckerComponent const &) = default;
+        SimpleIdentityCheckerComponent &operator=(SimpleIdentityCheckerComponent const &) = default;
+        SimpleIdentityCheckerComponent(SimpleIdentityCheckerComponent &&) = default;
+        SimpleIdentityCheckerComponent &operator=(SimpleIdentityCheckerComponent &&) = default;
+        ~SimpleIdentityCheckerComponent() {}
+
+        basic::ByteData attach_identity(basic::ByteData &&d) {
             std::ostringstream oss;
-            std::string prefix = basic::SerializationFunctions::serializeFunc<Identity>(
-                std::get<0>(d)
-            );
-            uint64_t prefixLen = prefix.length();
-            oss.write(reinterpret_cast<char const *>(&prefixLen), sizeof(uint64_t));
-            oss.write(prefix.c_str(), prefixLen);
-            oss.write(std::get<1>(d).content.c_str(), std::get<1>(d).content.length());
+            oss.write(reinterpret_cast<char const *>(&serializedIdentityLength_), sizeof(uint64_t));
+            oss.write(serializedIdentity_.c_str(), serializedIdentityLength_);
+            oss.write(d.content.c_str(), d.content.length());
             return {oss.str()};
         }
         static std::optional<WithIdentityAttached<basic::ByteData>> check_identity(basic::ByteData &&d) {
