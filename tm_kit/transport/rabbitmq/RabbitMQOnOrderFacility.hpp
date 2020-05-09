@@ -309,7 +309,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             , std::string const &wrapperItemsNamePrefix
             , std::optional<ByteDataHookPair> hooks = std::nullopt
             , bool encodeFinalFlagInReply = false
-        ) -> typename infra::MonadRunner<M>::template FacilityWrapper<A,B> {
+        ) -> typename infra::MonadRunner<M>::template FacilityWrapper<std::tuple<Identity,A>,B> {
             return { std::bind(wrapOnOrderFacility<A,B>, std::placeholders::_1, std::placeholders::_2, rpcQueueLocator, wrapperItemsNamePrefix, hooks, encodeFinalFlagInReply) };
         }
         template <class A, class B>
@@ -318,7 +318,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             , std::string const &wrapperItemsNamePrefix
             , std::optional<ByteDataHookPair> hooks = std::nullopt
             , bool encodeFinalFlagInReply = false
-        ) -> typename infra::MonadRunner<M>::template FacilityWrapper<A,B> {
+        ) -> typename infra::MonadRunner<M>::template FacilityWrapper<std::tuple<Identity,A>,B> {
             return { std::bind(wrapOnOrderFacilityWithoutReply<A,B>, std::placeholders::_1, std::placeholders::_2, rpcQueueLocator, wrapperItemsNamePrefix, hooks, encodeFinalFlagInReply) };
         }
         template <class A, class B, class C>
@@ -327,7 +327,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             , std::string const &wrapperItemsNamePrefix
             , std::optional<ByteDataHookPair> hooks = std::nullopt
             , bool encodeFinalFlagInReply = false
-        ) -> typename infra::MonadRunner<M>::template LocalFacilityWrapper<A,B,C> {
+        ) -> typename infra::MonadRunner<M>::template LocalFacilityWrapper<std::tuple<Identity,A>,B,C> {
             return { std::bind(wrapLocalOnOrderFacility<A,B,C>, std::placeholders::_1, std::placeholders::_2, rpcQueueLocator, wrapperItemsNamePrefix, hooks, encodeFinalFlagInReply) };
         }
         template <class A, class B, class C>
@@ -336,7 +336,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             , std::string const &wrapperItemsNamePrefix
             , std::optional<ByteDataHookPair> hooks = std::nullopt
             , bool encodeFinalFlagInReply = false
-        ) -> typename infra::MonadRunner<M>::template LocalFacilityWrapper<A,B,C> {
+        ) -> typename infra::MonadRunner<M>::template LocalFacilityWrapper<std::tuple<Identity,A>,B,C> {
             return { std::bind(wrapLocalOnOrderFacilityWithoutReply<A,B,C>, std::placeholders::_1, std::placeholders::_2, rpcQueueLocator, wrapperItemsNamePrefix, hooks, encodeFinalFlagInReply) };
         }
 
