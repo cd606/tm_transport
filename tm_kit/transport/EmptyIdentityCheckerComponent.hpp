@@ -11,7 +11,12 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
         using IdentityType = Identity;
         template <class T>
         using WithIdentityAttached = std::tuple<Identity, T>;
-        static basic::ByteData attach_identity(basic::ByteData &&d) {
+        //The reason we put in a "notUsed" parameter is to allow some
+        //identity checker components to overload against different types.
+        //This parameter will always be nullptr when called, only its type
+        //is used.
+        template <class T>
+        static basic::ByteData attach_identity(basic::ByteData &&d, T *notUsed) {
             return std::move(d);
         }
         static std::optional<WithIdentityAttached<basic::ByteData>> check_identity(basic::ByteData &&d) {

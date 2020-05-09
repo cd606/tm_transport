@@ -77,7 +77,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                     if (env_) {
                         requester_("", {
                             Env::id_to_string(data.timedData.value.id())
-                            , env_->attach_identity(std::move(data.timedData.value.key())).content
+                            , env_->attach_identity(std::move(data.timedData.value.key()), (basic::ByteData *) nullptr).content
                         });
                     }     
                 }
@@ -115,7 +115,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                         requester_(""
                             , basic::ByteDataWithID {
                                 Env::id_to_string(data.timedData.value.id())
-                                , env_->attach_identity(std::move(s)).content
+                                , env_->attach_identity(std::move(s), (A *) nullptr).content
                             }
                         );
                     }     
@@ -350,7 +350,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             }, hooks);
             requester("", {
                 Env::id_to_string(keyInput.id())
-                , env->attach_identity(std::move(keyInput.key())).content
+                , env->attach_identity(std::move(keyInput.key()), (basic::ByteData *) nullptr).content
             });
             return ret->get_future();
         }
@@ -370,7 +370,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             }, hooks);
             requester("", {
                 Env::id_to_string(keyInput.id())
-                , env->attach_identity(std::move(keyInput.key())).content
+                , env->attach_identity(std::move(keyInput.key()), (A *) nullptr).content
             });
             return ret->get_future();
         }
@@ -381,7 +381,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             }, hooks);
             requester("", {
                 Env::id_to_string(keyInput.id())
-                , env->attach_identity(std::move(keyInput.key())).content
+                , env->attach_identity(std::move(keyInput.key()), (basic::ByteData *) nullptr).content
             });
         }
 
@@ -394,7 +394,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             }, hooks);
             requester("", {
                 Env::id_to_string(keyInput.id())
-                , env->attach_identity(std::move(keyInput.key())).content
+                , env->attach_identity(std::move(keyInput.key()), (A *) nullptr).content
             });
         }
     };

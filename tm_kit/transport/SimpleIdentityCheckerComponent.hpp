@@ -31,7 +31,12 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
         SimpleIdentityCheckerComponent &operator=(SimpleIdentityCheckerComponent &&) = default;
         ~SimpleIdentityCheckerComponent() {}
 
-        basic::ByteData attach_identity(basic::ByteData &&d) {
+        //The reason we put in a "notUsed" parameter is to allow some
+        //identity checker components to overload against different types.
+        //This parameter will always be nullptr when called, only its type
+        //is used.
+        template <class T>
+        basic::ByteData attach_identity(basic::ByteData &&d, T *notUsed) {
             std::ostringstream oss;
             oss.write(reinterpret_cast<char const *>(&serializedIdentityLength_), sizeof(uint64_t));
             oss.write(serializedIdentity_.c_str(), serializedIdentityLength_);
