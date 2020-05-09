@@ -8,12 +8,14 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
     class ClientSideAbstractIdentityAttacherComponent {
     public:
         virtual basic::ByteData attach_identity(basic::ByteData &&d) = 0;
+        virtual ~ClientSideAbstractIdentityAttacherComponent() {}
     };
 
     template <class Identity, class Request>
     class ServerSideAbstractIdentityCheckerComponent {
     public:
         virtual std::optional<std::tuple<Identity, basic::ByteData>> check_identity(basic::ByteData &&d) = 0;
+        virtual ~ServerSideAbstractIdentityCheckerComponent() {}
     };
 
 } } } }
