@@ -357,9 +357,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 auto hook = userToWireHook->hook;
                 return [id,conn,hook](std::string const &contentEncoding, basic::ByteDataWithTopic &&data) {
                     auto x = hook(basic::ByteData {std::move(data.content)});
-                    if (x) {
-                        conn->publishOnExchange(id, contentEncoding, {std::move(data.topic), std::move(x->content)});
-                    } 
+                    conn->publishOnExchange(id, contentEncoding, {std::move(data.topic), std::move(x.content)});
                 };
             } else {
                 return [id,conn](std::string const &contentEncoding, basic::ByteDataWithTopic &&data) {
@@ -382,9 +380,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 auto hook = hookPair->userToWire.hook;
                 return [conn,hook](std::string const &contentEncoding, basic::ByteDataWithID &&data) {
                     auto x = hook(basic::ByteData {std::move(data.content)});
-                    if (x) {
-                        conn->sendRequest(contentEncoding, {data.id, std::move(x->content)});
-                    }
+                    conn->sendRequest(contentEncoding, {data.id, std::move(x.content)});
                 };
             } else {
                 return [conn](std::string const &contentEncoding, basic::ByteDataWithID &&data) {
@@ -406,9 +402,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 auto hook = hookPair->userToWire.hook;
                 return [conn,hook](std::string const &contentEncoding, basic::ByteDataWithID &&data) {
                     auto x = hook(basic::ByteData {std::move(data.content)});
-                    if (x) {
-                        conn->sendReply(contentEncoding, {data.id, std::move(x->content)});
-                    }
+                    conn->sendReply(contentEncoding, {data.id, std::move(x.content)});
                 };
             } else {
                 return [conn](std::string const &contentEncoding, basic::ByteDataWithID &&data) {

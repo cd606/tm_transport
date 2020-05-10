@@ -251,9 +251,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 auto hook = userToWireHook->hook;
                 return [p,hook](basic::ByteDataWithTopic &&data, int ttl) {
                     auto w = hook(basic::ByteData {std::move(data.content)});
-                    if (w) {
-                        p->publish({std::move(data.topic), std::move(w->content)}, ttl);
-                    }
+                    p->publish({std::move(data.topic), std::move(w.content)}, ttl);
                 };
             } else {
                 return [p](basic::ByteDataWithTopic &&data, int ttl) {
