@@ -10,3 +10,4 @@ tm_transport_headers = [
 install_headers(tm_transport_headers, subdir : 'tm_kit/transport')
 subdir('multicast')
 subdir('rabbitmq')
+subdir('zeromq')
