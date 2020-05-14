@@ -1,5 +1,5 @@
-#ifndef TM_KIT_TRANSPORT_ZEROMQ_ZEROMQ_IMPORTER_EXPORTER_HPP_
-#define TM_KIT_TRANSPORT_ZEROMQ_ZEROMQ_IMPORTER_EXPORTER_HPP_
+#ifndef TM_KIT_TRANSPORT_zeroMQ_zeroMQ_IMPORTER_EXPORTER_HPP_
+#define TM_KIT_TRANSPORT_zeroMQ_zeroMQ_IMPORTER_EXPORTER_HPP_
 
 #include <type_traits>
 
@@ -26,7 +26,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 {
                 }
                 virtual void start(Env *env) override final {
-                    env->ZeroMQ_addSubscriptionClient(
+                    env->zeroMQ_addSubscriptionClient(
                         locator_
                         , topic_
                         , [this,env](basic::ByteDataWithTopic &&d) {
@@ -51,7 +51,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 {
                 }
                 virtual void start(Env *env) override final {
-                    env->ZeroMQ_addSubscriptionClient(
+                    env->zeroMQ_addSubscriptionClient(
                        locator_
                         , topic_
                         , [this,env](basic::ByteDataWithTopic &&d) {
@@ -80,7 +80,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 }
                 virtual void start(Env *env) override final {
                     env_ = env;
-                    publisher_ = env->ZeroMQ_getPublisher(locator_, userToWireHook_);
+                    publisher_ = env->zeroMQ_getPublisher(locator_, userToWireHook_);
                 }
                 virtual void handle(typename M::template InnerData<basic::ByteDataWithTopic> &&data) override final {
                     if (env_) {
@@ -105,7 +105,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 }
                 virtual void start(Env *env) override final {
                     env_ = env;
-                    publisher_ = env->ZeroMQ_getPublisher(locator_, userToWireHook_);
+                    publisher_ = env->zeroMQ_getPublisher(locator_, userToWireHook_);
                 }
                 virtual void handle(typename M::template InnerData<basic::TypedDataWithTopic<T>> &&data) override final {
                     if (env_) {

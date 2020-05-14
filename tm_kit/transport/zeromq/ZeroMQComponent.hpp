@@ -25,11 +25,11 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         ~ZeroMQComponent();
         //only host and port are needed in the locators
         struct NoTopicSelection {};
-        void ZeroMQ_addSubscriptionClient(ConnectionLocator const &locator,
+        void zeroMQ_addSubscriptionClient(ConnectionLocator const &locator,
                         std::variant<NoTopicSelection, std::string, std::regex> const &topic,
                         std::function<void(basic::ByteDataWithTopic &&)> client,
                         std::optional<WireToUserHook> wireToUserHook = std::nullopt);
-        std::function<void(basic::ByteDataWithTopic &&)> ZeroMQ_getPublisher(ConnectionLocator const &locator, std::optional<UserToWireHook> userToWireHook = std::nullopt);
+        std::function<void(basic::ByteDataWithTopic &&)> zeroMQ_getPublisher(ConnectionLocator const &locator, std::optional<UserToWireHook> userToWireHook = std::nullopt);
     };
 
 } } } } }

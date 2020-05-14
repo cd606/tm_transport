@@ -219,13 +219,13 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
 
     ZeroMQComponent::ZeroMQComponent() : impl_(std::make_unique<ZeroMQComponentImpl>()) {}
     ZeroMQComponent::~ZeroMQComponent() {}
-    void ZeroMQComponent::ZeroMQ_addSubscriptionClient(ConnectionLocator const &locator,
+    void ZeroMQComponent::zeroMQ_addSubscriptionClient(ConnectionLocator const &locator,
         std::variant<ZeroMQComponent::NoTopicSelection, std::string, std::regex> const &topic,
         std::function<void(basic::ByteDataWithTopic &&)> client,
         std::optional<WireToUserHook> wireToUserHook) {
         impl_->addSubscriptionClient(locator, topic, client, wireToUserHook);
     }
-    std::function<void(basic::ByteDataWithTopic &&)> ZeroMQComponent::ZeroMQ_getPublisher(ConnectionLocator const &locator, std::optional<UserToWireHook> userToWireHook) {
+    std::function<void(basic::ByteDataWithTopic &&)> ZeroMQComponent::zeroMQ_getPublisher(ConnectionLocator const &locator, std::optional<UserToWireHook> userToWireHook) {
         return impl_->getPublisher(locator, userToWireHook);
     }
 } } } } }
