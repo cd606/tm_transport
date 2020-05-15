@@ -141,6 +141,8 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                     std::lock_guard<std::mutex> _(mutex_);
                     auto msg = AmqpClient::BasicMessage::Create(data.content);
                     msg->ContentEncoding(contentEncoding);
+                    msg->DeliveryMode(AmqpClient::BasicMessage::dm_nonpersistent);
+                    msg->Expiration("1000");
                     incoming_.push_back(PublishingData {exchange, data.topic, msg});
                 }
                 cond_.notify_one();
@@ -208,6 +210,8 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 msg->CorrelationId(data.id);
                 msg->ReplyTo(localQueue_);
                 msg->ContentEncoding(contentEncoding);
+                msg->DeliveryMode(AmqpClient::BasicMessage::dm_nonpersistent);
+                msg->Expiration("5000");
                 publishing_->publishOnQueue(rpcQueue_, msg);           
             }
         };
