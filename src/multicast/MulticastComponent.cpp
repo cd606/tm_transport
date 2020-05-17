@@ -3,7 +3,7 @@
 #include <cstring>
 #include <unordered_map>
 #include <boost/asio.hpp>
-#include <boost/bind.hpp>
+#include <boost/bind/bind.hpp>
 
 #include <tm_kit/transport/multicast/MulticastComponent.hpp>
 

@@ -1,0 +1,1 @@
+option('redis', type : 'feature', value : 'disabled')
