@@ -5,24 +5,37 @@
 #include <sstream>
 #include <unordered_map>
 
-#include <fnmatch.h>
-
-#include <redox.hpp>
-
 #include <tm_kit/transport/redis/RedisComponent.hpp>
+
+#ifdef _MSC_VER
+#include <winsock2.h>
+#include <Shlwapi.h>
+#else
+#include <fnmatch.h> 
+#endif
+#include <hiredis/hiredis.h>
 
 namespace dev { namespace cd606 { namespace tm { namespace transport { namespace redis {
     class RedisComponentImpl {
     private:
         class OneRedisSubscription {
         private:
-            redox::Subscriber sub_;
+            static bool isMatch(std::string const &subTopic, std::string const &realTopic) {
+#ifdef _MSC_VER
+                return (PathMatchSpecExA(realTopic.c_str(), subTopic.c_str(), PMSF_NORMAL));
+#else
+                return (fnmatch(subTopic.c_str(), realTopic.c_str(), 0) == 0);
+#endif
+            }
+            redisContext *ctx_;
             struct ClientCB {
                 std::function<void(basic::ByteDataWithTopic &&)> cb;
                 std::optional<WireToUserHook> hook;
             };
             std::unordered_map<std::string, std::vector<ClientCB>> clients_;
+            std::thread th_;
             std::mutex mutex_;
+            std::atomic<bool> running_;
 
             inline void callClient(ClientCB const &c, basic::ByteDataWithTopic &&d) {
                 if (c.hook) {
@@ -35,30 +48,96 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 }
             }
 
-            inline void handleData(std::string const &topic, std::string const &content) {
+            inline void handleDataByTopic(std::string const &topic, std::string const &content) {
                 std::lock_guard<std::mutex> _(mutex_);
                 for (auto const &item : clients_) {
-                    if (fnmatch(item.first.c_str(), topic.c_str(), 0) == 0) {
+                    if (isMatch(item.first, topic)) {
                         for (auto const &cb : item.second) {
                             callClient(cb, {topic, content});
                         }
                     }
                 }
             }
-
+            inline void handleDataByPTopic(std::string const &ptopic, std::string const &topic, std::string const &content) {
+                std::lock_guard<std::mutex> _(mutex_);
+                auto iter = clients_.find(ptopic);
+                if (iter != clients_.end()) {
+                    for (auto const &cb : iter->second) {
+                        callClient(cb, {topic, content});
+                    }
+                }
+            }
+            void run() {
+                struct redisReply *reply = nullptr;
+                while (running_) {
+                    int r;
+                    {
+                        std::lock_guard<std::mutex> _(mutex_);
+                        r = redisGetReply(ctx_, (void **) &reply);
+                    }
+                    if (r != REDIS_OK) {
+                        if (reply != nullptr) {
+                            freeReplyObject((void *) &reply);
+                        }
+                        continue;
+                    }
+                    if (reply->type != REDIS_REPLY_ARRAY || (reply->elements != 4 && reply->elements != 3)) {
+                        freeReplyObject((void *) reply);
+                        continue;
+                    }
+                    if (reply->elements == 3) {
+                        if (reply->element[0]->type != REDIS_REPLY_STRING
+                            ||
+                            std::string(reply->element[0]->str, reply->element[0]->len) != "message") {
+                            freeReplyObject((void *) reply);
+                            continue;
+                        }
+                        std::string topic(reply->element[1]->str, reply->element[1]->len);
+                        std::string content(reply->element[2]->str, reply->element[2]->len);
+                        freeReplyObject((void *) reply);
+                        handleDataByTopic(topic, content);
+                    } else {
+                        if (reply->element[0]->type != REDIS_REPLY_STRING
+                            ||
+                            std::string(reply->element[0]->str, reply->element[0]->len) != "pmessage") {
+                            freeReplyObject((void *) reply);
+                            continue;
+                        }
+                        std::string ptopic(reply->element[1]->str, reply->element[1]->len);
+                        std::string topic(reply->element[2]->str, reply->element[2]->len);
+                        std::string content(reply->element[3]->str, reply->element[3]->len);
+                        freeReplyObject((void *) reply);
+                        handleDataByPTopic(ptopic, topic, content);
+                    }
+                }
+            }
         public:
             OneRedisSubscription(ConnectionLocator const &locator) 
-                : sub_()
+                : ctx_(nullptr)
                 , clients_()
+                , th_()
                 , mutex_()
+                , running_(false)
             {
-                sub_.connect(locator.host(), locator.port());
+                ctx_ = redisConnect(locator.host().c_str(), locator.port());
+                if (ctx_ != nullptr) {
+                    running_ = true;
+                    th_ = std::thread(&OneRedisSubscription::run, this);
+                }
             }
             ~OneRedisSubscription() {
-                std::lock_guard<std::mutex> _(mutex_);
-                for (auto const &item : clients_) {
-                    sub_.punsubscribe(item.first);
-                }
+                if (ctx_ != nullptr) {
+                    {
+                        std::lock_guard<std::mutex> _(mutex_);
+                        for (auto const &item : clients_) {
+                            redisReply *r = (redisReply *) redisCommand(ctx_, "PUNSUBSCRIBE %s", item.first.c_str());
+                            freeReplyObject((void *) r);
+                        }
+                    }
+                    running_ = false;
+                    th_.join();
+                    redisFree(ctx_);
+                } 
             }
             void addSubscription(
                 std::string const &topic
@@ -76,25 +155,37 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                     iter->second.push_back({handler, wireToUserHook});
                 }
                 if (needSubscribe) {
-                    sub_.psubscribe(topic, [this](std::string const &t, std::string const &c) {
-                        handleData(t, c);
-                    });
+                    std::lock_guard<std::mutex> _(mutex_);
+                    redisReply *r = (redisReply *) redisCommand(ctx_, "PSUBSCRIBE %s", topic.c_str());
+                    freeReplyObject((void *) r);
                 } 
             }  
         };
-        std::unordered_map<ConnectionLocator, std::unique_ptr<OneRedisSubscription>> subscriptions_;
         
+        std::unordered_map<ConnectionLocator, std::unique_ptr<OneRedisSubscription>> subscriptions_;
+
         class OneRedisSender {
         private:
-            redox::Redox client_;
+            redisContext *ctx_;
+            std::mutex mutex_;
         public:
             OneRedisSender(ConnectionLocator const &locator)
-                : client_()
+                : ctx_(nullptr), mutex_()
             {
-                client_.connect(locator.host(), locator.port());
+                ctx_ = redisConnect(locator.host().c_str(), locator.port());
             }
             void publish(basic::ByteDataWithTopic &&data) {
-                client_.publish(data.topic, data.content);
+                std::lock_guard<std::mutex> _(mutex_);
+                redisReply *r = (redisReply *) redisCommand(
+                    ctx_
+                    , "PUBLISH %s %b"
+                    , data.topic.c_str()
+                    , data.content.c_str()
+                    , data.content.length()
+                ); 
+                if (r != nullptr) {
+                    freeReplyObject((void *) r);
+                }
             }
         };
 

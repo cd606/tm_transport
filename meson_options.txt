@@ -1,1 +1,1 @@
-option('redis', type : 'feature', value : 'disabled')
+option('redis', type : 'feature', value : 'enabled')
