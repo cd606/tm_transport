@@ -14,6 +14,9 @@ common_deps = [thread_dep, boost_dep, rabbitmq_dep, simpleAmqpClient_dep, zmq_de
 
 if build_machine.system() == 'windows'
     common_deps += declare_dependency(link_args: 'bcrypt.lib')
+    if get_option('redis').enabled()
+        common_deps += declare_dependency(link_args: 'shlwapi.lib')
+    endif
 endif
 
 pkg = import('pkgconfig')
