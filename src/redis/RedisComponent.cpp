@@ -4,6 +4,7 @@
 #include <cstring>
 #include <sstream>
 #include <unordered_map>
+#include <boost/endian/conversion.hpp>
 
 #include <tm_kit/transport/redis/RedisComponent.hpp>
 
@@ -165,6 +166,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                     }
                     uint32_t idLen;
                     std::memcpy(&idLen, p, sizeof(uint32_t));
+                    idLen = boost::endian::little_to_native<uint32_t>(idLen);
                     l -= sizeof(uint32_t);
                     p += sizeof(uint32_t);
                     if (l < idLen) {
@@ -208,8 +210,8 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             ~OneRedisRPCClientConnection() {
             }
             void sendRequest(basic::ByteDataWithID &&data) {
-                uint32_t topicLen = myCommunicationID_.length();
-                uint32_t idLen = data.id.length();
+                uint32_t topicLen = boost::endian::native_to_little<uint32_t>(myCommunicationID_.length());
+                uint32_t idLen = boost::endian::native_to_little<uint32_t>(data.id.length());
                 std::ostringstream oss;
                 oss.write(reinterpret_cast<char const *>(&topicLen), sizeof(uint32_t));
                 oss.write(myCommunicationID_.c_str(), topicLen);
@@ -266,6 +268,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                     }
                     uint32_t replyTopicLen;
                     std::memcpy(&replyTopicLen, p, sizeof(uint32_t));
+                    replyTopicLen = boost::endian::little_to_native<uint32_t>(replyTopicLen);
                     l -= sizeof(uint32_t);
                     p += sizeof(uint32_t);
                     if (l < replyTopicLen) {
@@ -281,6 +284,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                     }
                     uint32_t idLen;
                     std::memcpy(&idLen, p, sizeof(uint32_t));
+                    idLen = boost::endian::little_to_native<uint32_t>(idLen);
                     l -= sizeof(uint32_t);
                     p += sizeof(uint32_t);
                     if (l < idLen) {
@@ -339,7 +343,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                         replyTopicMap_.erase(iter);
                     }
                 }
-                uint32_t idLen = data.id.length();
+                uint32_t idLen = boost::endian::native_to_little<uint32_t>(data.id.length());
                 std::ostringstream oss;
                 oss.write(reinterpret_cast<char const *>(&idLen), sizeof(uint32_t));
                 oss.write(data.id.c_str(), idLen);

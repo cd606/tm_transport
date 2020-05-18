@@ -5,6 +5,7 @@
 #include <tm_kit/transport/AbstractIdentityCheckerComponent.hpp>
 #include <sstream>
 #include <cstring>
+#include <boost/endian/conversion.hpp>
 
 namespace dev { namespace cd606 { namespace tm { namespace transport {
 
@@ -12,14 +13,14 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
     class ClientSideSimpleIdentityAttacherComponent : public ClientSideAbstractIdentityAttacherComponent<Identity,Request> {
     private:
         std::string serializedIdentity_;
-        uint64_t serializedIdentityLength_;
+        uint32_t serializedIdentityLength_;
     public:
         ClientSideSimpleIdentityAttacherComponent() : serializedIdentity_(), serializedIdentityLength_(0) {}
         ClientSideSimpleIdentityAttacherComponent(Identity const &identity) 
             : serializedIdentity_(
                 basic::SerializationFunctions::serializeFunc<Identity>(identity)
             )
-            , serializedIdentityLength_(serializedIdentity_.length())
+            , serializedIdentityLength_(boost::endian::native_to_little<uint32_t>(serializedIdentity_.length()))
         {  
         }
         ClientSideSimpleIdentityAttacherComponent(ClientSideSimpleIdentityAttacherComponent const &) = default;
@@ -30,7 +31,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
 
         virtual basic::ByteData attach_identity(basic::ByteData &&d) override final {
             std::ostringstream oss;
-            oss.write(reinterpret_cast<char const *>(&serializedIdentityLength_), sizeof(uint64_t));
+            oss.write(reinterpret_cast<char const *>(&serializedIdentityLength_), sizeof(uint32_t));
             oss.write(serializedIdentity_.c_str(), serializedIdentityLength_);
             oss.write(d.content.c_str(), d.content.length());
             return {oss.str()};
@@ -43,13 +44,14 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
         virtual std::optional<std::tuple<Identity, basic::ByteData>> check_identity(basic::ByteData &&d) override final {
             std::size_t sizeLeft = d.content.length();
             const char *p = d.content.c_str();
-            if (sizeLeft < sizeof(uint64_t)) {
+            if (sizeLeft < sizeof(uint32_t)) {
                 return std::nullopt;
             }
-            uint64_t prefixLen;
-            std::memcpy(&prefixLen, p, sizeof(uint64_t));
-            sizeLeft -= sizeof(uint64_t);
-            p += sizeof(uint64_t);
+            uint32_t prefixLen;
+            std::memcpy(&prefixLen, p, sizeof(uint32_t));
+            prefixLen = boost::endian::little_to_native<uint32_t>(prefixLen);
+            sizeLeft -= sizeof(uint32_t);
+            p += sizeof(uint32_t);
             if (sizeLeft < prefixLen) {
                 return std::nullopt;
             }

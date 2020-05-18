@@ -4,6 +4,7 @@
 #include <unordered_map>
 #include <boost/asio.hpp>
 #include <boost/bind/bind.hpp>
+#include <boost/endian/conversion.hpp>
 
 #include <tm_kit/transport/multicast/MulticastComponent.hpp>
 
@@ -44,6 +45,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                         good = false;
                     } else {
                         std::memcpy(&topicLen, p, sizeof(uint32_t));
+                        topicLen = boost::endian::little_to_native<uint32_t>(topicLen);
                         p += sizeof(uint32_t);
                         bytesReceived -= sizeof(uint32_t);
                     }
@@ -166,7 +168,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             void publish(basic::ByteDataWithTopic &&data, int ttl) {
                 std::lock_guard<std::mutex> _(mutex_);
                 char *p = buffer_.data();
-                uint32_t topicLen = (uint32_t) data.topic.length();
+                uint32_t topicLen = boost::endian::native_to_little<uint32_t>((uint32_t) data.topic.length());
                 std::memcpy(p, &topicLen, sizeof(uint32_t));
                 p += sizeof(uint32_t);
                 std::memcpy(p, data.topic.c_str(), topicLen);
