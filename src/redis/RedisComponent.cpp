@@ -9,9 +9,6 @@
 
 #ifdef _MSC_VER
 #include <winsock2.h>
-#include <Shlwapi.h>
-#else
-#include <fnmatch.h> 
 #endif
 #include <hiredis/hiredis.h>
 
@@ -20,22 +17,14 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
     private:
         class OneRedisSubscription {
         private:
-            static bool isMatch(std::string const &subTopic, std::string const &realTopic) {
-#ifdef _MSC_VER
-                return (PathMatchSpecExA(realTopic.c_str(), subTopic.c_str(), PMSF_NORMAL));
-#else
-                return (fnmatch(subTopic.c_str(), realTopic.c_str(), 0) == 0);
-#endif
-            }
             redisContext *ctx_;
             struct ClientCB {
                 std::function<void(basic::ByteDataWithTopic &&)> cb;
                 std::optional<WireToUserHook> hook;
             };
-            std::unordered_map<std::string, std::vector<ClientCB>> clients_;
+            std::vector<ClientCB> clients_;
             std::thread th_;
             std::mutex mutex_;
-            std::atomic<bool> running_;
 
             inline void callClient(ClientCB const &c, basic::ByteDataWithTopic &&d) {
                 if (c.hook) {
@@ -48,121 +37,63 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 }
             }
 
-            inline void handleDataByTopic(std::string const &topic, std::string const &content) {
-                std::lock_guard<std::mutex> _(mutex_);
-                for (auto const &item : clients_) {
-                    if (isMatch(item.first, topic)) {
-                        for (auto const &cb : item.second) {
-                            callClient(cb, {topic, content});
-                        }
-                    }
-                }
-            }
-            inline void handleDataByPTopic(std::string const &ptopic, std::string const &topic, std::string const &content) {
-                std::lock_guard<std::mutex> _(mutex_);
-                auto iter = clients_.find(ptopic);
-                if (iter != clients_.end()) {
-                    for (auto const &cb : iter->second) {
-                        callClient(cb, {topic, content});
-                    }
-                }
-            }
             void run() {
                 struct redisReply *reply = nullptr;
-                while (running_) {
-                    int r;
-                    {
-                        std::lock_guard<std::mutex> _(mutex_);
-                        r = redisGetReply(ctx_, (void **) &reply);
-                    }
+                while (true) {
+                    int r = redisGetReply(ctx_, (void **) &reply);
                     if (r != REDIS_OK) {
                         if (reply != nullptr) {
                             freeReplyObject((void *) &reply);
                         }
                         continue;
                     }
-                    if (reply->type != REDIS_REPLY_ARRAY || (reply->elements != 4 && reply->elements != 3)) {
+                    if (reply->type != REDIS_REPLY_ARRAY || (reply->elements != 4 /*&& reply->elements != 3*/)) {
                         freeReplyObject((void *) reply);
                         continue;
                     }
-                    if (reply->elements == 3) {
-                        if (reply->element[0]->type != REDIS_REPLY_STRING
-                            ||
-                            std::string(reply->element[0]->str, reply->element[0]->len) != "message") {
-                            freeReplyObject((void *) reply);
-                            continue;
-                        }
-                        std::string topic(reply->element[1]->str, reply->element[1]->len);
-                        std::string content(reply->element[2]->str, reply->element[2]->len);
+                    if (reply->element[0]->type != REDIS_REPLY_STRING
+                        ||
+                        std::string(reply->element[0]->str, reply->element[0]->len) != "pmessage") {
                         freeReplyObject((void *) reply);
-                        handleDataByTopic(topic, content);
-                    } else {
-                        if (reply->element[0]->type != REDIS_REPLY_STRING
-                            ||
-                            std::string(reply->element[0]->str, reply->element[0]->len) != "pmessage") {
-                            freeReplyObject((void *) reply);
-                            continue;
-                        }
-                        std::string ptopic(reply->element[1]->str, reply->element[1]->len);
-                        std::string topic(reply->element[2]->str, reply->element[2]->len);
-                        std::string content(reply->element[3]->str, reply->element[3]->len);
-                        freeReplyObject((void *) reply);
-                        handleDataByPTopic(ptopic, topic, content);
+                        continue;
+                    }
+                    std::string topic(reply->element[2]->str, reply->element[2]->len);
+                    std::string content(reply->element[3]->str, reply->element[3]->len);
+                    freeReplyObject((void *) reply);
+
+                    std::lock_guard<std::mutex> _(mutex_);
+                    for (auto const &cb : clients_) {
+                        callClient(cb, {topic, content});
                     }
                 }
             }
         public:
-            OneRedisSubscription(ConnectionLocator const &locator) 
+            OneRedisSubscription(ConnectionLocator const &locator, std::string const &topic) 
                 : ctx_(nullptr)
                 , clients_()
                 , th_()
                 , mutex_()
-                , running_(false)
             {
                 ctx_ = redisConnect(locator.host().c_str(), locator.port());
                 if (ctx_ != nullptr) {
-                    running_ = true;
+                    redisReply *r = (redisReply *) redisCommand(ctx_, "PSUBSCRIBE %s", topic.c_str());
+                    freeReplyObject((void *) r);
                     th_ = std::thread(&OneRedisSubscription::run, this);
+                    th_.detach();
                 }
             }
             ~OneRedisSubscription() {
-                if (ctx_ != nullptr) {
-                    {
-                        std::lock_guard<std::mutex> _(mutex_);
-                        for (auto const &item : clients_) {
-                            redisReply *r = (redisReply *) redisCommand(ctx_, "PUNSUBSCRIBE %s", item.first.c_str());
-                            freeReplyObject((void *) r);
-                        }
-                    }
-                    running_ = false;
-                    th_.join();
-                    redisFree(ctx_);
-                } 
             }
             void addSubscription(
-                std::string const &topic
-                , std::function<void(basic::ByteDataWithTopic &&)> handler
+                std::function<void(basic::ByteDataWithTopic &&)> handler
                 , std::optional<WireToUserHook> wireToUserHook
             ) {
-                bool needSubscribe = false;
-                {
-                    std::lock_guard<std::mutex> _(mutex_);
-                    auto iter = clients_.find(topic);
-                    if (iter == clients_.end()) {
-                        iter = clients_.insert({topic, std::vector<ClientCB> {}}).first;
-                        needSubscribe = true;
-                    }
-                    iter->second.push_back({handler, wireToUserHook});
-                }
-                if (needSubscribe) {
-                    std::lock_guard<std::mutex> _(mutex_);
-                    redisReply *r = (redisReply *) redisCommand(ctx_, "PSUBSCRIBE %s", topic.c_str());
-                    freeReplyObject((void *) r);
-                } 
+                std::lock_guard<std::mutex> _(mutex_);
+                clients_.push_back({handler, wireToUserHook});
             }  
         };
         
-        std::unordered_map<ConnectionLocator, std::unique_ptr<OneRedisSubscription>> subscriptions_;
+        std::unordered_map<ConnectionLocator, std::unordered_map<std::string, std::unique_ptr<OneRedisSubscription>>> subscriptions_;
 
         class OneRedisSender {
         private:
@@ -191,38 +122,293 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
 
         std::unordered_map<ConnectionLocator, std::unique_ptr<OneRedisSender>> senders_;
 
+        class OneRedisRPCClientConnection {
+        private:
+            redisContext *ctx_;
+            std::string rpcTopic_;
+            std::string myCommunicationID_;
+            std::function<void(basic::ByteDataWithID &&)> callback_;
+            std::optional<WireToUserHook> wireToUserHook_;
+            std::thread th_;
+            OneRedisSender *sender_;
+            void run() {
+                struct redisReply *reply = nullptr;
+                while (true) {
+                    int r = redisGetReply(ctx_, (void **) &reply);
+                    if (r != REDIS_OK) {
+                        if (reply != nullptr) {
+                            freeReplyObject((void *) &reply);
+                        }
+                        continue;
+                    }
+                    if (reply->type != REDIS_REPLY_ARRAY || reply->elements != 3) {
+                        freeReplyObject((void *) reply);
+                        continue;
+                    }
+                    if (reply->element[0]->type != REDIS_REPLY_STRING
+                        ||
+                        std::string(reply->element[0]->str, reply->element[0]->len) != "message") {
+                        freeReplyObject((void *) reply);
+                        continue;
+                    }
+                    std::string topic(reply->element[1]->str, reply->element[1]->len);
+                    if (topic != myCommunicationID_) {
+                        freeReplyObject((void *) reply);
+                        continue;
+                    }
+
+                    size_t l = reply->element[2]->len;
+                    char const *p = reply->element[2]->str;
+                    if (l < sizeof(uint32_t)) {
+                        freeReplyObject((void *) reply);
+                        continue;
+                    }
+                    uint32_t idLen;
+                    std::memcpy(&idLen, p, sizeof(uint32_t));
+                    l -= sizeof(uint32_t);
+                    p += sizeof(uint32_t);
+                    if (l < idLen) {
+                        freeReplyObject((void *) reply);
+                        continue;
+                    }
+                    std::string id {p, p+idLen};
+                    l -= idLen;
+                    p += idLen;
+                    std::string content {p, p+l};
+                    freeReplyObject((void *) reply);
+
+                    if (wireToUserHook_) {
+                        auto d = (wireToUserHook_->hook)(basic::ByteData {std::move(content)});
+                        if (d) {
+                            callback_({std::move(id), std::move(d->content)});
+                        }
+                    } else {
+                        callback_({std::move(id), std::move(content)});
+                    }
+                }
+            }
+        public:
+            OneRedisRPCClientConnection(ConnectionLocator const &locator, std::string const &myCommunicationID, std::function<void(basic::ByteDataWithID &&)> callback, std::optional<WireToUserHook> wireToUserHook, OneRedisSender *sender)
+                : ctx_(nullptr)
+                , rpcTopic_(locator.identifier())
+                , myCommunicationID_(myCommunicationID)
+                , callback_(callback)
+                , wireToUserHook_(wireToUserHook)
+                , th_()
+                , sender_(sender)
+            {
+                ctx_ = redisConnect(locator.host().c_str(), locator.port());
+                if (ctx_ != nullptr) {
+                    redisReply *r = (redisReply *) redisCommand(ctx_, "SUBSCRIBE %s", myCommunicationID_.c_str());
+                    freeReplyObject((void *) r);
+                    th_ = std::thread(&OneRedisRPCClientConnection::run, this);
+                    th_.detach();
+                }
+            }
+            ~OneRedisRPCClientConnection() {
+            }
+            void sendRequest(basic::ByteDataWithID &&data) {
+                uint32_t topicLen = myCommunicationID_.length();
+                uint32_t idLen = data.id.length();
+                std::ostringstream oss;
+                oss.write(reinterpret_cast<char const *>(&topicLen), sizeof(uint32_t));
+                oss.write(myCommunicationID_.c_str(), topicLen);
+                oss.write(reinterpret_cast<char const *>(&idLen), sizeof(uint32_t));
+                oss.write(data.id.c_str(), idLen);
+                oss.write(data.content.c_str(), data.content.length());
+                sender_->publish(basic::ByteDataWithTopic {rpcTopic_, oss.str()});       
+            }
+        };
+
+        std::unordered_map<ConnectionLocator, std::unique_ptr<OneRedisRPCClientConnection>> rpcClientConnections_;
+
+        class OneRedisRPCServerConnection {
+        private:
+            redisContext *ctx_;
+            std::string rpcTopic_;
+            std::function<void(basic::ByteDataWithID &&)> callback_;
+            std::optional<WireToUserHook> wireToUserHook_;
+            std::unordered_map<std::string, std::string> replyTopicMap_;
+            std::thread th_;
+            std::mutex mutex_;
+            OneRedisSender *sender_;
+            void run() {
+                struct redisReply *reply = nullptr;
+                while (true) {
+                    int r = redisGetReply(ctx_, (void **) &reply);
+                    if (r != REDIS_OK) {
+                        if (reply != nullptr) {
+                            freeReplyObject((void *) &reply);
+                        }
+                        continue;
+                    }
+                    if (reply->type != REDIS_REPLY_ARRAY || reply->elements != 3) {
+                        freeReplyObject((void *) reply);
+                        continue;
+                    }
+                    if (reply->element[0]->type != REDIS_REPLY_STRING
+                        ||
+                        std::string(reply->element[0]->str, reply->element[0]->len) != "message") {
+                        freeReplyObject((void *) reply);
+                        continue;
+                    }
+                    std::string topic(reply->element[1]->str, reply->element[1]->len);
+                    if (topic != rpcTopic_) {
+                        freeReplyObject((void *) reply);
+                        continue;
+                    }
+
+                    size_t l = reply->element[2]->len;
+                    char const *p = reply->element[2]->str;
+                    if (l < sizeof(uint32_t)) {
+                        freeReplyObject((void *) reply);
+                        continue;
+                    }
+                    uint32_t replyTopicLen;
+                    std::memcpy(&replyTopicLen, p, sizeof(uint32_t));
+                    l -= sizeof(uint32_t);
+                    p += sizeof(uint32_t);
+                    if (l < replyTopicLen) {
+                        freeReplyObject((void *) reply);
+                        continue;
+                    }
+                    std::string replyTopic {p, p+replyTopicLen};
+                    l -= replyTopicLen;
+                    p += replyTopicLen;
+                    if (l < sizeof(uint32_t)) {
+                        freeReplyObject((void *) reply);
+                        continue;
+                    }
+                    uint32_t idLen;
+                    std::memcpy(&idLen, p, sizeof(uint32_t));
+                    l -= sizeof(uint32_t);
+                    p += sizeof(uint32_t);
+                    if (l < idLen) {
+                        freeReplyObject((void *) reply);
+                        continue;
+                    }
+                    std::string id {p, p+idLen};
+                    l -= idLen;
+                    p += idLen;
+                    std::string content {p, p+l};
+                    freeReplyObject((void *) reply);
+                    {
+                        std::lock_guard<std::mutex> _(mutex_);
+                        replyTopicMap_[id] = replyTopic;
+                    }
+                    if (wireToUserHook_) {
+                        auto d = (wireToUserHook_->hook)(basic::ByteData {std::move(content)});
+                        if (d) {
+                            callback_({std::move(id), std::move(d->content)});
+                        }
+                    } else {
+                        callback_({std::move(id), std::move(content)});
+                    }
+                }
+            }
+        public:
+            OneRedisRPCServerConnection(ConnectionLocator const &locator, std::function<void(basic::ByteDataWithID &&)> callback, std::optional<WireToUserHook> wireToUserHook, OneRedisSender *sender)
+                : ctx_(nullptr)
+                , rpcTopic_(locator.identifier())
+                , callback_(callback)
+                , wireToUserHook_(wireToUserHook)
+                , th_()
+                , mutex_()
+                , sender_(sender)
+            {
+                ctx_ = redisConnect(locator.host().c_str(), locator.port());
+                if (ctx_ != nullptr) {
+                    redisReply *r = (redisReply *) redisCommand(ctx_, "SUBSCRIBE %s", rpcTopic_.c_str());
+                    freeReplyObject((void *) r);
+                    th_ = std::thread(&OneRedisRPCServerConnection::run, this);
+                    th_.detach();
+                }
+            }
+            ~OneRedisRPCServerConnection() {
+            }
+            void sendReply(bool isFinal, basic::ByteDataWithID &&data) {
+                std::string replyTopic;
+                {
+                    std::lock_guard<std::mutex> _(mutex_);
+                    auto iter = replyTopicMap_.find(data.id);
+                    if (iter == replyTopicMap_.end()) {
+                        return;
+                    }
+                    replyTopic = iter->second;
+                    if (isFinal) {
+                        replyTopicMap_.erase(iter);
+                    }
+                }
+                uint32_t idLen = data.id.length();
+                std::ostringstream oss;
+                oss.write(reinterpret_cast<char const *>(&idLen), sizeof(uint32_t));
+                oss.write(data.id.c_str(), idLen);
+                oss.write(data.content.c_str(), data.content.length());
+                sender_->publish(basic::ByteDataWithTopic {replyTopic, oss.str()});           
+            }
+        };
+        std::unordered_map<ConnectionLocator, std::unique_ptr<OneRedisRPCServerConnection>> rpcServerConnections_;
+
         std::mutex mutex_;
 
-        OneRedisSubscription *getOrStartSubscription(ConnectionLocator const &d) {
+        OneRedisSubscription *getOrStartSubscription(ConnectionLocator const &d, std::string const &topic) {
             ConnectionLocator hostAndPort {d.host(), d.port()};
             std::lock_guard<std::mutex> _(mutex_);
             auto subscriptionIter = subscriptions_.find(hostAndPort);
             if (subscriptionIter == subscriptions_.end()) {
-                subscriptionIter = subscriptions_.insert({hostAndPort, std::make_unique<OneRedisSubscription>(hostAndPort)}).first;
+                subscriptionIter = subscriptions_.insert({hostAndPort, std::unordered_map<std::string, std::unique_ptr<OneRedisSubscription>> {}}).first;
             }
-            return subscriptionIter->second.get();
+            auto innerIter = subscriptionIter->second.find(topic);
+            if (innerIter == subscriptionIter->second.end()) {
+                innerIter = subscriptionIter->second.insert({topic, std::make_unique<OneRedisSubscription>(hostAndPort, topic)}).first;
+            }
+            return innerIter->second.get();
         }
-
         OneRedisSender *getOrStartSender(ConnectionLocator const &d) {
-            ConnectionLocator hostAndPort {d.host(), d.port()};
             std::lock_guard<std::mutex> _(mutex_);
+            return getOrStartSenderNoLock(d);
+        }
+        OneRedisSender *getOrStartSenderNoLock(ConnectionLocator const &d) {
+            ConnectionLocator hostAndPort {d.host(), d.port()};
             auto senderIter = senders_.find(hostAndPort);
             if (senderIter == senders_.end()) {
                 senderIter = senders_.insert({hostAndPort, std::make_unique<OneRedisSender>(hostAndPort)}).first;
             }
             return senderIter->second.get();
         }
+        OneRedisRPCClientConnection *createRpcClientConnection(ConnectionLocator const &l, std::function<std::string()> clientCommunicationIDCreator, std::function<void(basic::ByteDataWithID &&)> client, std::optional<WireToUserHook> wireToUserHook) {
+            std::lock_guard<std::mutex> _(mutex_);
+            auto iter = rpcClientConnections_.find(l);
+            if (iter != rpcClientConnections_.end()) {
+                throw RedisComponentException("Cannot create duplicate RPC client connection for "+l.toSerializationFormat());
+            }
+            iter = rpcClientConnections_.insert(
+                {l, std::make_unique<OneRedisRPCClientConnection>(l, clientCommunicationIDCreator(), client, wireToUserHook, getOrStartSenderNoLock(l))}
+            ).first;
+            return iter->second.get();
+        }
+        OneRedisRPCServerConnection *createRpcServerConnection(ConnectionLocator const &l, std::function<void(basic::ByteDataWithID &&)> handler, std::optional<WireToUserHook> wireToUserHook) {
+            std::lock_guard<std::mutex> _(mutex_);
+            auto iter = rpcServerConnections_.find(l);
+            if (iter != rpcServerConnections_.end()) {
+                throw RedisComponentException("Cannot create duplicate RPC server connection for "+l.toSerializationFormat());
+            }
+            iter = rpcServerConnections_.insert(
+                {l, std::make_unique<OneRedisRPCServerConnection>(l, handler, wireToUserHook, getOrStartSenderNoLock(l))}
+            ).first;
+            return iter->second.get();
+        }
     public:
         RedisComponentImpl() 
-            : subscriptions_(), senders_(), mutex_() { 
+            : subscriptions_(), senders_(), rpcClientConnections_(), rpcServerConnections_(), mutex_() { 
         }
         ~RedisComponentImpl() = default;
         void addSubscriptionClient(ConnectionLocator const &locator,
             std::string const &topic,
             std::function<void(basic::ByteDataWithTopic &&)> client,
             std::optional<WireToUserHook> wireToUserHook) {
-            auto *p = getOrStartSubscription(locator);
-            p->addSubscription(topic, client, wireToUserHook);
+            auto *p = getOrStartSubscription(locator, topic);
+            p->addSubscription(client, wireToUserHook);
         }
         std::function<void(basic::ByteDataWithTopic &&)> getPublisher(ConnectionLocator const &locator, std::optional<UserToWireHook> userToWireHook) {
             auto *p = getOrStartSender(locator);
@@ -235,6 +421,51 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             } else {
                 return [p](basic::ByteDataWithTopic &&data) {
                     p->publish(std::move(data));
+                };
+            }
+        }
+        std::function<void(basic::ByteDataWithID &&)> setRPCClient(ConnectionLocator const &locator,
+            std::function<std::string()> clientCommunicationIDCreator,
+            std::function<void(basic::ByteDataWithID &&)> client,
+            std::optional<ByteDataHookPair> hookPair) {
+            std::optional<WireToUserHook> wireToUserHook;
+            if (hookPair) {
+                wireToUserHook = hookPair->wireToUser;
+            } else {
+                wireToUserHook = std::nullopt;
+            }
+            auto *conn = createRpcClientConnection(locator, clientCommunicationIDCreator, client, wireToUserHook);
+            if (hookPair) {
+                auto hook = hookPair->userToWire.hook;
+                return [conn,hook](basic::ByteDataWithID &&data) {
+                    auto x = hook(basic::ByteData {std::move(data.content)});
+                    conn->sendRequest({data.id, std::move(x.content)});
+                };
+            } else {
+                return [conn](basic::ByteDataWithID &&data) {
+                    conn->sendRequest(std::move(data));
+                };
+            }
+        }
+        std::function<void(bool, basic::ByteDataWithID &&)> setRPCServer(ConnectionLocator const &locator,
+            std::function<void(basic::ByteDataWithID &&)> server,
+            std::optional<ByteDataHookPair> hookPair) {
+            std::optional<WireToUserHook> wireToUserHook;
+            if (hookPair) {
+                wireToUserHook = hookPair->wireToUser;
+            } else {
+                wireToUserHook = std::nullopt;
+            }
+            auto *conn = createRpcServerConnection(locator, server, wireToUserHook);
+            if (hookPair) {
+                auto hook = hookPair->userToWire.hook;
+                return [conn,hook](bool isFinal, basic::ByteDataWithID &&data) {
+                    auto x = hook(basic::ByteData {std::move(data.content)});
+                    conn->sendReply(isFinal, {data.id, std::move(x.content)});
+                };
+            } else {
+                return [conn](bool isFinal, basic::ByteDataWithID &&data) {
+                    conn->sendReply(isFinal, std::move(data));
                 };
             }
         }
@@ -252,6 +483,17 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
     }
     std::function<void(basic::ByteDataWithTopic &&)> RedisComponent::redis_getPublisher(ConnectionLocator const &locator, std::optional<UserToWireHook> userToWireHook) {
         return impl_->getPublisher(locator, userToWireHook);
+    }
+    std::function<void(basic::ByteDataWithID &&)> RedisComponent::redis_setRPCClient(ConnectionLocator const &locator,
+                        std::function<std::string()> clientCommunicationIDCreator,
+                        std::function<void(basic::ByteDataWithID &&)> client,
+                        std::optional<ByteDataHookPair> hookPair) {
+        return impl_->setRPCClient(locator, clientCommunicationIDCreator, client, hookPair);
+    }
+    std::function<void(bool, basic::ByteDataWithID &&)> RedisComponent::redis_setRPCServer(ConnectionLocator const &locator,
+                    std::function<void(basic::ByteDataWithID &&)> server,
+                    std::optional<ByteDataHookPair> hookPair) {
+        return impl_->setRPCServer(locator, server, hookPair);
     }
 
 } } } } }

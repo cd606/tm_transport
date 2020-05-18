@@ -1,1 +1,0 @@
-option('redis', type : 'feature', value : 'enabled')

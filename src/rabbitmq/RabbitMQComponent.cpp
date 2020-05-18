@@ -283,7 +283,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 running_ = false;
                 th_.join();
             }
-            void sendReply(std::string const &contentEncoding, basic::ByteDataWithID &&data) {
+            void sendReply(bool isFinal, std::string const &contentEncoding, basic::ByteDataWithID &&data) {
                 std::string replyQueue;
                 {
                     std::lock_guard<std::mutex> _(mutex_);
@@ -292,6 +292,9 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                         return;
                     }
                     replyQueue = iter->second;
+                    if (isFinal) {
+                        replyQueueMap_.erase(iter);
+                    }
                 }
                 AmqpClient::BasicMessage::ptr_t msg = AmqpClient::BasicMessage::Create(std::move(data.content));
                 msg->CorrelationId(data.id);
@@ -392,7 +395,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 };
             }
         }
-        std::function<void(std::string const &, basic::ByteDataWithID &&)> setRPCQueueServer(ConnectionLocator const &locator,
+        std::function<void(bool, std::string const &, basic::ByteDataWithID &&)> setRPCQueueServer(ConnectionLocator const &locator,
             std::function<void(std::string const &, basic::ByteDataWithID &&)> server,
             std::optional<ByteDataHookPair> hookPair) {
             std::optional<WireToUserHook> wireToUserHook;
@@ -404,13 +407,13 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             auto *conn = createRpcQueueServerConnection(locator, server, wireToUserHook);
             if (hookPair) {
                 auto hook = hookPair->userToWire.hook;
-                return [conn,hook](std::string const &contentEncoding, basic::ByteDataWithID &&data) {
+                return [conn,hook](bool isFinal, std::string const &contentEncoding, basic::ByteDataWithID &&data) {
                     auto x = hook(basic::ByteData {std::move(data.content)});
-                    conn->sendReply(contentEncoding, {data.id, std::move(x.content)});
+                    conn->sendReply(isFinal, contentEncoding, {data.id, std::move(x.content)});
                 };
             } else {
-                return [conn](std::string const &contentEncoding, basic::ByteDataWithID &&data) {
-                    conn->sendReply(contentEncoding, std::move(data));
+                return [conn](bool isFinal, std::string const &contentEncoding, basic::ByteDataWithID &&data) {
+                    conn->sendReply(isFinal, contentEncoding, std::move(data));
                 };
             }
         }
@@ -433,7 +436,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         std::optional<ByteDataHookPair> hookPair) {
         return impl_->setRPCQueueClient(locator, client, hookPair);
     }
-    std::function<void(std::string const &, basic::ByteDataWithID &&)> RabbitMQComponent::rabbitmq_setRPCQueueServer(ConnectionLocator const &locator,
+    std::function<void(bool, std::string const &, basic::ByteDataWithID &&)> RabbitMQComponent::rabbitmq_setRPCQueueServer(ConnectionLocator const &locator,
         std::function<void(std::string const &, basic::ByteDataWithID &&)> server,
         std::optional<ByteDataHookPair> hookPair) {
         return impl_->setRPCQueueServer(locator, server, hookPair);
