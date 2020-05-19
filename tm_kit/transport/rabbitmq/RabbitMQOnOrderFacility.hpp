@@ -12,7 +12,7 @@
 
 namespace dev { namespace cd606 { namespace tm { namespace transport { namespace rabbitmq {
 
-    template <class Env, std::enable_if_t<std::is_base_of_v<RabbitMQComponent, Env>, int> = 0>
+    template <class Env, bool SendFinalFlagInReply=true, std::enable_if_t<std::is_base_of_v<RabbitMQComponent, Env>, int> = 0>
     class RabbitMQOnOrderFacility {
     public:
         using M = infra::RealTimeMonad<Env>;
@@ -226,9 +226,8 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 , ConnectionLocator const &rpcQueueLocator
                 , std::string const &wrapperItemsNamePrefix
                 , std::optional<ByteDataHookPair> hooks = std::nullopt
-                , bool encodeFinalFlagInReply = false
             ) {
-                auto importerExporterPair = createOnOrderFacilityRPCConnectorIncomingAndOutgoingLegs(rpcQueueLocator, hooks, (encodeFinalFlagInReply?"with_final":""));
+                auto importerExporterPair = createOnOrderFacilityRPCConnectorIncomingAndOutgoingLegs(rpcQueueLocator, hooks, (SendFinalFlagInReply?"with_final":""));
                 auto deserializer = simplyDeserialize<A>();
                 auto serializer = basic::SerializationActions<M>::template serializeWithKey<A,B>();
 
@@ -263,9 +262,8 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 , ConnectionLocator const &rpcQueueLocator
                 , std::string const &wrapperItemsNamePrefix
                 , std::optional<ByteDataHookPair> hooks = std::nullopt
-                , bool encodeFinalFlagInReply = false
             ) {
-                auto importerExporterPair = createOnOrderFacilityRPCConnectorIncomingAndOutgoingLegs(rpcQueueLocator, hooks, (encodeFinalFlagInReply?"with_final":""));
+                auto importerExporterPair = createOnOrderFacilityRPCConnectorIncomingAndOutgoingLegs(rpcQueueLocator, hooks, (SendFinalFlagInReply?"with_final":""));
                 auto deserializer = simplyDeserialize<A>();
                 auto serializer = basic::SerializationActions<M>::template serializeWithKey<A,B>();
 
@@ -299,36 +297,32 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 ConnectionLocator const &rpcQueueLocator
                 , std::string const &wrapperItemsNamePrefix
                 , std::optional<ByteDataHookPair> hooks = std::nullopt
-                , bool encodeFinalFlagInReply = false
             ) -> typename infra::MonadRunner<M>::template FacilityWrapper<A,B> {
-                return { std::bind(wrapOnOrderFacility<A,B>, std::placeholders::_1, std::placeholders::_2, rpcQueueLocator, wrapperItemsNamePrefix, hooks, encodeFinalFlagInReply) };
+                return { std::bind(wrapOnOrderFacility<A,B>, std::placeholders::_1, std::placeholders::_2, rpcQueueLocator, wrapperItemsNamePrefix, hooks) };
             }
             template <class A, class B>
             static auto facilityWrapperWithoutReply(
                 ConnectionLocator const &rpcQueueLocator
                 , std::string const &wrapperItemsNamePrefix
                 , std::optional<ByteDataHookPair> hooks = std::nullopt
-                , bool encodeFinalFlagInReply = false
             ) -> typename infra::MonadRunner<M>::template FacilityWrapper<A,B> {
-                return { std::bind(wrapOnOrderFacilityWithoutReply<A,B>, std::placeholders::_1, std::placeholders::_2, rpcQueueLocator, wrapperItemsNamePrefix, hooks, encodeFinalFlagInReply) };
+                return { std::bind(wrapOnOrderFacilityWithoutReply<A,B>, std::placeholders::_1, std::placeholders::_2, rpcQueueLocator, wrapperItemsNamePrefix, hooks) };
             }
             template <class A, class B, class C>
             static auto localFacilityWrapper(
                 ConnectionLocator const &rpcQueueLocator
                 , std::string const &wrapperItemsNamePrefix
                 , std::optional<ByteDataHookPair> hooks = std::nullopt
-                , bool encodeFinalFlagInReply = false
             ) -> typename infra::MonadRunner<M>::template LocalFacilityWrapper<A,B,C> {
-                return { std::bind(wrapLocalOnOrderFacility<A,B,C>, std::placeholders::_1, std::placeholders::_2, rpcQueueLocator, wrapperItemsNamePrefix, hooks, encodeFinalFlagInReply) };
+                return { std::bind(wrapLocalOnOrderFacility<A,B,C>, std::placeholders::_1, std::placeholders::_2, rpcQueueLocator, wrapperItemsNamePrefix, hooks) };
             }
             template <class A, class B, class C>
             static auto localFacilityWrapperWithoutReply(
                 ConnectionLocator const &rpcQueueLocator
                 , std::string const &wrapperItemsNamePrefix
                 , std::optional<ByteDataHookPair> hooks = std::nullopt
-                , bool encodeFinalFlagInReply = false
             ) -> typename infra::MonadRunner<M>::template LocalFacilityWrapper<A,B,C> {
-                return { std::bind(wrapLocalOnOrderFacilityWithoutReply<A,B,C>, std::placeholders::_1, std::placeholders::_2, rpcQueueLocator, wrapperItemsNamePrefix, hooks, encodeFinalFlagInReply) };
+                return { std::bind(wrapLocalOnOrderFacilityWithoutReply<A,B,C>, std::placeholders::_1, std::placeholders::_2, rpcQueueLocator, wrapperItemsNamePrefix, hooks) };
             }
 
             template <class A, class B>
@@ -413,9 +407,8 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 , ConnectionLocator const &rpcQueueLocator
                 , std::string const &wrapperItemsNamePrefix
                 , std::optional<ByteDataHookPair> hooks = std::nullopt
-                , bool encodeFinalFlagInReply = false
             ) {
-                auto importerExporterPair = createOnOrderFacilityRPCConnectorIncomingAndOutgoingLegs(rpcQueueLocator, hooks, (encodeFinalFlagInReply?"with_final":""));
+                auto importerExporterPair = createOnOrderFacilityRPCConnectorIncomingAndOutgoingLegs(rpcQueueLocator, hooks, (SendFinalFlagInReply?"with_final":""));
                 auto deserializer = checkIdentityAndDeserialize<Identity,A>();
                 auto serializer = basic::SerializationActions<M>::template serializeWithKey<std::tuple<Identity,A>,B>();
 
@@ -450,9 +443,8 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 , ConnectionLocator const &rpcQueueLocator
                 , std::string const &wrapperItemsNamePrefix
                 , std::optional<ByteDataHookPair> hooks = std::nullopt
-                , bool encodeFinalFlagInReply = false
             ) {
-                auto importerExporterPair = createOnOrderFacilityRPCConnectorIncomingAndOutgoingLegs(rpcQueueLocator, hooks, (encodeFinalFlagInReply?"with_final":""));
+                auto importerExporterPair = createOnOrderFacilityRPCConnectorIncomingAndOutgoingLegs(rpcQueueLocator, hooks, (SendFinalFlagInReply?"with_final":""));
                 auto deserializer = checkIdentityAndDeserialize<Identity,A>();
                 auto serializer = basic::SerializationActions<M>::template serializeWithKey<std::tuple<Identity,A>,B>();
 
@@ -486,36 +478,32 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 ConnectionLocator const &rpcQueueLocator
                 , std::string const &wrapperItemsNamePrefix
                 , std::optional<ByteDataHookPair> hooks = std::nullopt
-                , bool encodeFinalFlagInReply = false
             ) -> typename infra::MonadRunner<M>::template FacilityWrapper<std::tuple<Identity,A>,B> {
-                return { std::bind(wrapOnOrderFacility<A,B>, std::placeholders::_1, std::placeholders::_2, rpcQueueLocator, wrapperItemsNamePrefix, hooks, encodeFinalFlagInReply) };
+                return { std::bind(wrapOnOrderFacility<A,B>, std::placeholders::_1, std::placeholders::_2, rpcQueueLocator, wrapperItemsNamePrefix, hooks) };
             }
             template <class A, class B>
             static auto facilityWrapperWithoutReply(
                 ConnectionLocator const &rpcQueueLocator
                 , std::string const &wrapperItemsNamePrefix
                 , std::optional<ByteDataHookPair> hooks = std::nullopt
-                , bool encodeFinalFlagInReply = false
             ) -> typename infra::MonadRunner<M>::template FacilityWrapper<std::tuple<Identity,A>,B> {
-                return { std::bind(wrapOnOrderFacilityWithoutReply<A,B>, std::placeholders::_1, std::placeholders::_2, rpcQueueLocator, wrapperItemsNamePrefix, hooks, encodeFinalFlagInReply) };
+                return { std::bind(wrapOnOrderFacilityWithoutReply<A,B>, std::placeholders::_1, std::placeholders::_2, rpcQueueLocator, wrapperItemsNamePrefix, hooks) };
             }
             template <class A, class B, class C>
             static auto localFacilityWrapperWithIdentity(
                 ConnectionLocator const &rpcQueueLocator
                 , std::string const &wrapperItemsNamePrefix
                 , std::optional<ByteDataHookPair> hooks = std::nullopt
-                , bool encodeFinalFlagInReply = false
             ) -> typename infra::MonadRunner<M>::template LocalFacilityWrapper<std::tuple<Identity,A>,B,C> {
-                return { std::bind(wrapLocalOnOrderFacility<A,B,C>, std::placeholders::_1, std::placeholders::_2, rpcQueueLocator, wrapperItemsNamePrefix, hooks, encodeFinalFlagInReply) };
+                return { std::bind(wrapLocalOnOrderFacility<A,B,C>, std::placeholders::_1, std::placeholders::_2, rpcQueueLocator, wrapperItemsNamePrefix, hooks) };
             }
             template <class A, class B, class C>
             static auto localFacilityWrapperWithoutReply(
                 ConnectionLocator const &rpcQueueLocator
                 , std::string const &wrapperItemsNamePrefix
                 , std::optional<ByteDataHookPair> hooks = std::nullopt
-                , bool encodeFinalFlagInReply = false
             ) -> typename infra::MonadRunner<M>::template LocalFacilityWrapper<std::tuple<Identity,A>,B,C> {
-                return { std::bind(wrapLocalOnOrderFacilityWithoutReply<A,B,C>, std::placeholders::_1, std::placeholders::_2, rpcQueueLocator, wrapperItemsNamePrefix, hooks, encodeFinalFlagInReply) };
+                return { std::bind(wrapLocalOnOrderFacilityWithoutReply<A,B,C>, std::placeholders::_1, std::placeholders::_2, rpcQueueLocator, wrapperItemsNamePrefix, hooks) };
             }
 
             template <class A, class B>
