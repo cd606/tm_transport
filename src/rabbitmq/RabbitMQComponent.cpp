@@ -8,11 +8,25 @@
 #include <unordered_map>
 
 #include <SimpleAmqpClient/SimpleAmqpClient.h>
+#include <boost/algorithm/string.hpp>
 
 namespace dev { namespace cd606 { namespace tm { namespace transport { namespace rabbitmq {
     
     class RabbitMQComponentImpl {
     private:
+        static AmqpClient::Channel::ptr_t createChannel(ConnectionLocator const &l) {
+            std::string useSSL = boost::to_lower_copy(boost::trim_copy(l.query("ssl", "false")));
+            if (useSSL == "true" || useSSL == "yes") {
+                return AmqpClient::Channel::CreateSecure(
+                    l.query("ca_cert", ""), l.host(), l.query("client_key", ""), l.query("client_cert", ""),
+                    (l.port()==0?5671:l.port()), l.userName(), l.password(), l.query("vhost", "/")
+                );
+            } else {
+                return AmqpClient::Channel::Create(
+                    l.host(), (l.port()==0?5672:l.port()), l.userName(), l.password(), l.query("vhost", "/")
+                );                
+            }
+        }
         class OneExchangeSubscriptionConnection {
         private:
             AmqpClient::Channel::ptr_t channel_;
@@ -43,9 +57,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             }
         public:
             OneExchangeSubscriptionConnection(ConnectionLocator const &l, std::string const &topic, std::function<void(std::string const &, basic::ByteDataWithTopic &&)> callback, std::optional<WireToUserHook> wireToUserHook)
-                : channel_(AmqpClient::Channel::Create(
-                    l.host(), (l.port()==0?5672:l.port()), l.userName(), l.password(), l.query("vhost", "/")
-                ))
+                : channel_(createChannel(l))
                 , callback_(callback)
                 , wireToUserHook_(wireToUserHook)
                 , th_()
@@ -120,9 +132,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             }
         public:
             OnePublishingConnection(ConnectionLocator const &l) 
-                : channel_(AmqpClient::Channel::Create(
-                    l.host(), (l.port()==0?5672:l.port()), l.userName(), l.password(), l.query("vhost", "/")
-                ))
+                : channel_(createChannel(l))
                 , mutex_()
                 , cond_()
                 , incoming_()
@@ -184,9 +194,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             }
         public:
             OneRPCQueueClientConnection(ConnectionLocator const &l, std::function<void(std::string const &, basic::ByteDataWithID &&)> callback, std::optional<WireToUserHook> wireToUserHook, OnePublishingConnection *publishing)
-                : channel_(AmqpClient::Channel::Create(
-                    l.host(), (l.port()==0?5672:l.port()), l.userName(), l.password(), l.query("vhost", "/")
-                ))
+                : channel_(createChannel(l))
                 , rpcQueue_(l.identifier())
                 , localQueue_(channel_->DeclareQueue(""))
                 , callback_(callback)
@@ -251,9 +259,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             }
         public:
             OneRPCQueueServerConnection(ConnectionLocator const &l, std::function<void(std::string const &, basic::ByteDataWithID &&)> callback, std::optional<WireToUserHook> wireToUserHook, OnePublishingConnection *publishing)
-                : channel_(AmqpClient::Channel::Create(
-                    l.host(), (l.port()==0?5672:l.port()), l.userName(), l.password(), l.query("vhost", "/")
-                ))
+                : channel_(createChannel(l))
                 , rpcQueue_(l.identifier())
                 , callback_(callback)
                 , wireToUserHook_(wireToUserHook)
