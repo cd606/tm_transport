@@ -1,6 +1,7 @@
 #include <tm_kit/transport/HeartbeatComponent.hpp>
 
 #ifdef _MSC_VER
+#include <windows.h>
 #include <processthreadsapi.h>
 #include <winsock.h>
 #else
