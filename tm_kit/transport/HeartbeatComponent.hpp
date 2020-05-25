@@ -69,11 +69,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
         }
     };
 
-    template <class Env, class TransportComponent
-        , std::enable_if_t<
-            std::is_base_of_v<TransportComponent, Env>
-            && std::is_base_of_v<HeartbeatComponent, Env>
-            , int> = 0>
+    template <class Env, class TransportComponent>
     class HeartbeatComponentInitializer {
     public:
         void operator()(Env *env, std::string const &identity, ConnectionLocator const &locator, std::optional<UserToWireHook> hook=std::nullopt) {
@@ -81,7 +77,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
         }
     };
     template <class Env>
-    class HeartbeatComponentInitializer<Env, rabbitmq::RabbitMQComponent, 0> {
+    class HeartbeatComponentInitializer<Env, rabbitmq::RabbitMQComponent> {
     public:
         void operator()(Env *env, std::string const &identity, ConnectionLocator const &locator, std::optional<UserToWireHook> hook=std::nullopt) {
             env->HeartbeatComponent::operator=(HeartbeatComponent {
@@ -96,7 +92,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
         }
     };
     template <class Env>
-    class HeartbeatComponentInitializer<Env, multicast::MulticastComponent, 0> {
+    class HeartbeatComponentInitializer<Env, multicast::MulticastComponent> {
     public:
         void operator()(Env *env, std::string const &identity, ConnectionLocator const &locator, std::optional<UserToWireHook> hook=std::nullopt) {
             env->HeartbeatComponent::operator=(HeartbeatComponent {
@@ -111,7 +107,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
         }
     };
     template <class Env>
-    class HeartbeatComponentInitializer<Env, zeromq::ZeroMQComponent, 0> {
+    class HeartbeatComponentInitializer<Env, zeromq::ZeroMQComponent> {
     public:
         void operator()(Env *env, std::string const &identity, ConnectionLocator const &locator, std::optional<UserToWireHook> hook=std::nullopt) {
             env->HeartbeatComponent::operator=(HeartbeatComponent {
@@ -122,7 +118,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
         }
     };
     template <class Env>
-    class HeartbeatComponentInitializer<Env, redis::RedisComponent, 0> {
+    class HeartbeatComponentInitializer<Env, redis::RedisComponent> {
     public:
         void operator()(Env *env, std::string const &identity, ConnectionLocator const &locator, std::optional<UserToWireHook> hook=std::nullopt) {
             env->HeartbeatComponent::operator=(HeartbeatComponent {
