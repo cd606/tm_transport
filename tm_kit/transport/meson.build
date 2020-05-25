@@ -5,6 +5,8 @@ tm_transport_headers = [
       , 'AbstractIdentityCheckerComponent.hpp'
       , 'EmptyIdentityCheckerComponent.hpp'
       , 'SimpleIdentityCheckerComponent.hpp'
+      , 'HeartbeatMessage.hpp'
+      , 'HeartbeatComponent.hpp'
     ]
   
 install_headers(tm_transport_headers, subdir : 'tm_kit/transport')
