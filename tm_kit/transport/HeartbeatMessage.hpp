@@ -27,15 +27,11 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
         std::string senderDescription_;
         std::map<std::string, OneItemStatus> details_;
     public:
-        template <class Env>
-        static HeartbeatMessage create(Env *env, std::string const &host, int64_t pid, std::string const &senderDescription, std::map<std::string,OneItemStatus> const &details=std::map<std::string,OneItemStatus>()) {
-            HeartbeatMessage msg;
-            msg.heartbeatTime_ = env->now();
-            msg.host_ = host;
-            msg.pid_ = pid;
-            msg.senderDescription_ = senderDescription;
-            msg.details_ = details;
-            return msg;
+        HeartbeatMessage() = default;
+        HeartbeatMessage(std::chrono::system_clock::time_point heartbeatTime, std::string const &host, int64_t pid, std::string const &senderDescription, std::map<std::string,OneItemStatus> const &details=std::map<std::string,OneItemStatus>()) 
+            : heartbeatTime_(heartbeatTime), host_(host), pid_(pid)
+            , senderDescription_(senderDescription), details_(details)
+        {
         }
 
         void SerializeToString(std::string *s) const;

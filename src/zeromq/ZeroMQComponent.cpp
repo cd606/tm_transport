@@ -1,5 +1,6 @@
 #include <thread>
 #include <mutex>
+#include <condition_variable>
 #include <atomic>
 #include <cstring>
 #include <sstream>
@@ -14,8 +15,6 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
     private:
         class OneZeroMQSubscription {
         private:
-            zmq::context_t ctx_;
-            zmq::socket_t sock_;
             std::array<char, 16*1024*1024> buffer_;
             struct ClientCB {
                 std::function<void(basic::ByteDataWithTopic &&)> cb;
@@ -39,9 +38,17 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 }
             }
 
-            void run() {
+            void run(ConnectionLocator const &locator, zmq::context_t *p_ctx) {
+                zmq::socket_t sock(*p_ctx, zmq::socket_type::sub);
+                sock.set(zmq::sockopt::rcvtimeo, 1000);
+
+                std::ostringstream oss;
+                oss << "tcp://" << locator.host() << ":" << locator.port();
+                sock.connect(oss.str());
+                sock.set(zmq::sockopt::subscribe, "");
+
                 while (running_) {
-                    auto res = sock_.recv(
+                    auto res = sock.recv(
                         zmq::mutable_buffer(buffer_.data(), 16*1024*1024)
                     );
                     if (!res) {
@@ -94,20 +101,12 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 }
             }
         public:
-            OneZeroMQSubscription(ConnectionLocator const &locator) 
-                : ctx_(), sock_(ctx_, zmq::socket_type::sub), buffer_()
+            OneZeroMQSubscription(ConnectionLocator const &locator, zmq::context_t *p_ctx) 
+                : buffer_()
                 , noFilterClients_(), stringMatchClients_(), regexMatchClients_()
-                , mutex_(), th_(), running_(false)
+                , mutex_(), th_(), running_(true)
             {
-                sock_.set(zmq::sockopt::rcvtimeo, 1000);
-
-                std::ostringstream oss;
-                oss << "tcp://" << locator.host() << ":" << locator.port();
-                sock_.connect(oss.str());
-                sock_.set(zmq::sockopt::subscribe, "");
-
-                running_ = true;
-                th_ = std::thread(&OneZeroMQSubscription::run, this);
+                th_ = std::thread(&OneZeroMQSubscription::run, this, locator, p_ctx);
             }
             ~OneZeroMQSubscription() {
                 if (running_) {
@@ -140,46 +139,83 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         
         class OneZeroMQSender {
         private:
-            zmq::context_t ctx_;
-            zmq::socket_t sock_;
             std::array<char, 16*1024*1024> buffer_;
+            std::thread thread_;
+            std::list<basic::ByteDataWithTopic> incoming_, processing_;
             std::mutex mutex_;
-        public:
-            OneZeroMQSender(int port)
-                : ctx_(), sock_(ctx_, zmq::socket_type::pub), buffer_(), mutex_()
-            {
+            std::condition_variable cond_;
+            std::atomic<bool> running_;
+            void run(int port, zmq::context_t *p_ctx) {
+                zmq::socket_t sock(*p_ctx, zmq::socket_type::pub);
                 std::ostringstream oss;
                 oss << "tcp://*:" << port;
-                sock_.bind(oss.str());
+                sock.bind(oss.str());
+                while (running_) {
+                    {
+                        std::unique_lock<std::mutex> lock(mutex_);
+                        cond_.wait_for(lock, std::chrono::seconds(1));
+                        if (!running_) {
+                            lock.unlock();
+                            break;
+                        }
+                        if (incoming_.empty()) {
+                            lock.unlock();
+                            continue;
+                        }
+                        processing_.splice(processing_.end(), incoming_);
+                        lock.unlock();
+                    }
+                    while (!processing_.empty()) {
+                        auto const &item = processing_.front();
+                        char *p = buffer_.data();
+                        uint32_t topicLen = boost::endian::native_to_little<uint32_t>((uint32_t) item.topic.length());
+                        std::memcpy(p, &topicLen, sizeof(uint32_t));
+                        p += sizeof(uint32_t);
+                        std::memcpy(p, item.topic.c_str(), topicLen);
+                        p += topicLen;
+                        std::memcpy(p, item.content.c_str(), item.content.length());
+                        p += item.content.length();
+
+                        sock.send(
+                            zmq::const_buffer(buffer_.data(), p-buffer_.data())
+                            , zmq::send_flags::dontwait
+                        );   
+
+                        processing_.pop_front();
+                    }
+                }
+            }
+        public:
+            OneZeroMQSender(int port, zmq::context_t *p_ctx)
+                : buffer_(), thread_(), incoming_(), processing_(), mutex_()
+                , cond_(), running_(true)
+            {
+                thread_ = std::thread(&OneZeroMQSender::run, this, port, p_ctx);
+            }
+            ~OneZeroMQSender() {
+                running_ = false;
+                thread_.join();
             }
             void publish(basic::ByteDataWithTopic &&data) {
-                std::lock_guard<std::mutex> _(mutex_);
-                char *p = buffer_.data();
-                uint32_t topicLen = boost::endian::native_to_little<uint32_t>((uint32_t) data.topic.length());
-                std::memcpy(p, &topicLen, sizeof(uint32_t));
-                p += sizeof(uint32_t);
-                std::memcpy(p, data.topic.c_str(), topicLen);
-                p += topicLen;
-                std::memcpy(p, data.content.c_str(), data.content.length());
-                p += data.content.length();
-
-                sock_.send(
-                    zmq::const_buffer(buffer_.data(), p-buffer_.data())
-                    , zmq::send_flags::dontwait
-                );               
+                {
+                    std::lock_guard<std::mutex> _(mutex_);
+                    incoming_.push_back(std::move(data));
+                }
+                cond_.notify_one();          
             }
         };
 
         std::unordered_map<int, std::unique_ptr<OneZeroMQSender>> senders_;
 
         std::mutex mutex_;
+        zmq::context_t ctx_;
 
         OneZeroMQSubscription *getOrStartSubscription(ConnectionLocator const &d) {
             ConnectionLocator hostAndPort {d.host(), d.port()};
             std::lock_guard<std::mutex> _(mutex_);
             auto iter = subscriptions_.find(hostAndPort);
             if (iter == subscriptions_.end()) {
-                iter = subscriptions_.insert({hostAndPort, std::make_unique<OneZeroMQSubscription>(hostAndPort)}).first;
+                iter = subscriptions_.insert({hostAndPort, std::make_unique<OneZeroMQSubscription>(hostAndPort, &ctx_)}).first;
             }
             return iter->second.get();
         }
@@ -187,7 +223,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             std::lock_guard<std::mutex> _(mutex_);
             auto iter = senders_.find(d.port());
             if (iter == senders_.end()) {
-                iter = senders_.insert({d.port(), std::make_unique<OneZeroMQSender>(d.port())}).first;
+                iter = senders_.insert({d.port(), std::make_unique<OneZeroMQSender>(d.port(), &ctx_)}).first;
             }
             return iter->second.get();
         }

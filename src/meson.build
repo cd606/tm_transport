@@ -1,7 +1,8 @@
 tm_transport_sources = [
       'ConnectionLocator.cpp'
       , 'HeartbeatMessage.cpp'
-      , 'HeartbeatComponent.cpp'
+      , 'AlertMessage.cpp'
+      , 'HeartbeatAndAlertComponent.cpp'
       , 'multicast/MulticastComponent.cpp'
       , 'rabbitmq/RabbitMQComponent.cpp'
       , 'zeromq/ZeroMQComponent.cpp'
