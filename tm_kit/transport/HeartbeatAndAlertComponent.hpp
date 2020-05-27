@@ -84,8 +84,16 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
     template <class Env>
     class HeartbeatAndAlertComponentInitializer<Env, zeromq::ZeroMQComponent> {
     public:
+        //It is a known issue that even if a ZMQ SUB client is started first and then
+        //ZMQ PUB server is started, the SUB client may still lose the first few messages
+        //from the PUB server. See e.g. https://stackoverflow.com/questions/45740168/zeromq-cppzmq-subscriber-skips-first-message
+        //
+        //It is quite likely that a program that employs HeartbeatAndAlertComponent
+        //will want to send some alert messages at the beginning to indicate correct start,
+        //and to lose these messages is not satisfactory. Therefore, the current implementation
+        //does not allow using ZMQ as the transport for HeartbeatAndAlertComponent.
         void operator()(Env *env, std::string const &identity, ConnectionLocator const &locator, std::optional<UserToWireHook> hook=std::nullopt) {
-            env->log(infra::LogLevel::Error, "[HeartbeatAndAlertComponentInitializer] You are trying to use ZeroMQ transport to send heartbeat and alert messages. Due to an unresolved issue where some messages sent on this transport during the initialization part of the program consistently get lost, this is currently disabled.");
+            env->log(infra::LogLevel::Error, "[HeartbeatAndAlertComponentInitializer] You are trying to use ZeroMQ transport to send heartbeat and alert messages. Due to a known issue where the first few messages sent on this transport are likely to get lost, this transport is not suitable for this kind of function, and therefore this is currently disabled.");
             throw std::runtime_error("HeartbeatAndAlertComponentInitializer on ZeroMQ transport is currently disabled");
         }
     };
