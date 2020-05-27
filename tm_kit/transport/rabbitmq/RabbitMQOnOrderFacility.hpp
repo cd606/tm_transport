@@ -12,7 +12,11 @@
 
 namespace dev { namespace cd606 { namespace tm { namespace transport { namespace rabbitmq {
 
-    template <class Env, bool SendFinalFlagInReply=true, std::enable_if_t<std::is_base_of_v<RabbitMQComponent, Env>, int> = 0>
+    namespace {
+        const std::string FINAL_FLAG_ENCODING = "with_final";
+    }
+
+    template <class Env, std::enable_if_t<std::is_base_of_v<RabbitMQComponent, Env>, int> = 0>
     class RabbitMQOnOrderFacility {
     public:
         using M = infra::RealTimeMonad<Env>;
@@ -27,7 +31,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             >parseReplyData(std::string const &contentEncoding, basic::ByteDataWithID &&d) {
             if (contentEncoding == "") {
                 return {std::move(d), std::nullopt};
-            } else if (contentEncoding == "with_final") {
+            } else if (contentEncoding == FINAL_FLAG_ENCODING) {
                 auto l = d.content.length();
                 if (l == 0) {
                     return {std::move(d), {OnOrderFacilityCommunicationInfo {false}}};
@@ -44,7 +48,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         static basic::ByteDataWithID createReplyData(std::string const &contentEncoding, basic::ByteDataWithID &&d, OnOrderFacilityCommunicationInfo const &info) {
             if (contentEncoding == "") {
                 return std::move(d);
-            } else if (contentEncoding == "with_final") {
+            } else if (contentEncoding == FINAL_FLAG_ENCODING) {
                 auto l = d.content.length();
                 d.content.resize(l+1);
                 d.content[l] = (info.isFinal?(char) 1:(char) 0);
@@ -55,12 +59,12 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         }
 
         static void sendRequest(Env *env, std::function<void(std::string const &, basic::ByteDataWithID &&)>requester, basic::ByteDataWithID &&req) {
-            requester("", std::move(req));
+            requester(FINAL_FLAG_ENCODING, std::move(req));
         }
 
         template <class Identity, class Request>
         static void sendRequestWithIdentity(Env *env, std::function<void(std::string const &, basic::ByteDataWithID &&)>requester, basic::ByteDataWithID &&req) {
-            requester("", {
+            requester(FINAL_FLAG_ENCODING, {
                 std::move(req.id)
                 , static_cast<ClientSideAbstractIdentityAttacherComponent<Identity,Request> *>(env)->attach_identity(basic::ByteData {std::move(req.content)}).content
             });
@@ -92,21 +96,45 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         static std::tuple<
             std::shared_ptr<typename M::template Importer<basic::ByteDataWithID>>
             , std::shared_ptr<typename M::template Exporter<basic::ByteDataWithID>> 
-        > createOnOrderFacilityRPCConnectorIncomingAndOutgoingLegs(ConnectionLocator const &locator, std::optional<ByteDataHookPair> hooks=std::nullopt, std::string const &contentEncoding="") {
+        > createOnOrderFacilityRPCConnectorIncomingAndOutgoingLegs(ConnectionLocator const &locator, std::optional<ByteDataHookPair> hooks=std::nullopt) {
+            class ClientInfo {
+            private:
+                std::mutex mutex_;
+                std::unordered_map<std::string, std::string> contentEncodings_;
+            public:
+                void registerClient(std::string const &id, std::string const &encoding) {
+                    std::lock_guard<std::mutex> _(mutex_);
+                    contentEncodings_[id] = encoding;
+                }
+                std::string getContentEncoding(std::string const &id, bool finalFlag) {
+                    std::string ret = "";
+                    std::lock_guard<std::mutex> _(mutex_);
+                    auto iter = contentEncodings_.find(id);
+                    if (iter != contentEncodings_.end()) {
+                        ret = iter->second;
+                        if (finalFlag) {
+                            contentEncodings_.erase(iter);
+                        }
+                    }
+                    return ret;
+                }
+            };
             class LocalI final : public M::template AbstractImporter<basic::ByteDataWithID> {
             private:
                 ConnectionLocator locator_;
+                std::shared_ptr<ClientInfo> clientInfo_;
                 std::shared_ptr<std::function<void(bool, std::string const &, basic::ByteDataWithID &&)>> replierPtr_;
                 std::optional<ByteDataHookPair> hooks_;
             public:
-                LocalI(ConnectionLocator const &locator, std::shared_ptr<std::function<void(bool, std::string const &, basic::ByteDataWithID &&)>> const & replierPtr, std::optional<ByteDataHookPair> hooks)
-                    : locator_(locator), replierPtr_(replierPtr), hooks_(hooks)
+                LocalI(ConnectionLocator const &locator, std::shared_ptr<ClientInfo> &clientInfo, std::shared_ptr<std::function<void(bool, std::string const &, basic::ByteDataWithID &&)>> const & replierPtr, std::optional<ByteDataHookPair> hooks)
+                    : locator_(locator), clientInfo_(clientInfo), replierPtr_(replierPtr), hooks_(hooks)
                 {
                 }
                 virtual void start(Env *env) override final {
                     *replierPtr_ = env->rabbitmq_setRPCQueueServer(
                         locator_
-                        , [this,env](std::string const &, basic::ByteDataWithID &&d) {
+                        , [this,env](std::string const &contentEncoding, basic::ByteDataWithID &&d) {
+                            clientInfo_->registerClient(d.id, contentEncoding);
                             this->publish(M::template pureInnerData<basic::ByteDataWithID>(env, std::move(d)));
                         }
                         , hooks_
@@ -117,11 +145,11 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             private:
                 ConnectionLocator locator_;
                 Env *env_;
+                std::shared_ptr<ClientInfo> clientInfo_;
                 std::shared_ptr<std::function<void(bool, std::string const &, basic::ByteDataWithID &&)>> replierPtr_;
-                std::string contentEncoding_;
             public:
-                LocalE(ConnectionLocator const &locator, std::shared_ptr<std::function<void(bool, std::string const &, basic::ByteDataWithID &&)>> const &replierPtr, std::string const &contentEncoding)
-                    : locator_(locator), env_(nullptr), replierPtr_(replierPtr), contentEncoding_(contentEncoding)
+                LocalE(ConnectionLocator const &locator, std::shared_ptr<ClientInfo> const &clientInfo, std::shared_ptr<std::function<void(bool, std::string const &, basic::ByteDataWithID &&)>> const &replierPtr)
+                    : locator_(locator), env_(nullptr), clientInfo_(clientInfo), replierPtr_(replierPtr)
                 {
                 }
                 virtual void start(Env *env) override final {
@@ -131,15 +159,17 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                     if (env_) {
                         OnOrderFacilityCommunicationInfo info;
                         info.isFinal = data.timedData.finalFlag;
-                        auto wireData = createReplyData(contentEncoding_, std::move(data.timedData.value), info);
-                        (*replierPtr_)(info.isFinal, contentEncoding_, std::move(wireData));
+                        auto enc = clientInfo_->getContentEncoding(data.timedData.value.id, info.isFinal);
+                        auto wireData = createReplyData(enc, std::move(data.timedData.value), info);
+                        (*replierPtr_)(info.isFinal, enc, std::move(wireData));
                     }
                 }
             };
+            auto clientInfo = std::make_shared<ClientInfo>();
             auto replierPtr = std::make_shared<std::function<void(bool, std::string const &, basic::ByteDataWithID &&)>>(
                 [](bool, std::string const &, basic::ByteDataWithID &&) {}
             );
-            return { M::importer(new LocalI(locator, replierPtr, hooks)), M::exporter(new LocalE(locator, replierPtr, contentEncoding)) };
+            return { M::importer(new LocalI(locator, clientInfo, replierPtr, hooks)), M::exporter(new LocalE(locator, clientInfo, replierPtr)) };
         }
 
         template <class A>
@@ -227,7 +257,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 , std::string const &wrapperItemsNamePrefix
                 , std::optional<ByteDataHookPair> hooks = std::nullopt
             ) {
-                auto importerExporterPair = createOnOrderFacilityRPCConnectorIncomingAndOutgoingLegs(rpcQueueLocator, hooks, (SendFinalFlagInReply?"with_final":""));
+                auto importerExporterPair = createOnOrderFacilityRPCConnectorIncomingAndOutgoingLegs(rpcQueueLocator, hooks);
                 auto deserializer = simplyDeserialize<A>();
                 auto serializer = basic::SerializationActions<M>::template serializeWithKey<A,B>();
 
@@ -263,7 +293,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 , std::string const &wrapperItemsNamePrefix
                 , std::optional<ByteDataHookPair> hooks = std::nullopt
             ) {
-                auto importerExporterPair = createOnOrderFacilityRPCConnectorIncomingAndOutgoingLegs(rpcQueueLocator, hooks, (SendFinalFlagInReply?"with_final":""));
+                auto importerExporterPair = createOnOrderFacilityRPCConnectorIncomingAndOutgoingLegs(rpcQueueLocator, hooks);
                 auto deserializer = simplyDeserialize<A>();
                 auto serializer = basic::SerializationActions<M>::template serializeWithKey<A,B>();
 
@@ -408,7 +438,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 , std::string const &wrapperItemsNamePrefix
                 , std::optional<ByteDataHookPair> hooks = std::nullopt
             ) {
-                auto importerExporterPair = createOnOrderFacilityRPCConnectorIncomingAndOutgoingLegs(rpcQueueLocator, hooks, (SendFinalFlagInReply?"with_final":""));
+                auto importerExporterPair = createOnOrderFacilityRPCConnectorIncomingAndOutgoingLegs(rpcQueueLocator, hooks);
                 auto deserializer = checkIdentityAndDeserialize<Identity,A>();
                 auto serializer = basic::SerializationActions<M>::template serializeWithKey<std::tuple<Identity,A>,B>();
 
@@ -444,7 +474,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 , std::string const &wrapperItemsNamePrefix
                 , std::optional<ByteDataHookPair> hooks = std::nullopt
             ) {
-                auto importerExporterPair = createOnOrderFacilityRPCConnectorIncomingAndOutgoingLegs(rpcQueueLocator, hooks, (SendFinalFlagInReply?"with_final":""));
+                auto importerExporterPair = createOnOrderFacilityRPCConnectorIncomingAndOutgoingLegs(rpcQueueLocator, hooks);
                 auto deserializer = checkIdentityAndDeserialize<Identity,A>();
                 auto serializer = basic::SerializationActions<M>::template serializeWithKey<std::tuple<Identity,A>,B>();
 
