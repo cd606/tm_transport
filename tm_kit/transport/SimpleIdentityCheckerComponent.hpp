@@ -18,7 +18,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
         ClientSideSimpleIdentityAttacherComponent() : serializedIdentity_(), serializedIdentityLength_(0) {}
         ClientSideSimpleIdentityAttacherComponent(Identity const &identity) 
             : serializedIdentity_(
-                basic::SerializationFunctions::serializeFunc<Identity>(identity)
+                basic::bytedata_utils::RunSerializer<Identity>::apply(identity)
             )
             , serializedIdentityLength_(boost::endian::native_to_little<uint32_t>(serializedIdentity_.length()))
         {  
@@ -55,7 +55,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
             if (sizeLeft < prefixLen) {
                 return std::nullopt;
             }
-            std::optional<Identity> identity = basic::SerializationFunctions::deserializeFunc<Identity>(
+            std::optional<Identity> identity = basic::bytedata_utils::RunDeserializer<Identity>::apply(
                 std::string(p, p+prefixLen)
             );
             if (!identity) {
