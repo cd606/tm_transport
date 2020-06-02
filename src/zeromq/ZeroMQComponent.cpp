@@ -229,7 +229,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         }
     public:
         ZeroMQComponentImpl()
-            : subscriptions_(), senders_(), mutex_() {            
+            : subscriptions_(), senders_(), mutex_(), ctx_() {            
         }
         ~ZeroMQComponentImpl() = default;
         void addSubscriptionClient(ConnectionLocator const &locator,
