@@ -7,6 +7,8 @@
 #include <boost/functional/hash.hpp>
 #include <boost/lexical_cast.hpp>
 
+#include <tm_kit/basic/ByteData.hpp>
+
 namespace dev { namespace cd606 { namespace tm { namespace transport {
 
     struct BoostUUIDComponent {
@@ -32,5 +34,27 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
     };
 
 } } } }
+
+namespace dev { namespace cd606 { namespace tm { namespace basic { namespace bytedata_utils {
+
+    template <>
+    struct RunSerializer<boost::uuids::uuid, void> {
+        static std::string apply(boost::uuids::uuid const &id) {
+            return boost::lexical_cast<std::string>(id);
+        }
+    };
+    template <>
+    struct RunDeserializer<boost::uuids::uuid, void> {
+        static std::optional<boost::uuids::uuid> apply(std::string const &s) {
+            try {
+                boost::uuids::uuid id = boost::lexical_cast<boost::uuids::uuid>(s);
+                return {id};
+            } catch (boost::bad_lexical_cast const &) {
+                return std::nullopt;
+            }
+        }
+    };
+
+} } } } }
 
 #endif
