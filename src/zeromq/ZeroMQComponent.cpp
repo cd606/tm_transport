@@ -153,7 +153,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 while (running_) {
                     {
                         std::unique_lock<std::mutex> lock(mutex_);
-                        cond_.wait_for(lock, std::chrono::seconds(1));
+                        cond_.wait_for(lock, std::chrono::milliseconds(1));
                         if (!running_) {
                             lock.unlock();
                             break;
