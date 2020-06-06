@@ -7,6 +7,7 @@
 #include <future>
 
 #include <tm_kit/infra/RealTimeMonad.hpp>
+#include <tm_kit/basic/ByteData.hpp>
 #include <tm_kit/transport/redis/RedisComponent.hpp>
 #include <tm_kit/transport/AbstractIdentityCheckerComponent.hpp>
 
@@ -189,11 +190,11 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                             }
                             , [this](basic::ByteDataWithID &&data) {
                                 auto parseRes = parseReplyData(std::move(data));
-                                B result;
-                                if (!result.ParseFromString(std::move(std::get<0>(parseRes).content))) {
+                                auto result = basic::bytedata_utils::RunDeserializer<B>::apply(std::get<0>(parseRes).content);
+                                if (!result) {
                                     return;
                                 }
-                                this->publish(env_, typename M::template Key<B> {Env::id_from_string(std::get<0>(parseRes).id), std::move(result)}, (std::get<1>(parseRes)?std::get<1>(parseRes)->isFinal:false));
+                                this->publish(env_, typename M::template Key<B> {Env::id_from_string(std::get<0>(parseRes).id), std::move(*result)}, (std::get<1>(parseRes)?std::get<1>(parseRes)->isFinal:false));
                             }
                             , hooks_);
                     }
@@ -331,10 +332,11 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                     }
                     , [ret](basic::ByteDataWithID &&data) {
                         auto parseRes = parseReplyData(std::move(data));
-                        B val;
-                        if (val.ParseFromString(std::get<0>(parseRes).content)) {
-                            ret->set_value(std::move(val));
+                        auto val = basic::bytedata_utils::RunDeserializer<B>::apply(std::get<0>(parseRes).content);
+                        if (!val) {
+                            return;
                         }
+                        ret->set_value(std::move(*val));
                     }
                     , hooks
                 );
@@ -390,11 +392,11 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                             }
                             , [this](basic::ByteDataWithID &&data) {
                                 auto parseRes = parseReplyData(std::move(data));
-                                B result;
-                                if (!result.ParseFromString(std::move(std::get<0>(parseRes).content))) {
+                                auto result = basic::bytedata_utils::RunDeserializer<B>::apply(std::get<0>(parseRes).content);
+                                if (!result) {
                                     return;
                                 }
-                                this->publish(env_, typename M::template Key<B> {Env::id_from_string(std::get<0>(parseRes).id), std::move(result)}, (std::get<1>(parseRes)?std::get<1>(parseRes)->isFinal:false));
+                                this->publish(env_, typename M::template Key<B> {Env::id_from_string(std::get<0>(parseRes).id), std::move(*result)}, (std::get<1>(parseRes)?std::get<1>(parseRes)->isFinal:false));
                             }
                             , hooks_
                         );
@@ -533,10 +535,11 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                     }
                     , [ret](basic::ByteDataWithID &&data) {
                         auto parseRes = parseReplyData(std::move(data));
-                        B val;
-                        if (val.ParseFromString(std::get<0>(parseRes).content)) {
-                            ret->set_value(std::move(val));
+                        auto val = basic::bytedata_utils::RunDeserializer<B>::apply(std::get<0>(parseRes).content);
+                        if (!val) {
+                            return;
                         }
+                        ret->set_value(std::move(*val));
                     }
                     , hooks
                 );

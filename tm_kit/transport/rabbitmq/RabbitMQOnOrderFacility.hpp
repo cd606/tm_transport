@@ -7,6 +7,7 @@
 #include <future>
 
 #include <tm_kit/infra/RealTimeMonad.hpp>
+#include <tm_kit/basic/ByteData.hpp>
 #include <tm_kit/transport/rabbitmq/RabbitMQComponent.hpp>
 #include <tm_kit/transport/AbstractIdentityCheckerComponent.hpp>
 
@@ -227,11 +228,11 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                         env_ = env;
                         requester_ = env->rabbitmq_setRPCQueueClient(locator_, [this](std::string const &contentEncoding, basic::ByteDataWithID &&data) {
                             auto parseRes = parseReplyData(contentEncoding, std::move(data));
-                            B result;
-                            if (!result.ParseFromString(std::move(std::get<0>(parseRes).content))) {
+                            auto result = basic::bytedata_utils::RunDeserializer<B>::apply(std::get<0>(parseRes).content);
+                            if (!result) {
                                 return;
                             }
-                            this->publish(env_, typename M::template Key<B> {Env::id_from_string(std::get<0>(parseRes).id), std::move(result)}, (std::get<1>(parseRes)?std::get<1>(parseRes)->isFinal:false));
+                            this->publish(env_, typename M::template Key<B> {Env::id_from_string(std::get<0>(parseRes).id), std::move(*result)}, (std::get<1>(parseRes)?std::get<1>(parseRes)->isFinal:false));
                         }, hooks_);
                     }
                     virtual void handle(typename M::template InnerData<typename M::template Key<A>> &&data) override final {
@@ -363,10 +364,11 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 
                 auto requester = env->rabbitmq_setRPCQueueClient(rpcQueueLocator, [ret](std::string const &contentEncoding, basic::ByteDataWithID &&data) {
                     auto parseRes = parseReplyData(contentEncoding, std::move(data));
-                    B val;
-                    if (val.ParseFromString(std::get<0>(parseRes).content)) {
-                        ret->set_value(std::move(val));
+                    auto val = basic::bytedata_utils::RunDeserializer<B>::apply(std::get<0>(parseRes).content);
+                    if (!val) {
+                        return;
                     }
+                    ret->set_value(std::move(*val));
                 }, hooks);
                 sendRequest(env, requester, basic::ByteDataWithID {
                     Env::id_to_string(keyInput.id())
@@ -408,11 +410,11 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                         env_ = env;
                         requester_ = env->rabbitmq_setRPCQueueClient(locator_, [this](std::string const &contentEncoding, basic::ByteDataWithID &&data) {
                             auto parseRes = parseReplyData(contentEncoding, std::move(data));
-                            B result;
-                            if (!result.ParseFromString(std::move(std::get<0>(parseRes).content))) {
+                            auto result = basic::bytedata_utils::RunDeserializer<B>::apply(std::get<0>(parseRes).content);
+                            if (!result) {
                                 return;
                             }
-                            this->publish(env_, typename M::template Key<B> {Env::id_from_string(std::get<0>(parseRes).id), std::move(result)}, (std::get<1>(parseRes)?std::get<1>(parseRes)->isFinal:false));
+                            this->publish(env_, typename M::template Key<B> {Env::id_from_string(std::get<0>(parseRes).id), std::move(*result)}, (std::get<1>(parseRes)?std::get<1>(parseRes)->isFinal:false));
                         }, hooks_);
                     }
                     virtual void handle(typename M::template InnerData<typename M::template Key<A>> &&data) override final {
@@ -544,10 +546,11 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 
                 auto requester = env->rabbitmq_setRPCQueueClient(rpcQueueLocator, [ret](std::string const &contentEncoding, basic::ByteDataWithID &&data) {
                     auto parseRes = parseReplyData(contentEncoding, std::move(data));
-                    B val;
-                    if (val.ParseFromString(std::get<0>(parseRes).content)) {
-                        ret->set_value(std::move(val));
+                    auto val = basic::bytedata_utils::RunDeserializer<B>::apply(std::get<0>(parseRes).content);
+                    if (!val) {
+                        return;
                     }
+                    ret->set_value(std::move(*val));
                 }, hooks);
                 sendRequestWithIdentity<Identity,A>(env, requester, basic::ByteDataWithID {
                     Env::id_to_string(keyInput.id())

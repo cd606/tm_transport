@@ -4,6 +4,7 @@
 #include <type_traits>
 
 #include <tm_kit/infra/RealTimeMonad.hpp>
+#include <tm_kit/basic/ByteData.hpp>
 #include <tm_kit/transport/rabbitmq/RabbitMQComponent.hpp>
 
 namespace dev { namespace cd606 { namespace tm { namespace transport { namespace rabbitmq {
@@ -53,9 +54,9 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                         exchangeLocator_
                         , topic_
                         , [this,env](std::string const &, basic::ByteDataWithTopic &&d) {
-                            T t;
-                            if (t.ParseFromString(d.content)) {
-                                this->publish(M::template pureInnerData<basic::TypedDataWithTopic<T>>(env, {std::move(d.topic), std::move(t)}));
+                            auto t = basic::bytedata_utils::RunDeserializer<T>::apply(d.content);
+                            if (t) {
+                                this->publish(M::template pureInnerData<basic::TypedDataWithTopic<T>>(env, {std::move(d.topic), std::move(*t)}));
                             }
                         }
                         , wireToUserHook_
@@ -107,8 +108,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 }
                 virtual void handle(typename M::template InnerData<basic::TypedDataWithTopic<T>> &&data) override final {
                     if (env_) {
-                        std::string s;
-                        data.timedData.value.content.SerializeToString(&s);
+                        std::string s = basic::bytedata_utils::RunSerializer<T>::apply(data.timedData.value.content);
                         publisher_("", {std::move(data.timedData.value.topic), std::move(s)});
                     }
                 }
