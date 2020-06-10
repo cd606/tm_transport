@@ -54,6 +54,27 @@ namespace dev { namespace cd606 { namespace tm { namespace basic { namespace byt
             }
         }
     };
+    template <>
+    struct RunCBORSerializer<boost::uuids::uuid, void> {
+        static std::vector<std::uint8_t> apply(boost::uuids::uuid const &id) {
+            return RunCBORSerializer<std::string>::apply(boost::lexical_cast<std::string>(id));
+        }
+    };
+    template <>
+    struct RunCBORDeserializer<boost::uuids::uuid, void> {
+        static std::optional<std::tuple<boost::uuids::uuid,size_t>> apply(std::string const &s, size_t start) {
+            try {
+                auto idStr = RunCBORDeserializer<std::string>::apply(s, start);
+                if (!idStr) {
+                    return std::nullopt;
+                }
+                boost::uuids::uuid id = boost::lexical_cast<boost::uuids::uuid>(std::get<0>(*idStr));
+                return std::tuple<boost::uuids::uuid,size_t> {std::move(id), std::get<1>(*idStr)};
+            } catch (boost::bad_lexical_cast const &) {
+                return std::nullopt;
+            }
+        }
+    };
 
 } } } } }
 
