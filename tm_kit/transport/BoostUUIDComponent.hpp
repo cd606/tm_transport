@@ -62,7 +62,7 @@ namespace dev { namespace cd606 { namespace tm { namespace basic { namespace byt
     };
     template <>
     struct RunCBORDeserializer<boost::uuids::uuid, void> {
-        static std::optional<std::tuple<boost::uuids::uuid,size_t>> apply(std::string const &s, size_t start) {
+        static std::optional<std::tuple<boost::uuids::uuid,size_t>> apply(std::string_view const &s, size_t start) {
             try {
                 auto idStr = RunCBORDeserializer<std::string>::apply(s, start);
                 if (!idStr) {
