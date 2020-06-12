@@ -4,7 +4,6 @@
 #include <cstring>
 #include <sstream>
 #include <unordered_map>
-#include <boost/endian/conversion.hpp>
 
 #include <tm_kit/transport/redis/RedisComponent.hpp>
 
@@ -158,34 +157,21 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                         continue;
                     }
 
-                    size_t l = reply->element[2]->len;
-                    char const *p = reply->element[2]->str;
-                    if (l < sizeof(uint32_t)) {
+                    auto parseRes = basic::bytedata_utils::RunCBORDeserializer<basic::ByteDataWithID>::apply(std::string_view {reply->element[2]->str, reply->element[2]->len}, 0);
+                    if (!parseRes || std::get<1>(*parseRes) != reply->element[2]->len) {
                         freeReplyObject((void *) reply);
                         continue;
                     }
-                    uint32_t idLen;
-                    std::memcpy(&idLen, p, sizeof(uint32_t));
-                    idLen = boost::endian::little_to_native<uint32_t>(idLen);
-                    l -= sizeof(uint32_t);
-                    p += sizeof(uint32_t);
-                    if (l < idLen) {
-                        freeReplyObject((void *) reply);
-                        continue;
-                    }
-                    std::string id {p, p+idLen};
-                    l -= idLen;
-                    p += idLen;
-                    std::string content {p, p+l};
-                    freeReplyObject((void *) reply);
+
+                    freeReplyObject((void *) reply);                 
 
                     if (wireToUserHook_) {
-                        auto d = (wireToUserHook_->hook)(basic::ByteData {std::move(content)});
+                        auto d = (wireToUserHook_->hook)(basic::ByteData {std::move(std::get<0>(*parseRes).content)});
                         if (d) {
-                            callback_({std::move(id), std::move(d->content)});
+                            callback_({std::move(std::get<0>(*parseRes).id), std::move(d->content)});
                         }
                     } else {
-                        callback_({std::move(id), std::move(content)});
+                        callback_(std::move(std::get<0>(*parseRes)));
                     }
                 }
             }
@@ -210,15 +196,9 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             ~OneRedisRPCClientConnection() {
             }
             void sendRequest(basic::ByteDataWithID &&data) {
-                uint32_t topicLen = boost::endian::native_to_little<uint32_t>(myCommunicationID_.length());
-                uint32_t idLen = boost::endian::native_to_little<uint32_t>(data.id.length());
-                std::ostringstream oss;
-                oss.write(reinterpret_cast<char const *>(&topicLen), sizeof(uint32_t));
-                oss.write(myCommunicationID_.c_str(), topicLen);
-                oss.write(reinterpret_cast<char const *>(&idLen), sizeof(uint32_t));
-                oss.write(data.id.c_str(), idLen);
-                oss.write(data.content.c_str(), data.content.length());
-                sender_->publish(basic::ByteDataWithTopic {rpcTopic_, oss.str()});       
+                auto encodedData = basic::bytedata_utils::RunSerializer<basic::CBOR<basic::ByteDataWithID>>::apply({std::move(data)});
+                auto encodedDataAndTopic = basic::bytedata_utils::RunSerializer<basic::CBOR<basic::ByteDataWithTopic>>::apply({myCommunicationID_, std::move(encodedData)});
+                sender_->publish(basic::ByteDataWithTopic {rpcTopic_, encodedDataAndTopic});       
             }
         };
 
@@ -260,53 +240,27 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                         continue;
                     }
 
-                    size_t l = reply->element[2]->len;
-                    char const *p = reply->element[2]->str;
-                    if (l < sizeof(uint32_t)) {
+                    auto parseRes = basic::bytedata_utils::RunCBORDeserializer<basic::ByteDataWithTopic>::apply(std::string_view {reply->element[2]->str, reply->element[2]->len}, 0);
+                    if (!parseRes || std::get<1>(*parseRes) != reply->element[2]->len) {
                         freeReplyObject((void *) reply);
                         continue;
                     }
-                    uint32_t replyTopicLen;
-                    std::memcpy(&replyTopicLen, p, sizeof(uint32_t));
-                    replyTopicLen = boost::endian::little_to_native<uint32_t>(replyTopicLen);
-                    l -= sizeof(uint32_t);
-                    p += sizeof(uint32_t);
-                    if (l < replyTopicLen) {
-                        freeReplyObject((void *) reply);
-                        continue;
-                    }
-                    std::string replyTopic {p, p+replyTopicLen};
-                    l -= replyTopicLen;
-                    p += replyTopicLen;
-                    if (l < sizeof(uint32_t)) {
-                        freeReplyObject((void *) reply);
-                        continue;
-                    }
-                    uint32_t idLen;
-                    std::memcpy(&idLen, p, sizeof(uint32_t));
-                    idLen = boost::endian::little_to_native<uint32_t>(idLen);
-                    l -= sizeof(uint32_t);
-                    p += sizeof(uint32_t);
-                    if (l < idLen) {
-                        freeReplyObject((void *) reply);
-                        continue;
-                    }
-                    std::string id {p, p+idLen};
-                    l -= idLen;
-                    p += idLen;
-                    std::string content {p, p+l};
                     freeReplyObject((void *) reply);
+                    auto innerParseRes = basic::bytedata_utils::RunCBORDeserializer<basic::ByteDataWithID>::apply(std::string_view {std::get<0>(*parseRes).content}, 0);
+                    if (!innerParseRes || std::get<1>(*innerParseRes) != std::get<0>(*parseRes).content.length()) {
+                        continue;
+                    }
                     {
                         std::lock_guard<std::mutex> _(mutex_);
-                        replyTopicMap_[id] = replyTopic;
+                        replyTopicMap_[std::get<0>(*innerParseRes).id] = std::get<0>(*parseRes).topic;
                     }
                     if (wireToUserHook_) {
-                        auto d = (wireToUserHook_->hook)(basic::ByteData {std::move(content)});
+                        auto d = (wireToUserHook_->hook)(basic::ByteData {std::move(std::get<0>(*innerParseRes).content)});
                         if (d) {
-                            callback_({std::move(id), std::move(d->content)});
+                            callback_({std::move(std::get<0>(*innerParseRes).id), std::move(d->content)});
                         }
                     } else {
-                        callback_({std::move(id), std::move(content)});
+                        callback_(std::move(std::get<0>(*innerParseRes)));
                     }
                 }
             }
@@ -343,12 +297,8 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                         replyTopicMap_.erase(iter);
                     }
                 }
-                uint32_t idLen = boost::endian::native_to_little<uint32_t>(data.id.length());
-                std::ostringstream oss;
-                oss.write(reinterpret_cast<char const *>(&idLen), sizeof(uint32_t));
-                oss.write(data.id.c_str(), idLen);
-                oss.write(data.content.c_str(), data.content.length());
-                sender_->publish(basic::ByteDataWithTopic {replyTopic, oss.str()});           
+                auto encodedData = basic::bytedata_utils::RunSerializer<basic::CBOR<basic::ByteDataWithID>>::apply({std::move(data)});
+                sender_->publish(basic::ByteDataWithTopic {replyTopic, encodedData});           
             }
         };
         std::unordered_map<ConnectionLocator, std::unique_ptr<OneRedisRPCServerConnection>> rpcServerConnections_;

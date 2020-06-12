@@ -4,7 +4,6 @@
 #include <unordered_map>
 #include <boost/asio.hpp>
 #include <boost/bind/bind.hpp>
-#include <boost/endian/conversion.hpp>
 
 #include <tm_kit/transport/multicast/MulticastComponent.hpp>
 
@@ -38,42 +37,23 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
 
             void handleReceive(boost::system::error_code const &err, size_t bytesReceived) {
                 if (!err) {
-                    bool good = true;
-                    uint32_t topicLen = 0;
-                    char const *p = buffer_.data();
-                    if (bytesReceived < sizeof(uint32_t)) {
-                        good = false;
-                    } else {
-                        std::memcpy(&topicLen, p, sizeof(uint32_t));
-                        topicLen = boost::endian::little_to_native<uint32_t>(topicLen);
-                        p += sizeof(uint32_t);
-                        bytesReceived -= sizeof(uint32_t);
-                    }
-                    std::string topic;
-                    if (good) {
-                        if (topicLen == 0 || topicLen > bytesReceived) {
-                            good = false;
-                        } else {
-                            topic = std::string {p, p+topicLen};
-                            p += topicLen;
-                            bytesReceived -= topicLen;
-                        }
-                    }
-                    if (good) {
+                    auto parseRes = basic::bytedata_utils::RunCBORDeserializer<basic::ByteDataWithTopic>::apply(std::string_view {buffer_.data(), bytesReceived}, 0);
+                    if (parseRes && std::get<1>(*parseRes) == bytesReceived) {
+                        basic::ByteDataWithTopic data = std::move(std::get<0>(*parseRes));
+
                         std::lock_guard<std::mutex> _(mutex_);
                         
-                        const std::string content {p, p+bytesReceived};
                         for (auto const &f : noFilterClients_) {
-                            callClient(f, {topic, content});
+                            callClient(f, basic::ByteDataWithTopic {data});
                         }
                         for (auto const &f : stringMatchClients_) {
-                            if (topic == std::get<0>(f)) {
-                                callClient(std::get<1>(f), {topic, content});
+                            if (data.topic == std::get<0>(f)) {
+                                callClient(std::get<1>(f), basic::ByteDataWithTopic {data});
                             }
                         }
                         for (auto const &f : regexMatchClients_) {
-                            if (std::regex_match(topic, std::get<0>(f))) {
-                                callClient(std::get<1>(f), {topic, content});
+                            if (std::regex_match(data.topic, std::get<0>(f))) {
+                                callClient(std::get<1>(f), basic::ByteDataWithTopic {data});
                             }
                         }
                     }  
@@ -148,14 +128,13 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         private:
             boost::asio::ip::udp::socket sock_;
             boost::asio::ip::udp::endpoint destination_;
-            std::array<char, 16*1024*1024> buffer_;
             std::mutex mutex_;
             int ttl_;
             void handleSend(boost::system::error_code const &) {
             }
         public:
             OneMulticastSender(boost::asio::io_service *service, ConnectionLocator const &locator)
-                : sock_(*service), destination_(), buffer_(), mutex_(), ttl_(0)
+                : sock_(*service), destination_(), mutex_(), ttl_(0)
             {
                 boost::asio::ip::udp::resolver resolver(*service);
                 boost::asio::ip::udp::resolver::query query(locator.host(), std::to_string(locator.port()));
@@ -166,21 +145,14 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 sock_.set_option(boost::asio::ip::udp::socket::send_buffer_size(16*1024*1024));
             }
             void publish(basic::ByteDataWithTopic &&data, int ttl) {
+                auto v = basic::bytedata_utils::RunCBORSerializer<basic::ByteDataWithTopic>::apply(data);     
                 std::lock_guard<std::mutex> _(mutex_);
-                char *p = buffer_.data();
-                uint32_t topicLen = boost::endian::native_to_little<uint32_t>((uint32_t) data.topic.length());
-                std::memcpy(p, &topicLen, sizeof(uint32_t));
-                p += sizeof(uint32_t);
-                std::memcpy(p, data.topic.c_str(), topicLen);
-                p += topicLen;
-                std::memcpy(p, data.content.c_str(), data.content.length());
-                p += data.content.length();
                 if (ttl != ttl_) {
                     sock_.set_option(boost::asio::ip::multicast::hops(ttl));
                     ttl_ = ttl;
                 }
                 sock_.async_send_to(
-                    boost::asio::buffer(buffer_.data(), p-buffer_.data())
+                    boost::asio::buffer(reinterpret_cast<const char *>(v.data()), v.size())
                     , destination_
                     , boost::bind(&OneMulticastSender::handleSend, this, boost::asio::placeholders::error)
                 );

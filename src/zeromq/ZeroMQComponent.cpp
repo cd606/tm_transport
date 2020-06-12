@@ -6,7 +6,6 @@
 #include <sstream>
 #include <unordered_map>
 #include <cppzmq/zmq.hpp>
-#include <boost/endian/conversion.hpp>
 
 #include <tm_kit/transport/zeromq/ZeroMQComponent.hpp>
 
@@ -58,43 +57,23 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                         continue;
                     }
                     
-                    size_t bytesReceived = res->size;
-                    bool good = true;
-                    uint32_t topicLen = 0;
-                    char const *p = buffer_.data();
-                    if (bytesReceived < sizeof(uint32_t)) {
-                        good = false;
-                    } else {
-                        std::memcpy(&topicLen, p, sizeof(uint32_t));
-                        topicLen = boost::endian::little_to_native<uint32_t>(topicLen);
-                        p += sizeof(uint32_t);
-                        bytesReceived -= sizeof(uint32_t);
-                    }
-                    std::string topic;
-                    if (good) {
-                        if (topicLen == 0 || topicLen > bytesReceived) {
-                            good = false;
-                        } else {
-                            topic = std::string {p, p+topicLen};
-                            p += topicLen;
-                            bytesReceived -= topicLen;
-                        }
-                    }
-                    if (good) {
+                    auto parseRes = basic::bytedata_utils::RunCBORDeserializer<basic::ByteDataWithTopic>::apply(std::string_view {buffer_.data(), res->size}, 0);
+                    if (parseRes && std::get<1>(*parseRes) == res->size) {
+                        basic::ByteDataWithTopic data = std::move(std::get<0>(*parseRes));
+
                         std::lock_guard<std::mutex> _(mutex_);
                         
-                        const std::string content {p, p+bytesReceived};
                         for (auto const &f : noFilterClients_) {
-                            callClient(f, {topic, content});
+                            callClient(f, basic::ByteDataWithTopic {data});
                         }
                         for (auto const &f : stringMatchClients_) {
-                            if (topic == std::get<0>(f)) {
-                                callClient(std::get<1>(f), {topic, content});
+                            if (data.topic == std::get<0>(f)) {
+                                callClient(std::get<1>(f), basic::ByteDataWithTopic {data});
                             }
                         }
                         for (auto const &f : regexMatchClients_) {
-                            if (std::regex_match(topic, std::get<0>(f))) {
-                                callClient(std::get<1>(f), {topic, content});
+                            if (std::regex_match(data.topic, std::get<0>(f))) {
+                                callClient(std::get<1>(f), basic::ByteDataWithTopic {data});
                             }
                         }
                     }  
@@ -139,7 +118,6 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         
         class OneZeroMQSender {
         private:
-            std::array<char, 16*1024*1024> buffer_;
             std::thread thread_;
             std::list<basic::ByteDataWithTopic> incoming_, processing_;
             std::mutex mutex_;
@@ -167,17 +145,10 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                     }
                     while (!processing_.empty()) {
                         auto const &item = processing_.front();
-                        char *p = buffer_.data();
-                        uint32_t topicLen = boost::endian::native_to_little<uint32_t>((uint32_t) item.topic.length());
-                        std::memcpy(p, &topicLen, sizeof(uint32_t));
-                        p += sizeof(uint32_t);
-                        std::memcpy(p, item.topic.c_str(), topicLen);
-                        p += topicLen;
-                        std::memcpy(p, item.content.c_str(), item.content.length());
-                        p += item.content.length();
+                        auto v = basic::bytedata_utils::RunCBORSerializer<basic::ByteDataWithTopic>::apply(item);
 
                         sock.send(
-                            zmq::const_buffer(buffer_.data(), p-buffer_.data())
+                            zmq::const_buffer(reinterpret_cast<char const *>(v.data()), v.size())
                             , zmq::send_flags::dontwait
                         );   
 
@@ -187,7 +158,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             }
         public:
             OneZeroMQSender(int port, zmq::context_t *p_ctx)
-                : buffer_(), thread_(), incoming_(), processing_(), mutex_()
+                : thread_(), incoming_(), processing_(), mutex_()
                 , cond_(), running_(true)
             {
                 thread_ = std::thread(&OneZeroMQSender::run, this, port, p_ctx);
