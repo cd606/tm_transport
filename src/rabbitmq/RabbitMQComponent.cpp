@@ -39,7 +39,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                     AmqpClient::Envelope::ptr_t msg;
                     if (channel_->BasicConsumeMessage(tag, msg, 1000)) {
                         if (wireToUserHook_) {
-                            auto b = (wireToUserHook_->hook)(basic::ByteData {std::move(msg->Message()->Body())});
+                            auto b = (wireToUserHook_->hook)(basic::ByteData {msg->Message()->Body()});
                             if (b) {
                                 callback_(msg->Message()->ContentEncoding(), {
                                     msg->RoutingKey()
@@ -183,7 +183,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                     if (channel_->BasicConsumeMessage(localQueue_, msg, 1000)) {
                         std::string corrID = msg->Message()->CorrelationId();
                         if (wireToUserHook_) {
-                            auto d = (wireToUserHook_->hook)(basic::ByteData {std::move(msg->Message()->Body())});
+                            auto d = (wireToUserHook_->hook)(basic::ByteData {msg->Message()->Body()});
                             if (d) {
                                 callback_(msg->Message()->ContentEncoding(), {corrID, std::move(d->content)});
                             }
@@ -248,7 +248,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                             replyQueueMap_[corrID] = msg->Message()->ReplyTo();
                         }
                         if (wireToUserHook_) {
-                            auto d = (wireToUserHook_->hook)(basic::ByteData {std::move(msg->Message()->Body())});
+                            auto d = (wireToUserHook_->hook)(basic::ByteData {msg->Message()->Body()});
                             if (d) {
                                 callback_(msg->Message()->ContentEncoding(), {corrID, std::move(d->content)});
                             }
