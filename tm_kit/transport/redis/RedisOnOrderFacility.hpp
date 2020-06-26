@@ -285,6 +285,42 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 runner.execute(deserializer, runner.importItem(importer));
                 runner.placeOrderWithLocalFacilityAndForget(runner.actionAsSource(deserializer), toBeWrapped);
             }
+            template <class A, class B, class C>
+            static void wrapOnOrderFacilityWithExternalEffects(
+                infra::MonadRunner<M> &runner
+                , std::shared_ptr<typename M::template OnOrderFacilityWithExternalEffects<A,B,C>> const &toBeWrapped
+                , ConnectionLocator const &rpcQueueLocator
+                , std::string const &wrapperItemsNamePrefix
+                , std::optional<ByteDataHookPair> hooks = std::nullopt
+            ) {
+                auto importerExporterPair = createOnOrderFacilityRPCConnectorIncomingAndOutgoingLegs(rpcQueueLocator, hooks);
+                auto deserializer = simplyDeserialize<A>();
+                auto serializer = basic::SerializationActions<M>::template serializeWithKey<A,B>();
+
+                runner.registerImporter(std::get<0>(importerExporterPair), wrapperItemsNamePrefix+"_incomingLeg");
+                runner.registerExporter(std::get<1>(importerExporterPair), wrapperItemsNamePrefix+"_outgoingLeg");
+                runner.registerAction(deserializer, wrapperItemsNamePrefix+"_deserializer");
+                runner.registerAction(serializer, wrapperItemsNamePrefix+"_serializer");
+                runner.execute(deserializer, runner.importItem(std::get<0>(importerExporterPair)));
+                runner.placeOrderWithFacilityWithExternalEffects(runner.actionAsSource(deserializer), toBeWrapped, runner.actionAsSink(serializer));
+                runner.connect(runner.actionAsSource(serializer), runner.exporterAsSink(std::get<1>(importerExporterPair)));
+            }
+            template <class A, class B, class C>
+            static void wrapOnOrderFacilityWithExternalEffectsWithoutReply(
+                infra::MonadRunner<M> &runner
+                , std::shared_ptr<typename M::template OnOrderFacilityWithExternalEffects<A,B,C>> const &toBeWrapped
+                , ConnectionLocator const &rpcQueueLocator
+                , std::string const &wrapperItemsNamePrefix
+                , std::optional<ByteDataHookPair> hooks = std::nullopt
+            ) {
+                auto importer = createOnOrderFacilityRPCConnectorIncomingLegOnly(rpcQueueLocator, hooks);
+                auto deserializer = simplyDeserialize<A>();
+
+                runner.registerImporter(importer, wrapperItemsNamePrefix+"_incomingLeg");
+                runner.registerAction(deserializer, wrapperItemsNamePrefix+"_deserializer");
+                runner.execute(deserializer, runner.importItem(importer));
+                runner.placeOrderWithFacilityWithExternalEffectsAndForget(runner.actionAsSource(deserializer), toBeWrapped);
+            }
             
             template <class A, class B>
             static auto facilityWrapper(
@@ -317,6 +353,22 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 , std::optional<ByteDataHookPair> hooks = std::nullopt
             ) -> typename infra::MonadRunner<M>::template LocalFacilityWrapper<A,B,C> {
                 return { std::bind(wrapLocalOnOrderFacilityWithoutReply<A,B,C>, std::placeholders::_1, std::placeholders::_2, rpcQueueLocator, wrapperItemsNamePrefix, hooks) };
+            }
+            template <class A, class B, class C>
+            static auto facilityWithExternalEffectsWrapper(
+                ConnectionLocator const &rpcQueueLocator
+                , std::string const &wrapperItemsNamePrefix
+                , std::optional<ByteDataHookPair> hooks = std::nullopt
+            ) -> typename infra::MonadRunner<M>::template FacilityWithExternalEffectsWrapper<A,B,C> {
+                return { std::bind(wrapOnOrderFacilityWithExternalEffects<A,B,C>, std::placeholders::_1, std::placeholders::_2, rpcQueueLocator, wrapperItemsNamePrefix, hooks) };
+            }
+            template <class A, class B, class C>
+            static auto facilityWithExternalEffectsWrapperWithoutReply(
+                ConnectionLocator const &rpcQueueLocator
+                , std::string const &wrapperItemsNamePrefix
+                , std::optional<ByteDataHookPair> hooks = std::nullopt
+            ) -> typename infra::MonadRunner<M>::template FacilityWithExternalEffectsWrapper<A,B,C> {
+                return { std::bind(wrapOnOrderFacilityWithExternalEffectsWithoutReply<A,B,C>, std::placeholders::_1, std::placeholders::_2, rpcQueueLocator, wrapperItemsNamePrefix, hooks) };
             }
 
             template <class A, class B>
@@ -488,6 +540,42 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 runner.execute(deserializer, runner.importItem(importer));
                 runner.placeOrderWithLocalFacilityAndForget(runner.actionAsSource(deserializer), toBeWrapped);
             }
+            template <class A, class B, class C>
+            static void wrapOnOrderFacilityWithExternalEffects(
+                infra::MonadRunner<M> &runner
+                , std::shared_ptr<typename M::template OnOrderFacilityWithExternalEffects<std::tuple<Identity,A>,B,C>> const &toBeWrapped
+                , ConnectionLocator const &rpcQueueLocator
+                , std::string const &wrapperItemsNamePrefix
+                , std::optional<ByteDataHookPair> hooks = std::nullopt
+            ) {
+                auto importerExporterPair = createOnOrderFacilityRPCConnectorIncomingAndOutgoingLegs(rpcQueueLocator, hooks);
+                auto deserializer = checkIdentityAndDeserialize<Identity,A>();
+                auto serializer = basic::SerializationActions<M>::template serializeWithKey<std::tuple<Identity,A>,B>();
+
+                runner.registerImporter(std::get<0>(importerExporterPair), wrapperItemsNamePrefix+"_incomingLeg");
+                runner.registerExporter(std::get<1>(importerExporterPair), wrapperItemsNamePrefix+"_outgoingLeg");
+                runner.registerAction(deserializer, wrapperItemsNamePrefix+"_deserializer");
+                runner.registerAction(serializer, wrapperItemsNamePrefix+"_serializer");
+                runner.execute(deserializer, runner.importItem(std::get<0>(importerExporterPair)));
+                runner.placeOrderWithFacilityWithExternalEffects(runner.actionAsSource(deserializer), toBeWrapped, runner.actionAsSink(serializer));
+                runner.connect(runner.actionAsSource(serializer), runner.exporterAsSink(std::get<1>(importerExporterPair)));
+            }
+            template <class A, class B, class C>
+            static void wrapOnOrderFacilityWithExternalEffectsWithoutReply(
+                infra::MonadRunner<M> &runner
+                , std::shared_ptr<typename M::template OnOrderFacilityWithExternalEffects<std::tuple<Identity,A>,B,C>> const &toBeWrapped
+                , ConnectionLocator const &rpcQueueLocator
+                , std::string const &wrapperItemsNamePrefix
+                , std::optional<ByteDataHookPair> hooks = std::nullopt
+            ) {
+                auto importer = createOnOrderFacilityRPCConnectorIncomingLegOnly(rpcQueueLocator, hooks);
+                auto deserializer = checkIdentityAndDeserialize<Identity,A>();
+
+                runner.registerImporter(importer, wrapperItemsNamePrefix+"_incomingLeg");
+                runner.registerAction(deserializer, wrapperItemsNamePrefix+"_deserializer");
+                runner.execute(deserializer, runner.importItem(importer));
+                runner.placeOrderWithFacilityWithExternalEffectsAndForget(runner.actionAsSource(deserializer), toBeWrapped);
+            }
 
             template <class A, class B>
             static auto facilityWrapper(
@@ -520,6 +608,22 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 , std::optional<ByteDataHookPair> hooks = std::nullopt
             ) -> typename infra::MonadRunner<M>::template LocalFacilityWrapper<std::tuple<Identity,A>,B,C> {
                 return { std::bind(wrapLocalOnOrderFacilityWithoutReply<A,B,C>, std::placeholders::_1, std::placeholders::_2, rpcQueueLocator, wrapperItemsNamePrefix, hooks) };
+            }
+            template <class A, class B, class C>
+            static auto facilityWithExternalEffectsWrapperWithIdentity(
+                ConnectionLocator const &rpcQueueLocator
+                , std::string const &wrapperItemsNamePrefix
+                , std::optional<ByteDataHookPair> hooks = std::nullopt
+            ) -> typename infra::MonadRunner<M>::template FacilityWithExternalEffectsWrapper<std::tuple<Identity,A>,B,C> {
+                return { std::bind(wrapOnOrderFacilityWithExternalEffects<A,B,C>, std::placeholders::_1, std::placeholders::_2, rpcQueueLocator, wrapperItemsNamePrefix, hooks) };
+            }
+            template <class A, class B, class C>
+            static auto facilityWithExternalEffectsWrapperWithoutReply(
+                ConnectionLocator const &rpcQueueLocator
+                , std::string const &wrapperItemsNamePrefix
+                , std::optional<ByteDataHookPair> hooks = std::nullopt
+            ) -> typename infra::MonadRunner<M>::template FacilityWithExternalEffectsWrapper<std::tuple<Identity,A>,B,C> {
+                return { std::bind(wrapOnOrderFacilityWithExternalEffectsWithoutReply<A,B,C>, std::placeholders::_1, std::placeholders::_2, rpcQueueLocator, wrapperItemsNamePrefix, hooks) };
             }
 
             template <class A, class B>
