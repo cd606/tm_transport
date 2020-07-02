@@ -31,10 +31,11 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
 
         //for exchanges, the identifier in locator is the exchange name
         //for subscription, the topic can be in rabbitmq wildcard format
-        void rabbitmq_addExchangeSubscriptionClient(ConnectionLocator const &locator,
+        uint32_t rabbitmq_addExchangeSubscriptionClient(ConnectionLocator const &locator,
                         std::string const &topic,
                         std::function<void(std::string const &, basic::ByteDataWithTopic &&)> client,
                         std::optional<WireToUserHook> wireToUserHook = std::nullopt);
+        void rabbitmq_removeExchangeSubscriptionClient(uint32_t);
         std::function<void(std::string const &, basic::ByteDataWithTopic &&)> rabbitmq_getExchangePublisher(ConnectionLocator const &locator, std::optional<UserToWireHook> userToWireHook = std::nullopt);
         //for RPC queues, the identifier in locator is the queue name
         std::function<void(std::string const &, basic::ByteDataWithID &&)> rabbitmq_setRPCQueueClient(ConnectionLocator const &locator,

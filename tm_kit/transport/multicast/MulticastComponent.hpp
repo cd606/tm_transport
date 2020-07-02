@@ -25,10 +25,11 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         ~MulticastComponent();
         //only host and port are needed in the locators
         struct NoTopicSelection {};
-        void multicast_addSubscriptionClient(ConnectionLocator const &locator,
+        uint32_t multicast_addSubscriptionClient(ConnectionLocator const &locator,
                         std::variant<NoTopicSelection, std::string, std::regex> const &topic,
                         std::function<void(basic::ByteDataWithTopic &&)> client,
                         std::optional<WireToUserHook> wireToUserHook = std::nullopt);
+        void multicast_removeSubscriptionClient(uint32_t id);
         //the "int" parameter is the ttl
         std::function<void(basic::ByteDataWithTopic &&, int)> multicast_getPublisher(ConnectionLocator const &locator, std::optional<UserToWireHook> userToWireHook = std::nullopt);
     };

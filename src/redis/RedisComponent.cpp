@@ -17,14 +17,17 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
     private:
         class OneRedisSubscription {
         private:
+            ConnectionLocator locator_;
             redisContext *ctx_;
             struct ClientCB {
+                uint32_t id;
                 std::function<void(basic::ByteDataWithTopic &&)> cb;
                 std::optional<WireToUserHook> hook;
             };
             std::vector<ClientCB> clients_;
             std::thread th_;
             std::mutex mutex_;
+            std::atomic<bool> running_;
 
             inline void callClient(ClientCB const &c, basic::ByteDataWithTopic &&d) {
                 if (c.hook) {
@@ -39,8 +42,11 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
 
             void run() {
                 struct redisReply *reply = nullptr;
-                while (true) {
+                while (running_) {
                     int r = redisGetReply(ctx_, (void **) &reply);
+                    if (!running_) {
+                        break;
+                    }
                     if (r != REDIS_OK) {
                         if (reply != nullptr) {
                             freeReplyObject((void *) &reply);
@@ -61,6 +67,9 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                     std::string content(reply->element[3]->str, reply->element[3]->len);
                     freeReplyObject((void *) reply);
 
+                    if (!running_) {
+                        break;
+                    }
                     std::lock_guard<std::mutex> _(mutex_);
                     for (auto const &cb : clients_) {
                         callClient(cb, {topic, content});
@@ -69,10 +78,12 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             }
         public:
             OneRedisSubscription(ConnectionLocator const &locator, std::string const &topic) 
-                : ctx_(nullptr)
+                : locator_(locator)
+                , ctx_(nullptr)
                 , clients_()
                 , th_()
                 , mutex_()
+                , running_(true)
             {
                 ctx_ = redisConnect(locator.host().c_str(), locator.port());
                 if (ctx_ != nullptr) {
@@ -83,14 +94,40 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 }
             }
             ~OneRedisSubscription() {
+                running_ = false;
+                th_.join();
             }
             void addSubscription(
-                std::function<void(basic::ByteDataWithTopic &&)> handler
+                uint32_t id
+                , std::function<void(basic::ByteDataWithTopic &&)> handler
                 , std::optional<WireToUserHook> wireToUserHook
             ) {
                 std::lock_guard<std::mutex> _(mutex_);
-                clients_.push_back({handler, wireToUserHook});
+                clients_.push_back({id, handler, wireToUserHook});
             }  
+            void removeSubscription(uint32_t id) {
+                std::lock_guard<std::mutex> _(mutex_);
+                clients_.erase(std::remove_if(
+                    clients_.begin()
+                    , clients_.end()
+                    , [id](auto const &x) {
+                        return x.id == id;
+                    }
+                ), clients_.end());
+            }
+            bool checkWhetherNeedsToStop() {
+                std::lock_guard<std::mutex> _(mutex_);
+                if (clients_.empty()) {
+                    running_ = false;
+                    redisFree(ctx_);
+                    return true;
+                } else {
+                    return false;
+                }
+            }
+            ConnectionLocator const &locator() const {
+                return locator_;
+            }
         };
         
         std::unordered_map<ConnectionLocator, std::unordered_map<std::string, std::unique_ptr<OneRedisSubscription>>> subscriptions_;
@@ -305,6 +342,10 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
 
         std::mutex mutex_;
 
+        uint32_t counter_;
+        std::unordered_map<uint32_t, OneRedisSubscription *> idToSubscriptionMap_;
+        std::mutex idMutex_;
+
         OneRedisSubscription *getOrStartSubscription(ConnectionLocator const &d, std::string const &topic) {
             ConnectionLocator hostAndPort {d.host(), d.port()};
             std::lock_guard<std::mutex> _(mutex_);
@@ -317,6 +358,12 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 innerIter = subscriptionIter->second.insert({topic, std::make_unique<OneRedisSubscription>(hostAndPort, topic)}).first;
             }
             return innerIter->second.get();
+        }
+        void potentiallyStopSubscription(OneRedisSubscription *p) {
+            std::lock_guard<std::mutex> _(mutex_);
+            if (p->checkWhetherNeedsToStop()) {
+                subscriptions_.erase(p->locator());
+            }
         }
         OneRedisSender *getOrStartSender(ConnectionLocator const &d) {
             std::lock_guard<std::mutex> _(mutex_);
@@ -354,15 +401,39 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         }
     public:
         RedisComponentImpl() 
-            : subscriptions_(), senders_(), rpcClientConnections_(), rpcServerConnections_(), mutex_() { 
+            : subscriptions_(), senders_(), rpcClientConnections_(), rpcServerConnections_(), mutex_()
+            , counter_(0), idToSubscriptionMap_(), idMutex_()
+        { 
         }
         ~RedisComponentImpl() = default;
-        void addSubscriptionClient(ConnectionLocator const &locator,
+        uint32_t addSubscriptionClient(ConnectionLocator const &locator,
             std::string const &topic,
             std::function<void(basic::ByteDataWithTopic &&)> client,
             std::optional<WireToUserHook> wireToUserHook) {
             auto *p = getOrStartSubscription(locator, topic);
-            p->addSubscription(client, wireToUserHook);
+            {
+                std::lock_guard<std::mutex> _(idMutex_);
+                ++counter_;
+                p->addSubscription(counter_, client, wireToUserHook);
+                idToSubscriptionMap_[counter_] = p;
+                return counter_;
+            }
+        }
+        void removeSubscriptionClient(uint32_t id) {
+            OneRedisSubscription *p = nullptr;
+            {
+                std::lock_guard<std::mutex> _(idMutex_);
+                auto iter = idToSubscriptionMap_.find(id);
+                if (iter == idToSubscriptionMap_.end()) {
+                    return;
+                }
+                p = iter->second;
+                idToSubscriptionMap_.erase(iter);
+            }
+            if (p != nullptr) {
+                p->removeSubscription(id);
+                potentiallyStopSubscription(p);
+            }
         }
         std::function<void(basic::ByteDataWithTopic &&)> getPublisher(ConnectionLocator const &locator, std::optional<UserToWireHook> userToWireHook) {
             auto *p = getOrStartSender(locator);
@@ -429,11 +500,14 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
     RedisComponent::~RedisComponent() {}
     RedisComponent::RedisComponent(RedisComponent &&) = default;
     RedisComponent &RedisComponent::operator=(RedisComponent &&) = default;
-    void RedisComponent::redis_addSubscriptionClient(ConnectionLocator const &locator,
+    uint32_t RedisComponent::redis_addSubscriptionClient(ConnectionLocator const &locator,
         std::string const &topic,
         std::function<void(basic::ByteDataWithTopic &&)> client,
         std::optional<WireToUserHook> wireToUserHook) {
-        impl_->addSubscriptionClient(locator, topic, client, wireToUserHook);
+        return impl_->addSubscriptionClient(locator, topic, client, wireToUserHook);
+    }
+    void RedisComponent::redis_removeSubscriptionClient(uint32_t id) {
+        impl_->removeSubscriptionClient(id);
     }
     std::function<void(basic::ByteDataWithTopic &&)> RedisComponent::redis_getPublisher(ConnectionLocator const &locator, std::optional<UserToWireHook> userToWireHook) {
         return impl_->getPublisher(locator, userToWireHook);

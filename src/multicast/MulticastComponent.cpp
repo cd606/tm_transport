@@ -12,10 +12,13 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
     private:
         class OneMulticastSubscription {
         private:
+            ConnectionLocator locator_;
             boost::asio::ip::udp::socket sock_;
             boost::asio::ip::udp::endpoint senderPoint_;
+            boost::asio::ip::address mcastAddr_;
             std::array<char, 16*1024*1024> buffer_;
             struct ClientCB {
+                uint32_t id;
                 std::function<void(basic::ByteDataWithTopic &&)> cb;
                 std::optional<WireToUserHook> hook;
             };
@@ -23,6 +26,8 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             std::vector<std::tuple<std::string, ClientCB>> stringMatchClients_;
             std::vector<std::tuple<std::regex, ClientCB>> regexMatchClients_;
             std::mutex mutex_;
+
+            std::atomic<bool> running_;
 
             inline void callClient(ClientCB const &c, basic::ByteDataWithTopic &&d) {
                 if (c.hook) {
@@ -36,6 +41,9 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             }
 
             void handleReceive(boost::system::error_code const &err, size_t bytesReceived) {
+                if (!running_) {
+                    return;
+                }
                 if (!err) {
                     auto parseRes = basic::bytedata_utils::RunCBORDeserializer<basic::ByteDataWithTopic>::apply(std::string_view {buffer_.data(), bytesReceived}, 0);
                     if (parseRes && std::get<1>(*parseRes) == bytesReceived) {
@@ -69,9 +77,9 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             }
         public:
             OneMulticastSubscription(boost::asio::io_service *service, ConnectionLocator const &locator) 
-                : sock_(*service), senderPoint_(), buffer_()
+                : locator_(locator), sock_(*service), senderPoint_(), mcastAddr_(), buffer_()
                 , noFilterClients_(), stringMatchClients_(), regexMatchClients_()
-                , mutex_()
+                , mutex_(), running_(true)
             {
                 boost::asio::ip::udp::resolver resolver(*service);
 
@@ -86,8 +94,9 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 
                 {
                     boost::asio::ip::udp::resolver::query query(locator.host(), std::to_string(locator.port()));
+                    mcastAddr_ = resolver.resolve(query)->endpoint().address();
                     sock_.set_option(boost::asio::ip::multicast::join_group(
-                        resolver.resolve(query)->endpoint().address()
+                        mcastAddr_
                     ));
                 }
 
@@ -100,25 +109,74 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                                 , boost::asio::placeholders::bytes_transferred)
                 );
             }
-            ~OneMulticastSubscription() = default;
+            ~OneMulticastSubscription() {
+                running_ = false;
+                sock_.close();
+            }
+            ConnectionLocator const &locator() const {
+                return locator_;
+            }
             void addSubscription(
-                std::variant<MulticastComponent::NoTopicSelection, std::string, std::regex> const &topic
+                uint32_t id
+                , std::variant<MulticastComponent::NoTopicSelection, std::string, std::regex> const &topic
                 , std::function<void(basic::ByteDataWithTopic &&)> handler
                 , std::optional<WireToUserHook> wireToUserHook
             ) {
                 std::lock_guard<std::mutex> _(mutex_);
                 switch (topic.index()) {
                 case 0:
-                    noFilterClients_.push_back({handler, wireToUserHook});
+                    noFilterClients_.push_back({id, handler, wireToUserHook});
                     break;
                 case 1:
-                    stringMatchClients_.push_back({std::get<std::string>(topic), {handler, wireToUserHook}});
+                    stringMatchClients_.push_back({std::get<std::string>(topic), {id, handler, wireToUserHook}});
                     break;
                 case 2:
-                    regexMatchClients_.push_back({std::get<std::regex>(topic), {handler, wireToUserHook}});
+                    regexMatchClients_.push_back({std::get<std::regex>(topic), {id, handler, wireToUserHook}});
                     break;
                 default:
                     break;
+                }
+            }
+            void removeSubscription(uint32_t id) {
+                std::lock_guard<std::mutex> _(mutex_);
+                noFilterClients_.erase(
+                    std::remove_if(
+                        noFilterClients_.begin()
+                        , noFilterClients_.end()
+                        , [id](auto const &x) {
+                            return x.id == id;
+                        })
+                    , noFilterClients_.end()
+                );
+                stringMatchClients_.erase(
+                    std::remove_if(
+                        stringMatchClients_.begin()
+                        , stringMatchClients_.end()
+                        , [id](auto const &x) {
+                            return std::get<1>(x).id == id;
+                        })
+                    , stringMatchClients_.end()
+                );
+                regexMatchClients_.erase(
+                    std::remove_if(
+                        regexMatchClients_.begin()
+                        , regexMatchClients_.end()
+                        , [id](auto const &x) {
+                            return std::get<1>(x).id == id;
+                        })
+                    , regexMatchClients_.end()
+                );
+            }
+            bool checkWhetherNeedsToStop() {
+                std::lock_guard<std::mutex> _(mutex_);
+                if (noFilterClients_.empty() && stringMatchClients_.empty() && regexMatchClients_.empty()) {
+                    running_ = false;
+                    sock_.set_option(boost::asio::ip::multicast::leave_group(
+                        mcastAddr_
+                    ));
+                    return true;
+                } else {
+                    return false;
                 }
             }
         };
@@ -166,6 +224,10 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         std::mutex mutex_;
         bool senderThreadStarted_;
 
+        uint32_t counter_;
+        std::unordered_map<uint32_t, OneMulticastSubscription *> idToSubscriptionMap_;
+        std::mutex idMutex_;
+
         OneMulticastSubscription *getOrStartSubscription(ConnectionLocator const &d) {
             ConnectionLocator hostAndPort {d.host(), d.port()};
             std::lock_guard<std::mutex> _(mutex_);
@@ -180,6 +242,12 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 th.detach();
             }
             return iter->second.get();
+        }
+        void potentiallyStopSubscription(OneMulticastSubscription *p) {
+            std::lock_guard<std::mutex> _(mutex_);
+            if (p->checkWhetherNeedsToStop()) {
+                subscriptions_.erase(p->locator());
+            }
         }
         OneMulticastSender *getOrStartSender(ConnectionLocator const &d) {
             ConnectionLocator hostAndPort {d.host(), d.port()};
@@ -199,7 +267,9 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         }
     public:
         MulticastComponentImpl()
-            : subscriptions_(), senders_(), senderService_(), senderThread_(), mutex_(), senderThreadStarted_(false) {            
+            : subscriptions_(), senders_(), senderService_(), senderThread_(), mutex_(), senderThreadStarted_(false)
+            , counter_(0), idToSubscriptionMap_(), idMutex_()
+        {            
         }
         ~MulticastComponentImpl() {
             bool b;
@@ -212,12 +282,34 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 senderThread_.join();
             }
         }
-        void addSubscriptionClient(ConnectionLocator const &locator,
+        uint32_t addSubscriptionClient(ConnectionLocator const &locator,
             std::variant<MulticastComponent::NoTopicSelection, std::string, std::regex> const &topic,
             std::function<void(basic::ByteDataWithTopic &&)> client,
             std::optional<WireToUserHook> wireToUserHook) {
             auto *p = getOrStartSubscription(locator);
-            p->addSubscription(topic, client, wireToUserHook);
+            {
+                std::lock_guard<std::mutex> _(idMutex_);
+                ++counter_;
+                p->addSubscription(counter_, topic, client, wireToUserHook);
+                idToSubscriptionMap_[counter_] = p;
+                return counter_;
+            }
+        }
+        void removeSubscriptionClient(uint32_t id) {
+            OneMulticastSubscription *p = nullptr;
+            {
+                std::lock_guard<std::mutex> _(idMutex_);
+                auto iter = idToSubscriptionMap_.find(id);
+                if (iter == idToSubscriptionMap_.end()) {
+                    return;
+                }
+                p = iter->second;
+                idToSubscriptionMap_.erase(iter);
+            }
+            if (p != nullptr) {
+                p->removeSubscription(id);
+                potentiallyStopSubscription(p);
+            }
         }
         std::function<void(basic::ByteDataWithTopic &&, int)> getPublisher(ConnectionLocator const &locator, std::optional<UserToWireHook> userToWireHook) {
             auto *p = getOrStartSender(locator);
@@ -237,11 +329,14 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
 
     MulticastComponent::MulticastComponent() : impl_(std::make_unique<MulticastComponentImpl>()) {}
     MulticastComponent::~MulticastComponent() {}
-    void MulticastComponent::multicast_addSubscriptionClient(ConnectionLocator const &locator,
+    uint32_t MulticastComponent::multicast_addSubscriptionClient(ConnectionLocator const &locator,
         std::variant<MulticastComponent::NoTopicSelection, std::string, std::regex> const &topic,
         std::function<void(basic::ByteDataWithTopic &&)> client,
         std::optional<WireToUserHook> wireToUserHook) {
-        impl_->addSubscriptionClient(locator, topic, client, wireToUserHook);
+        return impl_->addSubscriptionClient(locator, topic, client, wireToUserHook);
+    }
+    void MulticastComponent::multicast_removeSubscriptionClient(uint32_t id) {
+        impl_->removeSubscriptionClient(id);
     }
     std::function<void(basic::ByteDataWithTopic &&, int)> MulticastComponent::multicast_getPublisher(ConnectionLocator const &locator, std::optional<UserToWireHook> userToWireHook) {
         return impl_->getPublisher(locator, userToWireHook);

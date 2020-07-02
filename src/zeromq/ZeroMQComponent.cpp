@@ -14,8 +14,10 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
     private:
         class OneZeroMQSubscription {
         private:
+            ConnectionLocator locator_;
             std::array<char, 16*1024*1024> buffer_;
             struct ClientCB {
+                uint32_t id;
                 std::function<void(basic::ByteDataWithTopic &&)> cb;
                 std::optional<WireToUserHook> hook;
             };
@@ -50,11 +52,20 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                     auto res = sock.recv(
                         zmq::mutable_buffer(buffer_.data(), 16*1024*1024)
                     );
+                    
+                    if (!running_) {
+                        break;
+                    }
+
                     if (!res) {
                         continue;
                     }
                     if (res->truncated()) {
                         continue;
+                    }
+
+                    if (!running_) {
+                        break;
                     }
                     
                     auto parseRes = basic::bytedata_utils::RunCBORDeserializer<basic::ByteDataWithTopic>::apply(std::string_view {buffer_.data(), res->size}, 0);
@@ -78,40 +89,83 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                         }
                     }  
                 }
+
+                sock.close();
             }
         public:
             OneZeroMQSubscription(ConnectionLocator const &locator, zmq::context_t *p_ctx) 
-                : buffer_()
+                : locator_(locator), buffer_()
                 , noFilterClients_(), stringMatchClients_(), regexMatchClients_()
                 , mutex_(), th_(), running_(true)
             {
                 th_ = std::thread(&OneZeroMQSubscription::run, this, locator, p_ctx);
             }
             ~OneZeroMQSubscription() {
-                if (running_) {
-                    running_ = false;
-                    th_.join();
-                }
+                running_ = false;
+                th_.join();
             }
             void addSubscription(
-                std::variant<ZeroMQComponent::NoTopicSelection, std::string, std::regex> const &topic
+                uint32_t id
+                , std::variant<ZeroMQComponent::NoTopicSelection, std::string, std::regex> const &topic
                 , std::function<void(basic::ByteDataWithTopic &&)> handler
                 , std::optional<WireToUserHook> wireToUserHook
             ) {
                 std::lock_guard<std::mutex> _(mutex_);
                 switch (topic.index()) {
                 case 0:
-                    noFilterClients_.push_back({handler, wireToUserHook});
+                    noFilterClients_.push_back({id, handler, wireToUserHook});
                     break;
                 case 1:
-                    stringMatchClients_.push_back({std::get<std::string>(topic), {handler, wireToUserHook}});
+                    stringMatchClients_.push_back({std::get<std::string>(topic), {id, handler, wireToUserHook}});
                     break;
                 case 2:
-                    regexMatchClients_.push_back({std::get<std::regex>(topic), {handler, wireToUserHook}});
+                    regexMatchClients_.push_back({std::get<std::regex>(topic), {id, handler, wireToUserHook}});
                     break;
                 default:
                     break;
                 }
+            }
+            void removeSubscription(uint32_t id) {
+                std::lock_guard<std::mutex> _(mutex_);
+                noFilterClients_.erase(
+                    std::remove_if(
+                        noFilterClients_.begin()
+                        , noFilterClients_.end()
+                        , [id](auto const &x) {
+                            return x.id == id;
+                        })
+                    , noFilterClients_.end()
+                );
+                stringMatchClients_.erase(
+                    std::remove_if(
+                        stringMatchClients_.begin()
+                        , stringMatchClients_.end()
+                        , [id](auto const &x) {
+                            return std::get<1>(x).id == id;
+                        })
+                    , stringMatchClients_.end()
+                );
+                regexMatchClients_.erase(
+                    std::remove_if(
+                        regexMatchClients_.begin()
+                        , regexMatchClients_.end()
+                        , [id](auto const &x) {
+                            return std::get<1>(x).id == id;
+                        })
+                    , regexMatchClients_.end()
+                );
+            }
+            bool checkWhetherNeedsToStop() {
+                std::lock_guard<std::mutex> _(mutex_);
+                if (noFilterClients_.empty() && stringMatchClients_.empty() && regexMatchClients_.empty()) {
+                    running_ = false;
+                    return true;
+                } else {
+                    return false;
+                }
+            }
+            ConnectionLocator const &locator() const {
+                return locator_;
             }
         };
         std::unordered_map<ConnectionLocator, std::unique_ptr<OneZeroMQSubscription>> subscriptions_;
@@ -181,6 +235,10 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         std::mutex mutex_;
         zmq::context_t ctx_;
 
+        uint32_t counter_;
+        std::unordered_map<uint32_t, OneZeroMQSubscription *> idToSubscriptionMap_;
+        std::mutex idMutex_;
+
         OneZeroMQSubscription *getOrStartSubscription(ConnectionLocator const &d) {
             ConnectionLocator hostAndPort {d.host(), d.port()};
             std::lock_guard<std::mutex> _(mutex_);
@@ -189,6 +247,12 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 iter = subscriptions_.insert({hostAndPort, std::make_unique<OneZeroMQSubscription>(hostAndPort, &ctx_)}).first;
             }
             return iter->second.get();
+        }
+        void potentiallyStopSubscription(OneZeroMQSubscription *p) {
+            std::lock_guard<std::mutex> _(mutex_);
+            if (p->checkWhetherNeedsToStop()) {
+                subscriptions_.erase(p->locator());
+            }
         }
         OneZeroMQSender *getOrStartSender(ConnectionLocator const &d) {
             std::lock_guard<std::mutex> _(mutex_);
@@ -200,15 +264,39 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         }
     public:
         ZeroMQComponentImpl()
-            : subscriptions_(), senders_(), mutex_(), ctx_() {            
+            : subscriptions_(), senders_(), mutex_(), ctx_()
+            , counter_(0), idToSubscriptionMap_(), idMutex_()
+        {            
         }
         ~ZeroMQComponentImpl() = default;
-        void addSubscriptionClient(ConnectionLocator const &locator,
+        uint32_t addSubscriptionClient(ConnectionLocator const &locator,
             std::variant<ZeroMQComponent::NoTopicSelection, std::string, std::regex> const &topic,
             std::function<void(basic::ByteDataWithTopic &&)> client,
             std::optional<WireToUserHook> wireToUserHook) {
             auto *p = getOrStartSubscription(locator);
-            p->addSubscription(topic, client, wireToUserHook);
+            {
+                std::lock_guard<std::mutex> _(idMutex_);
+                ++counter_;
+                p->addSubscription(counter_, topic, client, wireToUserHook);
+                idToSubscriptionMap_[counter_] = p;
+                return counter_;
+            }
+        }
+        void removeSubscriptionClient(uint32_t id) {
+            OneZeroMQSubscription *p = nullptr;
+            {
+                std::lock_guard<std::mutex> _(idMutex_);
+                auto iter = idToSubscriptionMap_.find(id);
+                if (iter == idToSubscriptionMap_.end()) {
+                    return;
+                }
+                p = iter->second;
+                idToSubscriptionMap_.erase(iter);
+            }
+            if (p != nullptr) {
+                p->removeSubscription(id);
+                potentiallyStopSubscription(p);
+            }
         }
         std::function<void(basic::ByteDataWithTopic &&)> getPublisher(ConnectionLocator const &locator, std::optional<UserToWireHook> userToWireHook) {
             auto *p = getOrStartSender(locator);
@@ -228,11 +316,14 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
 
     ZeroMQComponent::ZeroMQComponent() : impl_(std::make_unique<ZeroMQComponentImpl>()) {}
     ZeroMQComponent::~ZeroMQComponent() {}
-    void ZeroMQComponent::zeroMQ_addSubscriptionClient(ConnectionLocator const &locator,
+    uint32_t ZeroMQComponent::zeroMQ_addSubscriptionClient(ConnectionLocator const &locator,
         std::variant<ZeroMQComponent::NoTopicSelection, std::string, std::regex> const &topic,
         std::function<void(basic::ByteDataWithTopic &&)> client,
         std::optional<WireToUserHook> wireToUserHook) {
-        impl_->addSubscriptionClient(locator, topic, client, wireToUserHook);
+        return impl_->addSubscriptionClient(locator, topic, client, wireToUserHook);
+    }
+    void ZeroMQComponent::zeroMQ_removeSubscriptionClient(uint32_t id) {
+        impl_->removeSubscriptionClient(id);
     }
     std::function<void(basic::ByteDataWithTopic &&)> ZeroMQComponent::zeroMQ_getPublisher(ConnectionLocator const &locator, std::optional<UserToWireHook> userToWireHook) {
         return impl_->getPublisher(locator, userToWireHook);

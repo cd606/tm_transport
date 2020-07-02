@@ -34,10 +34,11 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         RedisComponent &operator=(RedisComponent &&);
         //host and port are needed in the locator
         struct NoTopicSelection {};
-        void redis_addSubscriptionClient(ConnectionLocator const &locator,
+        uint32_t redis_addSubscriptionClient(ConnectionLocator const &locator,
                         std::string const &topic,
                         std::function<void(basic::ByteDataWithTopic &&)> client,
                         std::optional<WireToUserHook> wireToUserHook = std::nullopt);
+        void redis_removeSubscriptionClient(uint32_t id);
         std::function<void(basic::ByteDataWithTopic &&)> redis_getPublisher(ConnectionLocator const &locator, std::optional<UserToWireHook> userToWireHook = std::nullopt);
         //for RPC, host, queue and an RPC channel name (as identifier) are needed in the locator
         std::function<void(basic::ByteDataWithID &&)> redis_setRPCClient(ConnectionLocator const &locator,

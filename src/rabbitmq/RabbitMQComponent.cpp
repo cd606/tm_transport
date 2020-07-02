@@ -92,7 +92,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 th_.join();
             }
         };
-        std::vector<std::unique_ptr<OneExchangeSubscriptionConnection>> exchangeSubscriptionConnections_;
+        std::unordered_map<uint32_t, std::unique_ptr<OneExchangeSubscriptionConnection>> exchangeSubscriptionConnections_;
 
         class OnePublishingConnection {
         private:
@@ -313,6 +313,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         std::unordered_map<ConnectionLocator, std::unique_ptr<OneRPCQueueServerConnection>> rpcQueueServerConnections_;
 
         std::mutex mutex_;
+        uint32_t counter_;
 
         OnePublishingConnection *publishingConnection(ConnectionLocator const &l) {
             std::lock_guard<std::mutex> _(mutex_);
@@ -353,16 +354,24 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
     public:
         RabbitMQComponentImpl() = default;
         ~RabbitMQComponentImpl() = default;
-        void addExchangeSubscriptionClient(ConnectionLocator const &locator,
+        uint32_t addExchangeSubscriptionClient(ConnectionLocator const &locator,
             std::string const &topic,
             std::function<void(std::string const &, basic::ByteDataWithTopic &&)> client,
             std::optional<WireToUserHook> wireToUserHook) {
             std::lock_guard<std::mutex> _(mutex_);
-            exchangeSubscriptionConnections_.push_back(
-                std::make_unique<OneExchangeSubscriptionConnection>(
-                    locator, topic, client, wireToUserHook
+            exchangeSubscriptionConnections_.insert(
+                std::make_pair(
+                    ++counter_
+                    , std::make_unique<OneExchangeSubscriptionConnection>(
+                        locator, topic, client, wireToUserHook
+                    )
                 )
             );
+            return counter_;
+        }
+        void removeExchangeSubscriptionClient(uint32_t id) {
+            std::lock_guard<std::mutex> _(mutex_);
+            exchangeSubscriptionConnections_.erase(id);
         }
         std::function<void(std::string const &, basic::ByteDataWithTopic &&)> getExchangePublisher(ConnectionLocator const &locator, std::optional<UserToWireHook> userToWireHook) {
             auto *conn = publishingConnection(locator);
@@ -429,11 +438,14 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
     RabbitMQComponent::RabbitMQComponent() : impl_(std::make_unique<RabbitMQComponentImpl>()) {}
     RabbitMQComponent::~RabbitMQComponent() {}
 
-    void RabbitMQComponent::rabbitmq_addExchangeSubscriptionClient(ConnectionLocator const &locator,
+    uint32_t RabbitMQComponent::rabbitmq_addExchangeSubscriptionClient(ConnectionLocator const &locator,
         std::string const &topic,
         std::function<void(std::string const &, basic::ByteDataWithTopic &&)> client,
         std::optional<WireToUserHook> wireToUserHook) {
-        impl_->addExchangeSubscriptionClient(locator, topic, client, wireToUserHook);
+        return impl_->addExchangeSubscriptionClient(locator, topic, client, wireToUserHook);
+    }
+    void RabbitMQComponent::rabbitmq_removeExchangeSubscriptionClient(uint32_t id) {
+        impl_->removeExchangeSubscriptionClient(id);
     }
     std::function<void(std::string const &, basic::ByteDataWithTopic &&)> RabbitMQComponent::rabbitmq_getExchangePublisher(ConnectionLocator const &locator, std::optional<UserToWireHook> userToWireHook) {
         return impl_->getExchangePublisher(locator, userToWireHook);
