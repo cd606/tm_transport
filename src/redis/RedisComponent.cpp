@@ -48,9 +48,15 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                         break;
                     }
                     if (r != REDIS_OK) {
+                        if (ctx_->err == REDIS_ERR_EOF) {
+                            break;
+                        }
                         if (reply != nullptr) {
                             freeReplyObject((void *) &reply);
                         }
+                        continue;
+                    }
+                    if (reply == nullptr) {
                         continue;
                     }
                     if (reply->type != REDIS_REPLY_ARRAY || (reply->elements != 4 /*&& reply->elements != 3*/)) {
@@ -173,9 +179,15 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 while (true) {
                     int r = redisGetReply(ctx_, (void **) &reply);
                     if (r != REDIS_OK) {
+                        if (ctx_->err == REDIS_ERR_EOF) {
+                            break;
+                        }
                         if (reply != nullptr) {
                             freeReplyObject((void *) &reply);
                         }
+                        continue;
+                    }
+                    if (reply == nullptr) {
                         continue;
                     }
                     if (reply->type != REDIS_REPLY_ARRAY || reply->elements != 3) {
@@ -256,9 +268,15 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 while (true) {
                     int r = redisGetReply(ctx_, (void **) &reply);
                     if (r != REDIS_OK) {
+                        if (ctx_->err == REDIS_ERR_EOF) {
+                            break;
+                        }
                         if (reply != nullptr) {
                             freeReplyObject((void *) &reply);
                         }
+                        continue;
+                    }
+                    if (reply == nullptr) {
                         continue;
                     }
                     if (reply->type != REDIS_REPLY_ARRAY || reply->elements != 3) {
