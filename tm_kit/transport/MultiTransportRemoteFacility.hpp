@@ -40,22 +40,66 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
         std::string connectionLocatorDescription;
     };
 
-    template <class Env, class A, class B, class Identity=void>
+    using MultiTransportRemoteFacilityActionResult = MultiTransportRemoteFacilityAction;
+
+    enum class MultiTransportRemoteFacilityDispatchStrategy {
+        Random
+        , Designated
+    };
+
+    template <class Env, class A, class B, class Identity=void
+        , MultiTransportRemoteFacilityDispatchStrategy DispatchStrategy 
+            = MultiTransportRemoteFacilityDispatchStrategy::Random
+    >
     class MultiTransportRemoteFacility final :
-        public infra::RealTimeMonad<Env>::template AbstractIntegratedLocalOnOrderFacility<
-            A
-            , B 
-            , MultiTransportRemoteFacilityAction
+        public std::conditional_t<
+            DispatchStrategy == MultiTransportRemoteFacilityDispatchStrategy::Random
+            , typename infra::RealTimeMonad<Env>::template AbstractIntegratedLocalOnOrderFacility<
+                A
+                , B 
+                , MultiTransportRemoteFacilityAction
+            >
+            , std::conditional_t<
+                DispatchStrategy == MultiTransportRemoteFacilityDispatchStrategy::Designated
+                , typename infra::RealTimeMonad<Env>::template AbstractIntegratedVIEOnOrderFacility<
+                    std::tuple<ConnectionLocator, A>
+                    , B 
+                    , MultiTransportRemoteFacilityAction
+                    , MultiTransportRemoteFacilityActionResult
+                >
+                , void
+            >
         >
     {
     private:
         using M = infra::RealTimeMonad<Env>;
-        using Input = A;
+        using Input = std::conditional_t<
+            DispatchStrategy == MultiTransportRemoteFacilityDispatchStrategy::Random
+            , A
+            , std::conditional_t<
+                DispatchStrategy == MultiTransportRemoteFacilityDispatchStrategy::Designated
+                , std::tuple<ConnectionLocator, A>
+                , void
+            >
+        >;
         using Output = B;
-        using Parent = typename M::template AbstractIntegratedLocalOnOrderFacility<
-            Input
-            , Output
-            , MultiTransportRemoteFacilityAction
+        using Parent = std::conditional_t<
+            DispatchStrategy == MultiTransportRemoteFacilityDispatchStrategy::Random
+            , typename M::template AbstractIntegratedLocalOnOrderFacility<
+                A
+                , B 
+                , MultiTransportRemoteFacilityAction
+            >
+            , std::conditional_t<
+                DispatchStrategy == MultiTransportRemoteFacilityDispatchStrategy::Designated
+                , typename M::template AbstractIntegratedVIEOnOrderFacility<
+                    std::tuple<ConnectionLocator, A>
+                    , B 
+                    , MultiTransportRemoteFacilityAction
+                    , MultiTransportRemoteFacilityActionResult
+                >
+                , void
+            >
         >;
         using FacilityParent = typename M::template AbstractOnOrderFacility<
             Input
@@ -64,10 +108,20 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
         using ExporterParent = typename M::template AbstractExporter<
             MultiTransportRemoteFacilityAction
         >;
+        using ImporterParent = typename M::template AbstractImporter<
+            MultiTransportRemoteFacilityActionResult
+        >;
         using RequestSender = std::function<void(basic::ByteDataWithID &&)>;
+
+        using SenderMap = std::conditional_t<
+            DispatchStrategy == MultiTransportRemoteFacilityDispatchStrategy::Designated
+            , std::unordered_map<ConnectionLocator, RequestSender *>
+            , bool
+        >;
 
         std::optional<ByteDataHookPair> hookPair_; 
         std::vector<std::tuple<ConnectionLocator, std::unique_ptr<RequestSender>>> underlyingSenders_;
+        SenderMap senderMap_;
         std::mutex mutex_;
 
         void registerFacility(Env *env, MultiTransportRemoteFacilityConnectionType connType, ConnectionLocator const &locator) {
@@ -121,11 +175,26 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                         {
                             std::lock_guard<std::mutex> _(mutex_);
                             underlyingSenders_.push_back({locator, std::make_unique<RequestSender>(std::move(req))});
+                            if constexpr (DispatchStrategy == MultiTransportRemoteFacilityDispatchStrategy::Designated) {
+                                senderMap_.insert({locator, std::get<1>(underlyingSenders_.back()).get()});
+                            }
                         }
                         std::ostringstream oss;
                         oss << "[MultiTransportRemoteFacility::registerFacility] Registered RabbitMQ facility for "
                             << locator;
                         env->log(infra::LogLevel::Info, oss.str());
+                        if constexpr (DispatchStrategy == MultiTransportRemoteFacilityDispatchStrategy::Designated) {
+                            this->ImporterParent::publish(
+                                M::template pureInnerData<MultiTransportRemoteFacilityActionResult>(
+                                    env
+                                    , MultiTransportRemoteFacilityActionResult {
+                                        MultiTransportRemoteFacilityActionType::Register
+                                        , connType
+                                        , locator.toSerializationFormat()
+                                    }
+                                )
+                            );
+                        }
                     } catch (rabbitmq::RabbitMQComponentException const &) {
                         std::ostringstream oss;
                         oss << "[MultiTransportRemoteFacility::registerFacility] Error registering RabbitMQ facility for "
@@ -182,11 +251,26 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                         {
                             std::lock_guard<std::mutex> _(mutex_);
                             underlyingSenders_.push_back({locator, std::make_unique<RequestSender>(std::move(req))});
+                            if constexpr (DispatchStrategy == MultiTransportRemoteFacilityDispatchStrategy::Designated) {
+                                senderMap_.insert({locator, std::get<1>(underlyingSenders_.back()).get()});
+                            }
                         }
                         std::ostringstream oss;
                         oss << "[MultiTransportRemoteFacility::registerFacility] Registered Redis facility for "
                             << locator;
                         env->log(infra::LogLevel::Info, oss.str());
+                        if constexpr (DispatchStrategy == MultiTransportRemoteFacilityDispatchStrategy::Designated) {
+                            this->ImporterParent::publish(
+                                M::template pureInnerData<MultiTransportRemoteFacilityActionResult>(
+                                    env
+                                    , MultiTransportRemoteFacilityActionResult {
+                                        MultiTransportRemoteFacilityActionType::Register
+                                        , connType
+                                        , locator.toSerializationFormat()
+                                    }
+                                )
+                            );
+                        }
                     } catch (redis::RedisComponentException const &) {
                         std::ostringstream oss;
                         oss << "[MultiTransportRemoteFacility::registerFacility] Error registering Redis facility for "
@@ -207,6 +291,9 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                     component->rabbitmq_removeRPCQueueClient(locator);
                     {
                         std::lock_guard<std::mutex> _(mutex_);
+                        if constexpr (DispatchStrategy == MultiTransportRemoteFacilityDispatchStrategy::Designated) {
+                            senderMap_.erase(locator);
+                        }
                         underlyingSenders_.erase(
                             std::remove_if(
                                 underlyingSenders_.begin()
@@ -222,6 +309,18 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                     oss << "[MultiTransportRemoteFacility::deregisterFacility] De-registered RabbitMQ facility for "
                         << locator;
                     env->log(infra::LogLevel::Info, oss.str());
+                    if constexpr (DispatchStrategy == MultiTransportRemoteFacilityDispatchStrategy::Designated) {
+                        this->ImporterParent::publish(
+                            M::template pureInnerData<MultiTransportRemoteFacilityActionResult>(
+                                env
+                                , MultiTransportRemoteFacilityActionResult {
+                                    MultiTransportRemoteFacilityActionType::Deregister
+                                    , connType
+                                    , locator.toSerializationFormat()
+                                }
+                            )
+                        );
+                    }
                 }
                 break;
             case MultiTransportRemoteFacilityConnectionType::Redis:
@@ -230,6 +329,9 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                     component->redis_removeRPCClient(locator);
                     {
                         std::lock_guard<std::mutex> _(mutex_);
+                        if constexpr (DispatchStrategy == MultiTransportRemoteFacilityDispatchStrategy::Designated) {
+                            senderMap_.erase(locator);
+                        }
                         underlyingSenders_.erase(
                             std::remove_if(
                                 underlyingSenders_.begin()
@@ -245,6 +347,18 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                     oss << "[MultiTransportRemoteFacility::deregisterFacility] De-registered Redis facility for "
                         << locator;
                     env->log(infra::LogLevel::Info, oss.str());
+                    if constexpr (DispatchStrategy == MultiTransportRemoteFacilityDispatchStrategy::Designated) {
+                        this->ImporterParent::publish(
+                            M::template pureInnerData<MultiTransportRemoteFacilityActionResult>(
+                                env
+                                , MultiTransportRemoteFacilityActionResult {
+                                    MultiTransportRemoteFacilityActionType::Deregister
+                                    , connType
+                                    , locator.toSerializationFormat()
+                                }
+                            )
+                        );
+                    }
                 }
                 break;
             default:
@@ -272,27 +386,55 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
         }
         void actuallyHandleInput(typename M::template InnerData<typename M::template Key<Input>> &&input) {
             std::lock_guard<std::mutex> _(mutex_);
-            if (underlyingSenders_.empty()) {
-                return;
-            }
-            int idx = std::rand()%underlyingSenders_.size();
-            basic::ByteData s = { 
-                basic::SerializationActions<M>::template serializeFunc<Input>(
-                    input.timedData.value.key()
-                ) 
-            };
-            (*(std::get<1>(underlyingSenders_[idx])))(
-                basic::ByteDataWithID {
-                    Env::id_to_string(input.timedData.value.id())
-                    , std::move(s.content)
+            if constexpr (DispatchStrategy == MultiTransportRemoteFacilityDispatchStrategy::Random) {
+                if (underlyingSenders_.empty()) {
+                    return;
                 }
-            );
+                int idx = std::rand()%underlyingSenders_.size();
+                basic::ByteData s = { 
+                    basic::SerializationActions<M>::template serializeFunc<Input>(
+                        input.timedData.value.key()
+                    ) 
+                };
+                (*(std::get<1>(underlyingSenders_[idx])))(
+                    basic::ByteDataWithID {
+                        Env::id_to_string(input.timedData.value.id())
+                        , std::move(s.content)
+                    }
+                );
+            } else if constexpr (DispatchStrategy == MultiTransportRemoteFacilityDispatchStrategy::Designated) {
+                auto iter = senderMap_.find(std::get<0>(input.timedData.value.key()));
+                if (iter == senderMap_.end()) {
+                    return;
+                }
+                basic::ByteData s = { 
+                    basic::SerializationActions<M>::template serializeFunc<Input>(
+                        std::get<1>(input.timedData.value.key())
+                    ) 
+                };
+                (*(iter->second))(
+                    basic::ByteDataWithID {
+                        Env::id_to_string(input.timedData.value.id())
+                        , std::move(s.content)
+                    }
+                );
+            }
         }
     public:
         MultiTransportRemoteFacility(std::optional<ByteDataHookPair> const &hookPair)
-            : Parent(), hookPair_(hookPair), underlyingSenders_(), mutex_()
+            : Parent(), hookPair_(hookPair), underlyingSenders_(), senderMap_(), mutex_()
         {
-            std::srand(std::time(nullptr)); 
+            static_assert(
+                (
+                    DispatchStrategy == MultiTransportRemoteFacilityDispatchStrategy::Random
+                    ||
+                    DispatchStrategy == MultiTransportRemoteFacilityDispatchStrategy::Designated
+                )
+                , "Only random and designated dispatch strategies are supported"
+            );
+            if constexpr (DispatchStrategy == MultiTransportRemoteFacilityDispatchStrategy::Random) {
+                std::srand(std::time(nullptr)); 
+            }
         }
         virtual ~MultiTransportRemoteFacility() {}
 

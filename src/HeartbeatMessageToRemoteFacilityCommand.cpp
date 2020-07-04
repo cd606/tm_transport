@@ -21,12 +21,12 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
 
         std::vector<MultiTransportRemoteFacilityAction> processHeartbeatMessage(
             int which
-            , std::tuple<std::chrono::system_clock::time_point, HeartbeatMessage> &&heartBeat 
+            , std::tuple<std::chrono::system_clock::time_point, HeartbeatMessage> &&heartbeat 
             , std::tuple<std::chrono::system_clock::time_point, basic::VoidStruct> &&timer
         ) {
             std::lock_guard<std::mutex> _(mutex_);
             if (which == 0) {
-                auto const &h = std::get<1>(heartBeat);
+                auto const &h = std::get<1>(heartbeat);
                 if (!std::regex_match(h.senderDescription(), senderRE_)) {
                     return {};
                 }
@@ -56,14 +56,14 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                         if (cmd) {
                             lastGoodTime_.insert({
                                 status.info
-                                , std::get<0>(heartBeat)
+                                , std::get<0>(heartbeat)
                             });
                             return {*cmd};
                         } else {
                             return {};
                         }
                     } else {
-                        iter->second = std::get<0>(heartBeat);
+                        iter->second = std::get<0>(heartbeat);
                         return {};
                     }
                 }
@@ -101,10 +101,10 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
 
     std::vector<MultiTransportRemoteFacilityAction> HeartbeatMessageToRemoteFacilityCommand::processHeartbeatMessage(
         int which
-        , std::tuple<std::chrono::system_clock::time_point, HeartbeatMessage> &&heartBeat 
+        , std::tuple<std::chrono::system_clock::time_point, HeartbeatMessage> &&heartbeat 
         , std::tuple<std::chrono::system_clock::time_point, basic::VoidStruct> &&timer
     ) {
-        return impl_->processHeartbeatMessage(which, std::move(heartBeat), std::move(timer));
+        return impl_->processHeartbeatMessage(which, std::move(heartbeat), std::move(timer));
     }
 
     std::string HeartbeatMessageToRemoteFacilityCommand::buildStatusInfo(MultiTransportRemoteFacilityConnectionType connType, ConnectionLocator const &locator) {
