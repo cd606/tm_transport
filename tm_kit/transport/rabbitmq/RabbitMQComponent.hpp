@@ -41,6 +41,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         std::function<void(std::string const &, basic::ByteDataWithID &&)> rabbitmq_setRPCQueueClient(ConnectionLocator const &locator,
                         std::function<void(std::string const &, basic::ByteDataWithID &&)> client,
                         std::optional<ByteDataHookPair> hookPair = std::nullopt); //the return value is the requester
+        void rabbitmq_removeRPCQueueClient(ConnectionLocator const &locator);
         std::function<void(bool, std::string const &, basic::ByteDataWithID &&)> rabbitmq_setRPCQueueServer(ConnectionLocator const &locator,
                         std::function<void(std::string const &, basic::ByteDataWithID &&)> server,
                         std::optional<ByteDataHookPair> hookPair = std::nullopt); //the return value is the replier, where bool means whether it is the final reply

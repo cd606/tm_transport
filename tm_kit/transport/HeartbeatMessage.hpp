@@ -4,6 +4,8 @@
 #include <string>
 #include <chrono>
 #include <map>
+#include <unordered_set>
+#include <regex>
 
 namespace dev { namespace cd606 { namespace tm { namespace transport {
     class HeartbeatMessage {
@@ -36,6 +38,19 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
 
         void SerializeToString(std::string *s) const;
         bool ParseFromString(std::string const &s);
+
+        std::string const &host() const {
+            return host_;
+        }
+        int64_t pid() const {
+            return pid_;
+        }
+        std::string const &senderDescription() const {
+            return senderDescription_;
+        }
+        HeartbeatMessage::OneItemStatus const &status(std::string const &entry) const;
+        std::unordered_set<std::string> allEntries() const;
+        std::unordered_set<std::string> allEntriesRE(std::regex const &re) const;
     };
 } } } }
 

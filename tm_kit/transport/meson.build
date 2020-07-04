@@ -9,6 +9,8 @@ tm_transport_headers = [
       , 'AlertMessage.hpp'
       , 'HeartbeatAndAlertComponent.hpp'
       , 'MultiTransportSubscriber.hpp'
+      , 'MultiTransportRemoteFacility.hpp'
+      , 'HeartbeatMessageToRemoteFacilityCommand.hpp'
     ]
   
 install_headers(tm_transport_headers, subdir : 'tm_kit/transport')
