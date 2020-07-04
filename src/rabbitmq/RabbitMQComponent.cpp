@@ -225,7 +225,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             }
         };
         std::unordered_map<ConnectionLocator, std::unique_ptr<OneRPCQueueClientConnection>> rpcQueueClientConnections_;
-
+        
         class OneRPCQueueServerConnection {
         private:
             AmqpClient::Channel::ptr_t channel_;
@@ -411,6 +411,10 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 };
             }
         }
+        void removeRPCQueueClient(ConnectionLocator const &locator) {
+            std::lock_guard<std::mutex> _(mutex_);
+            rpcQueueClientConnections_.erase(locator);
+        }
         std::function<void(bool, std::string const &, basic::ByteDataWithID &&)> setRPCQueueServer(ConnectionLocator const &locator,
             std::function<void(std::string const &, basic::ByteDataWithID &&)> server,
             std::optional<ByteDataHookPair> hookPair) {
@@ -454,6 +458,9 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         std::function<void(std::string const &, basic::ByteDataWithID &&)> client,
         std::optional<ByteDataHookPair> hookPair) {
         return impl_->setRPCQueueClient(locator, client, hookPair);
+    }
+    void RabbitMQComponent::rabbitmq_removeRPCQueueClient(ConnectionLocator const &locator) {
+        impl_->removeRPCQueueClient(locator);
     }
     std::function<void(bool, std::string const &, basic::ByteDataWithID &&)> RabbitMQComponent::rabbitmq_setRPCQueueServer(ConnectionLocator const &locator,
         std::function<void(std::string const &, basic::ByteDataWithID &&)> server,

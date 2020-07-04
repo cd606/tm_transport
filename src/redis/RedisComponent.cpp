@@ -81,6 +81,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                         callClient(cb, {topic, content});
                     }
                 }
+                redisFree(ctx_);
             }
         public:
             OneRedisSubscription(ConnectionLocator const &locator, std::string const &topic) 
@@ -125,7 +126,6 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 std::lock_guard<std::mutex> _(mutex_);
                 if (clients_.empty()) {
                     running_ = false;
-                    redisFree(ctx_);
                     return true;
                 } else {
                     return false;
@@ -173,11 +173,15 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             std::function<void(basic::ByteDataWithID &&)> callback_;
             std::optional<WireToUserHook> wireToUserHook_;
             std::thread th_;
+            std::atomic<bool> running_;
             OneRedisSender *sender_;
             void run() {
                 struct redisReply *reply = nullptr;
-                while (true) {
+                while (running_) {
                     int r = redisGetReply(ctx_, (void **) &reply);
+                    if (!running_) {
+                        break;
+                    }
                     if (r != REDIS_OK) {
                         if (ctx_->err == REDIS_ERR_EOF) {
                             break;
@@ -212,7 +216,11 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                         continue;
                     }
 
-                    freeReplyObject((void *) reply);                 
+                    freeReplyObject((void *) reply);    
+
+                    if (!running_) {
+                        break;
+                    }             
 
                     if (wireToUserHook_) {
                         auto d = (wireToUserHook_->hook)(basic::ByteData {std::move(std::get<0>(*parseRes).content)});
@@ -223,6 +231,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                         callback_(std::move(std::get<0>(*parseRes)));
                     }
                 }
+                redisFree(ctx_);
             }
         public:
             OneRedisRPCClientConnection(ConnectionLocator const &locator, std::string const &myCommunicationID, std::function<void(basic::ByteDataWithID &&)> callback, std::optional<WireToUserHook> wireToUserHook, OneRedisSender *sender)
@@ -232,6 +241,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 , callback_(callback)
                 , wireToUserHook_(wireToUserHook)
                 , th_()
+                , running_(true)
                 , sender_(sender)
             {
                 ctx_ = redisConnect(locator.host().c_str(), locator.port());
@@ -243,6 +253,8 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 }
             }
             ~OneRedisRPCClientConnection() {
+                running_ = false;
+                th_.join();
             }
             void sendRequest(basic::ByteDataWithID &&data) {
                 auto encodedData = basic::bytedata_utils::RunSerializer<basic::CBOR<basic::ByteDataWithID>>::apply({std::move(data)});
@@ -490,6 +502,10 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 };
             }
         }
+        void removeRPCClient(ConnectionLocator const &locator) {
+            std::lock_guard<std::mutex> _(idMutex_);
+            rpcClientConnections_.erase(locator);
+        }
         std::function<void(bool, basic::ByteDataWithID &&)> setRPCServer(ConnectionLocator const &locator,
             std::function<void(basic::ByteDataWithID &&)> server,
             std::optional<ByteDataHookPair> hookPair) {
@@ -535,6 +551,9 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                         std::function<void(basic::ByteDataWithID &&)> client,
                         std::optional<ByteDataHookPair> hookPair) {
         return impl_->setRPCClient(locator, clientCommunicationIDCreator, client, hookPair);
+    }
+    void RedisComponent::redis_removeRPCClient(ConnectionLocator const &locator) {
+        impl_->removeRPCClient(locator);
     }
     std::function<void(bool, basic::ByteDataWithID &&)> RedisComponent::redis_setRPCServer(ConnectionLocator const &locator,
                     std::function<void(basic::ByteDataWithID &&)> server,

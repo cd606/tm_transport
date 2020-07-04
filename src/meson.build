@@ -1,6 +1,7 @@
 tm_transport_sources = [
       'ConnectionLocator.cpp'
       , 'HeartbeatMessage.cpp'
+      , 'HeartbeatMessageToRemoteFacilityCommand.cpp'
       , 'AlertMessage.cpp'
       , 'HeartbeatAndAlertComponent.cpp'
       , 'multicast/MulticastComponent.cpp'

@@ -72,4 +72,28 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
             return false;
         }  
     }
+    HeartbeatMessage::OneItemStatus const &HeartbeatMessage::status(std::string const &entry) const {
+        static const HeartbeatMessage::OneItemStatus EMPTY_STATUS {Status::Unknown, ""};
+        auto iter = details_.find(entry);
+        if (iter == details_.end()) {
+            return EMPTY_STATUS;
+        } 
+        return iter->second;
+    }
+    std::unordered_set<std::string> HeartbeatMessage::allEntries() const {
+        std::unordered_set<std::string> ret;
+        for (auto const &item : details_) {
+            ret.insert(item.first);
+        }
+        return ret;
+    }
+    std::unordered_set<std::string> HeartbeatMessage::allEntriesRE(std::regex const &re) const {
+        std::unordered_set<std::string> ret;
+        for (auto const &item : details_) {
+            if (std::regex_match(item.first, re)) {
+                ret.insert(item.first);
+            }
+        }
+        return ret;
+    }
 } } } }
