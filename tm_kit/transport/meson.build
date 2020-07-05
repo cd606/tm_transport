@@ -8,7 +8,7 @@ tm_transport_headers = [
       , 'HeartbeatMessage.hpp'
       , 'AlertMessage.hpp'
       , 'HeartbeatAndAlertComponent.hpp'
-      , 'MultiTransportSubscriber.hpp'
+      , 'MultiTransportBroadcastListener.hpp'
       , 'MultiTransportRemoteFacility.hpp'
       , 'HeartbeatMessageToRemoteFacilityCommand.hpp'
     ]

@@ -40,7 +40,11 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
         std::string connectionLocatorDescription;
     };
 
-    using MultiTransportRemoteFacilityActionResult = MultiTransportRemoteFacilityAction;
+    struct MultiTransportRemoteFacilityActionResult {
+        MultiTransportRemoteFacilityActionType actionType;
+        MultiTransportRemoteFacilityConnectionType connectionType;
+        ConnectionLocator connectionLocator;
+    };
 
     enum class MultiTransportRemoteFacilityDispatchStrategy {
         Random
@@ -190,7 +194,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                                     , MultiTransportRemoteFacilityActionResult {
                                         MultiTransportRemoteFacilityActionType::Register
                                         , connType
-                                        , locator.toSerializationFormat()
+                                        , locator
                                     }
                                 )
                             );
@@ -266,7 +270,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                                     , MultiTransportRemoteFacilityActionResult {
                                         MultiTransportRemoteFacilityActionType::Register
                                         , connType
-                                        , locator.toSerializationFormat()
+                                        , locator
                                     }
                                 )
                             );
@@ -316,7 +320,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                                 , MultiTransportRemoteFacilityActionResult {
                                     MultiTransportRemoteFacilityActionType::Deregister
                                     , connType
-                                    , locator.toSerializationFormat()
+                                    , locator
                                 }
                             )
                         );
@@ -354,7 +358,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                                 , MultiTransportRemoteFacilityActionResult {
                                     MultiTransportRemoteFacilityActionType::Deregister
                                     , connType
-                                    , locator.toSerializationFormat()
+                                    , locator
                                 }
                             )
                         );
@@ -392,7 +396,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                 }
                 int idx = std::rand()%underlyingSenders_.size();
                 basic::ByteData s = { 
-                    basic::SerializationActions<M>::template serializeFunc<Input>(
+                    basic::SerializationActions<M>::template serializeFunc<A>(
                         input.timedData.value.key()
                     ) 
                 };
@@ -408,7 +412,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                     return;
                 }
                 basic::ByteData s = { 
-                    basic::SerializationActions<M>::template serializeFunc<Input>(
+                    basic::SerializationActions<M>::template serializeFunc<A>(
                         std::get<1>(input.timedData.value.key())
                     ) 
                 };
@@ -421,7 +425,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
             }
         }
     public:
-        MultiTransportRemoteFacility(std::optional<ByteDataHookPair> const &hookPair)
+        MultiTransportRemoteFacility(std::optional<ByteDataHookPair> const &hookPair = std::nullopt)
             : Parent(), hookPair_(hookPair), underlyingSenders_(), senderMap_(), mutex_()
         {
             static_assert(
@@ -437,6 +441,8 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
             }
         }
         virtual ~MultiTransportRemoteFacility() {}
+
+        void start(Env *) override final {}
 
         void handle(typename M::template InnerData<MultiTransportRemoteFacilityAction> &&action) override final {
             std::thread(

@@ -279,7 +279,10 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             }
             if (b) {
                 senderService_.stop();
-                senderThread_.join();
+                try {
+                    senderThread_.join();
+                } catch (std::system_error const &) {
+                }
             }
         }
         uint32_t addSubscriptionClient(ConnectionLocator const &locator,

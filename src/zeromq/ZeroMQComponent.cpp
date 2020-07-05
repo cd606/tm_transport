@@ -102,7 +102,10 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             }
             ~OneZeroMQSubscription() {
                 running_ = false;
-                th_.join();
+                try {
+                    th_.join();
+                } catch (std::system_error const &) {
+                }
             }
             void addSubscription(
                 uint32_t id
@@ -219,7 +222,10 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             }
             ~OneZeroMQSender() {
                 running_ = false;
-                thread_.join();
+                try {
+                    thread_.join();
+                } catch (std::system_error const &) {
+                }
             }
             void publish(basic::ByteDataWithTopic &&data) {
                 {

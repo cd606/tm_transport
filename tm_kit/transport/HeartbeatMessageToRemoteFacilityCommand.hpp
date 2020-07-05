@@ -37,13 +37,13 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
     };
 
     template <class M>
-    inline typename M::template ActionPtr<
+    inline std::shared_ptr<typename M::template Action<
         std::variant<
             HeartbeatMessage
             , basic::VoidStruct
         >
         , MultiTransportRemoteFacilityAction
-    > heartbeatMessageToRemoteFacilityCommand(
+    >> heartbeatMessageToRemoteFacilityCommand(
         std::regex const &senderRE
         , std::regex const &facilityEntryRE
         , std::chrono::system_clock::duration ttl)

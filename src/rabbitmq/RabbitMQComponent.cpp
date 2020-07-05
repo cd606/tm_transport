@@ -89,7 +89,10 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             }
             ~OneExchangeSubscriptionConnection() {
                 running_ = false;
-                th_.join();
+                try {
+                    th_.join();
+                } catch (std::system_error const &) {
+                }
             }
         };
         std::unordered_map<uint32_t, std::unique_ptr<OneExchangeSubscriptionConnection>> exchangeSubscriptionConnections_;
@@ -145,7 +148,10 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             }
             ~OnePublishingConnection() {
                 running_ = false;
-                th_.join();
+                try {
+                    th_.join();
+                } catch (std::system_error const &) {
+                }
             }
             void publishOnExchange(std::string const &exchange, std::string const &contentEncoding, basic::ByteDataWithTopic &&data) {
                 {
@@ -212,7 +218,10 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             }
             ~OneRPCQueueClientConnection() {
                 running_ = false;
-                th_.join();
+                try {
+                    th_.join();
+                } catch (std::system_error const &) {
+                }
             }
             void sendRequest(std::string const &contentEncoding, basic::ByteDataWithID &&data) {
                 AmqpClient::BasicMessage::ptr_t msg = AmqpClient::BasicMessage::Create(std::move(data.content));
@@ -288,7 +297,10 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             }
             ~OneRPCQueueServerConnection() {
                 running_ = false;
-                th_.join();
+                try {
+                    th_.join();
+                } catch (std::system_error const &) {
+                }
             }
             void sendReply(bool isFinal, std::string const &contentEncoding, basic::ByteDataWithID &&data) {
                 std::string replyQueue;

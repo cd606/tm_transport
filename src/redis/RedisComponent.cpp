@@ -102,7 +102,10 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             }
             ~OneRedisSubscription() {
                 running_ = false;
-                th_.join();
+                try {
+                    th_.join();
+                } catch (std::system_error const &) {
+                }
             }
             void addSubscription(
                 uint32_t id
@@ -254,7 +257,10 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             }
             ~OneRedisRPCClientConnection() {
                 running_ = false;
-                th_.join();
+                try {
+                    th_.join();
+                } catch (std::system_error const &) {
+                }
             }
             void sendRequest(basic::ByteDataWithID &&data) {
                 auto encodedData = basic::bytedata_utils::RunSerializer<basic::CBOR<basic::ByteDataWithID>>::apply({std::move(data)});

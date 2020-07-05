@@ -30,7 +30,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                 if (!std::regex_match(h.senderDescription(), senderRE_)) {
                     return {};
                 }
-                auto entries = h.allEntriesRE(senderRE_);
+                auto entries = h.allEntriesRE(facilityEntryRE_);
                 if (entries.size() != 1) {
                     return {};
                 }
@@ -79,8 +79,8 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                         if (cmd) {
                             ret.push_back(*cmd);
                         }
+                        toDelete.push_back(item.first);
                     }
-                    toDelete.push_back(item.first);
                 }
                 for (auto const &s : toDelete) {
                     lastGoodTime_.erase(s);

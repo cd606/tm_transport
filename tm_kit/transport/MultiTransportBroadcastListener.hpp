@@ -1,5 +1,5 @@
-#ifndef TM_KIT_TRANSPORT_MULTI_TRANSPORT_SUBSCRIBER_HPP_
-#define TM_KIT_TRANSPORT_MULTI_TRANSPORT_SUBSCRIBER_HPP_
+#ifndef TM_KIT_TRANSPORT_MULTI_TRANSPORT_BROADCAST_LISTENER_HPP_
+#define TM_KIT_TRANSPORT_MULTI_TRANSPORT_BROADCAST_LISTENER_HPP_
 
 #include <tm_kit/infra/RealTimeMonad.hpp>
 
@@ -17,7 +17,7 @@
 
 namespace dev { namespace cd606 { namespace tm { namespace transport {
 
-    enum class MultiTransportSubscriberConnectionType {
+    enum class MultiTransportBroadcastListenerConnectionType {
         Multicast
         , RabbitMQ
         , Redis 
@@ -29,51 +29,51 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
         , "redis"
         , "zeromq"
     };
-    struct MultiTransportSubscriberAddSubscription {
-        MultiTransportSubscriberConnectionType connectionType;
+    struct MultiTransportBroadcastListenerAddSubscription {
+        MultiTransportBroadcastListenerConnectionType connectionType;
         std::string connectionLocatorDescription;
         std::string topicDescription; 
     };
-    struct MultiTransportSubscriberRemoveSubscription {
-        MultiTransportSubscriberConnectionType connectionType;
+    struct MultiTransportBroadcastListenerRemoveSubscription {
+        MultiTransportBroadcastListenerConnectionType connectionType;
         uint32_t subscriptionID;
     };
-    struct MultiTransportSubscriberAddSubscriptionResponse {
+    struct MultiTransportBroadcastListenerAddSubscriptionResponse {
         uint32_t subscriptionID;
     };
-    struct MultiTransportSubscriberRemoveSubscriptionResponse {
+    struct MultiTransportBroadcastListenerRemoveSubscriptionResponse {
     };
-    using MultiTransportSubscriberInput = basic::CBOR<
+    using MultiTransportBroadcastListenerInput = basic::CBOR<
         std::variant<
-            MultiTransportSubscriberAddSubscription
-            , MultiTransportSubscriberRemoveSubscription
+            MultiTransportBroadcastListenerAddSubscription
+            , MultiTransportBroadcastListenerRemoveSubscription
         >
     >;
-    using MultiTransportSubscriberOutput = basic::CBOR<
+    using MultiTransportBroadcastListenerOutput = basic::CBOR<
         std::variant<
-            MultiTransportSubscriberAddSubscriptionResponse
-            , MultiTransportSubscriberRemoveSubscriptionResponse
+            MultiTransportBroadcastListenerAddSubscriptionResponse
+            , MultiTransportBroadcastListenerRemoveSubscriptionResponse
         >
     >;
 
     template <class Env, class T>
-    class MultiTransportSubscriber final :
+    class MultiTransportBroadcastListener final :
         public infra::RealTimeMonad<Env>::template AbstractIntegratedOnOrderFacilityWithExternalEffects<
-            MultiTransportSubscriberInput
-            , MultiTransportSubscriberOutput
+            MultiTransportBroadcastListenerInput
+            , MultiTransportBroadcastListenerOutput
             , basic::TypedDataWithTopic<T>
         >
     {
     private:
         using M = infra::RealTimeMonad<Env>;
         using Parent = typename M::template AbstractIntegratedOnOrderFacilityWithExternalEffects<
-            MultiTransportSubscriberInput
-            , MultiTransportSubscriberOutput
+            MultiTransportBroadcastListenerInput
+            , MultiTransportBroadcastListenerOutput
             , basic::TypedDataWithTopic<T>
         >;
         using FacilityParent = typename M::template AbstractOnOrderFacility<
-            MultiTransportSubscriberInput
-            , MultiTransportSubscriberOutput
+            MultiTransportBroadcastListenerInput
+            , MultiTransportBroadcastListenerOutput
         >;
         using ImporterParent = typename M::template AbstractImporter<
             basic::TypedDataWithTopic<T>
@@ -94,22 +94,22 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                 }
             }
         }  
-        void actuallyHandle(typename M::template InnerData<typename M::template Key<MultiTransportSubscriberInput>> &&input) {
+        void actuallyHandle(typename M::template InnerData<typename M::template Key<MultiTransportBroadcastListenerInput>> &&input) {
             Env *env = input.environment;
             typename Env::IDType id = std::move(input.timedData.value.id());
             std::visit([this,env,&id](auto &&x) {
                 using X = std::decay_t<decltype(x)>;
-                if constexpr (std::is_same_v<X, MultiTransportSubscriberAddSubscription>) {
+                if constexpr (std::is_same_v<X, MultiTransportBroadcastListenerAddSubscription>) {
                     ConnectionLocator locator;
                     try {
                         locator = ConnectionLocator::parse(x.connectionLocatorDescription);
                     } catch (ConnectionLocatorParseError const &) {
                         this->FacilityParent::publish(
                             env
-                            , typename M::template Key<MultiTransportSubscriberOutput> {
+                            , typename M::template Key<MultiTransportBroadcastListenerOutput> {
                                 id
-                                , MultiTransportSubscriberOutput { {
-                                    MultiTransportSubscriberAddSubscriptionResponse {0}
+                                , MultiTransportBroadcastListenerOutput { {
+                                    MultiTransportBroadcastListenerAddSubscriptionResponse {0}
                                 } }
                             }
                             , true
@@ -117,7 +117,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                         return;
                     }
                     switch (x.connectionType) {
-                    case MultiTransportSubscriberConnectionType::Multicast:
+                    case MultiTransportBroadcastListenerConnectionType::Multicast:
                         if constexpr (std::is_convertible_v<Env *, multicast::MulticastComponent *>) {
                             auto *component = static_cast<multicast::MulticastComponent *>(env);
                             auto res = component->multicast_addSubscriptionClient(
@@ -133,10 +133,10 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                             );
                             this->FacilityParent::publish(
                                 env
-                                , typename M::template Key<MultiTransportSubscriberOutput> {
+                                , typename M::template Key<MultiTransportBroadcastListenerOutput> {
                                     id
-                                    , MultiTransportSubscriberOutput { {
-                                        MultiTransportSubscriberAddSubscriptionResponse {res}
+                                    , MultiTransportBroadcastListenerOutput { {
+                                        MultiTransportBroadcastListenerAddSubscriptionResponse {res}
                                     } }
                                 }
                                 , true
@@ -144,17 +144,17 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                         } else {
                             this->FacilityParent::publish(
                                 env
-                                , typename M::template Key<MultiTransportSubscriberOutput> {
+                                , typename M::template Key<MultiTransportBroadcastListenerOutput> {
                                     id
-                                    , MultiTransportSubscriberOutput { {
-                                        MultiTransportSubscriberAddSubscriptionResponse {0}
+                                    , MultiTransportBroadcastListenerOutput { {
+                                        MultiTransportBroadcastListenerAddSubscriptionResponse {0}
                                     } }
                                 }
                                 , true
                             );
                         }
                         break;
-                    case MultiTransportSubscriberConnectionType::RabbitMQ:
+                    case MultiTransportBroadcastListenerConnectionType::RabbitMQ:
                         if constexpr (std::is_convertible_v<Env *, rabbitmq::RabbitMQComponent *>) {
                             auto *component = static_cast<rabbitmq::RabbitMQComponent *>(env);
                             auto res = component->rabbitmq_addExchangeSubscriptionClient(
@@ -170,10 +170,10 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                             );
                             this->FacilityParent::publish(
                                 env
-                                , typename M::template Key<MultiTransportSubscriberOutput> {
+                                , typename M::template Key<MultiTransportBroadcastListenerOutput> {
                                     id
-                                    , MultiTransportSubscriberOutput { {
-                                        MultiTransportSubscriberAddSubscriptionResponse {res}
+                                    , MultiTransportBroadcastListenerOutput { {
+                                        MultiTransportBroadcastListenerAddSubscriptionResponse {res}
                                     } }
                                 }
                                 , true
@@ -181,17 +181,17 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                         } else {
                             this->FacilityParent::publish(
                                 env
-                                , typename M::template Key<MultiTransportSubscriberOutput> {
+                                , typename M::template Key<MultiTransportBroadcastListenerOutput> {
                                     id
-                                    , MultiTransportSubscriberOutput { {
-                                        MultiTransportSubscriberAddSubscriptionResponse {0}
+                                    , MultiTransportBroadcastListenerOutput { {
+                                        MultiTransportBroadcastListenerAddSubscriptionResponse {0}
                                     } }
                                 }
                                 , true
                             );
                         }
                         break;
-                    case MultiTransportSubscriberConnectionType::Redis:
+                    case MultiTransportBroadcastListenerConnectionType::Redis:
                         if constexpr (std::is_convertible_v<Env *, redis::RedisComponent *>) {
                             auto *component = static_cast<redis::RedisComponent *>(env);
                             auto res = component->redis_addSubscriptionClient(
@@ -207,10 +207,10 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                             );
                             this->FacilityParent::publish(
                                 env
-                                , typename M::template Key<MultiTransportSubscriberOutput> {
+                                , typename M::template Key<MultiTransportBroadcastListenerOutput> {
                                     id
-                                    , MultiTransportSubscriberOutput { {
-                                        MultiTransportSubscriberAddSubscriptionResponse {res}
+                                    , MultiTransportBroadcastListenerOutput { {
+                                        MultiTransportBroadcastListenerAddSubscriptionResponse {res}
                                     } }
                                 }
                                 , true
@@ -218,17 +218,17 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                         } else {
                             this->FacilityParent::publish(
                                 env
-                                , typename M::template Key<MultiTransportSubscriberOutput> {
+                                , typename M::template Key<MultiTransportBroadcastListenerOutput> {
                                     id
-                                    , MultiTransportSubscriberOutput { {
-                                        MultiTransportSubscriberAddSubscriptionResponse {0}
+                                    , MultiTransportBroadcastListenerOutput { {
+                                        MultiTransportBroadcastListenerAddSubscriptionResponse {0}
                                     } }
                                 }
                                 , true
                             );
                         }
                         break;
-                    case MultiTransportSubscriberConnectionType::ZeroMQ:
+                    case MultiTransportBroadcastListenerConnectionType::ZeroMQ:
                         if constexpr (std::is_convertible_v<Env *, zeromq::ZeroMQComponent *>) {
                             auto *component = static_cast<zeromq::ZeroMQComponent *>(env);
                             auto res = component->zeroMQ_addSubscriptionClient(
@@ -244,10 +244,10 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                             );
                             this->FacilityParent::publish(
                                 env
-                                , typename M::template Key<MultiTransportSubscriberOutput> {
+                                , typename M::template Key<MultiTransportBroadcastListenerOutput> {
                                     id
-                                    , MultiTransportSubscriberOutput { {
-                                        MultiTransportSubscriberAddSubscriptionResponse {res}
+                                    , MultiTransportBroadcastListenerOutput { {
+                                        MultiTransportBroadcastListenerAddSubscriptionResponse {res}
                                     } }
                                 }
                                 , true
@@ -255,10 +255,10 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                         } else {
                             this->FacilityParent::publish(
                                 env
-                                , typename M::template Key<MultiTransportSubscriberOutput> {
+                                , typename M::template Key<MultiTransportBroadcastListenerOutput> {
                                     id
-                                    , MultiTransportSubscriberOutput { {
-                                        MultiTransportSubscriberAddSubscriptionResponse {0}
+                                    , MultiTransportBroadcastListenerOutput { {
+                                        MultiTransportBroadcastListenerAddSubscriptionResponse {0}
                                     } }
                                 }
                                 , true
@@ -268,37 +268,37 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                     default:
                         this->FacilityParent::publish(
                             env
-                            , typename M::template Key<MultiTransportSubscriberOutput> {
+                            , typename M::template Key<MultiTransportBroadcastListenerOutput> {
                                 id
-                                , MultiTransportSubscriberOutput { {
-                                    MultiTransportSubscriberAddSubscriptionResponse {0}
+                                , MultiTransportBroadcastListenerOutput { {
+                                    MultiTransportBroadcastListenerAddSubscriptionResponse {0}
                                 } }
                             }
                             , true
                         );
                         break;
                     }
-                } else if constexpr (std::is_same_v<X, MultiTransportSubscriberRemoveSubscription>) {
+                } else if constexpr (std::is_same_v<X, MultiTransportBroadcastListenerRemoveSubscription>) {
                     switch (x.connectionType) {
-                    case MultiTransportSubscriberConnectionType::Multicast:
+                    case MultiTransportBroadcastListenerConnectionType::Multicast:
                         if constexpr (std::is_convertible_v<Env *, multicast::MulticastComponent *>) {
                             static_cast<multicast::MulticastComponent *>(env)
                                 ->multicast_removeSubscriptionClient(x.subscriptionID);
                         }
                         break;
-                    case MultiTransportSubscriberConnectionType::RabbitMQ:
+                    case MultiTransportBroadcastListenerConnectionType::RabbitMQ:
                         if constexpr (std::is_convertible_v<Env *, rabbitmq::RabbitMQComponent *>) {
                             static_cast<rabbitmq::RabbitMQComponent *>(env)
                                 ->rabbitmq_removeExchangeSubscriptionClient(x.subscriptionID);
                         }
                         break;
-                    case MultiTransportSubscriberConnectionType::Redis:
+                    case MultiTransportBroadcastListenerConnectionType::Redis:
                         if constexpr (std::is_convertible_v<Env *, redis::RedisComponent *>) {
                             static_cast<redis::RedisComponent *>(env)
                                 ->redis_removeSubscriptionClient(x.subscriptionID);
                         }
                         break;
-                    case MultiTransportSubscriberConnectionType::ZeroMQ:
+                    case MultiTransportBroadcastListenerConnectionType::ZeroMQ:
                         if constexpr (std::is_convertible_v<Env *, zeromq::ZeroMQComponent *>) {
                             static_cast<zeromq::ZeroMQComponent *>(env)
                                 ->zeroMQ_removeSubscriptionClient(x.subscriptionID);
@@ -309,10 +309,10 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                     }
                     this->FacilityParent::publish(
                         env
-                        , typename M::template Key<MultiTransportSubscriberOutput> {
+                        , typename M::template Key<MultiTransportBroadcastListenerOutput> {
                             id
-                            , MultiTransportSubscriberOutput { {
-                                MultiTransportSubscriberRemoveSubscriptionResponse {}
+                            , MultiTransportBroadcastListenerOutput { {
+                                MultiTransportBroadcastListenerRemoveSubscriptionResponse {}
                             } }
                         }
                         , true
@@ -321,21 +321,21 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
             }, std::move(input.timedData.value.key().value));
         } 
     public:
-        MultiTransportSubscriber(std::optional<WireToUserHook> wireToUserHook = std::nullopt) 
+        MultiTransportBroadcastListener(std::optional<WireToUserHook> wireToUserHook = std::nullopt) 
             : Parent()
             , wireToUserHook_(wireToUserHook) 
         {
         }
-        ~MultiTransportSubscriber() {
+        ~MultiTransportBroadcastListener() {
         }
         void start(Env *env) override final {
         }
-        void handle(typename M::template InnerData<typename M::template Key<MultiTransportSubscriberInput>> &&input) override final {
+        void handle(typename M::template InnerData<typename M::template Key<MultiTransportBroadcastListenerInput>> &&input) override final {
             //These commands are supposed to be sparse, but handling
             //them may involve setting up or closing lower-level communication 
             //channels which would take some time, so we will launch a
             //thread to handle each one
-            std::thread th(&MultiTransportSubscriber::actuallyHandle, this, std::move(input));
+            std::thread th(&MultiTransportBroadcastListener::actuallyHandle, this, std::move(input));
             th.detach();
         } 
     };
@@ -343,23 +343,23 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
 
 namespace dev { namespace cd606 { namespace tm { namespace basic { namespace bytedata_utils {
     template <>
-    struct RunCBORSerializer<transport::MultiTransportSubscriberConnectionType, void> {
-        static std::vector<uint8_t> apply(transport::MultiTransportSubscriberConnectionType const &x) {
+    struct RunCBORSerializer<transport::MultiTransportBroadcastListenerConnectionType, void> {
+        static std::vector<uint8_t> apply(transport::MultiTransportBroadcastListenerConnectionType const &x) {
             return RunCBORSerializer<std::string>::apply(
                 transport::MULTI_TRANSPORT_SUBSCRIBER_CONNECTION_TYPE_STR[static_cast<int>(x)]
             );
         }   
     };
     template <>
-    struct RunCBORDeserializer<transport::MultiTransportSubscriberConnectionType, void> {
-        static std::optional<std::tuple<transport::MultiTransportSubscriberConnectionType,size_t>> apply(std::string_view const &data, size_t start) {
+    struct RunCBORDeserializer<transport::MultiTransportBroadcastListenerConnectionType, void> {
+        static std::optional<std::tuple<transport::MultiTransportBroadcastListenerConnectionType,size_t>> apply(std::string_view const &data, size_t start) {
             auto t = RunCBORDeserializer<std::string>::apply(data, start);
             if (t) {
                 int ii = 0;
                 for (auto const &s : transport::MULTI_TRANSPORT_SUBSCRIBER_CONNECTION_TYPE_STR) {
                     if (s == std::get<0>(*t)) {
-                        return std::tuple<transport::MultiTransportSubscriberConnectionType,size_t> {
-                            static_cast<transport::MultiTransportSubscriberConnectionType>(ii)
+                        return std::tuple<transport::MultiTransportBroadcastListenerConnectionType,size_t> {
+                            static_cast<transport::MultiTransportBroadcastListenerConnectionType>(ii)
                             , std::get<1>(*t)
                         };
                     }
@@ -372,15 +372,15 @@ namespace dev { namespace cd606 { namespace tm { namespace basic { namespace byt
         }
     };
     template <>
-    struct RunCBORSerializer<transport::MultiTransportSubscriberAddSubscription, void> {
-        static std::vector<uint8_t> apply(transport::MultiTransportSubscriberAddSubscription const &x) {
+    struct RunCBORSerializer<transport::MultiTransportBroadcastListenerAddSubscription, void> {
+        static std::vector<uint8_t> apply(transport::MultiTransportBroadcastListenerAddSubscription const &x) {
             std::tuple<
-                transport::MultiTransportSubscriberConnectionType const *
+                transport::MultiTransportBroadcastListenerConnectionType const *
                 , std::string const *
                 , std::string const *
             > t {&x.connectionType, &x.connectionLocatorDescription, &x.topicDescription};
             return RunCBORSerializerWithNameList<std::tuple<
-                transport::MultiTransportSubscriberConnectionType const *
+                transport::MultiTransportBroadcastListenerConnectionType const *
                 , std::string const *
                 , std::string const *
             >, 3>
@@ -392,10 +392,10 @@ namespace dev { namespace cd606 { namespace tm { namespace basic { namespace byt
         }   
     };
     template <>
-    struct RunCBORDeserializer<transport::MultiTransportSubscriberAddSubscription, void> {
-        static std::optional<std::tuple<transport::MultiTransportSubscriberAddSubscription,size_t>> apply(std::string_view const &data, size_t start) {
+    struct RunCBORDeserializer<transport::MultiTransportBroadcastListenerAddSubscription, void> {
+        static std::optional<std::tuple<transport::MultiTransportBroadcastListenerAddSubscription,size_t>> apply(std::string_view const &data, size_t start) {
             auto t = RunCBORDeserializerWithNameList<std::tuple<
-                transport::MultiTransportSubscriberConnectionType
+                transport::MultiTransportBroadcastListenerConnectionType
                 , std::string
                 , std::string
             >, 3>::apply(data, start, {
@@ -404,8 +404,8 @@ namespace dev { namespace cd606 { namespace tm { namespace basic { namespace byt
                     , "topic_description"
                 });
             if (t) {
-                return std::tuple<transport::MultiTransportSubscriberAddSubscription,size_t> {
-                    transport::MultiTransportSubscriberAddSubscription {
+                return std::tuple<transport::MultiTransportBroadcastListenerAddSubscription,size_t> {
+                    transport::MultiTransportBroadcastListenerAddSubscription {
                         std::move(std::get<0>(std::get<0>(*t)))
                         , std::move(std::get<1>(std::get<0>(*t)))
                         , std::move(std::get<2>(std::get<0>(*t)))
@@ -418,14 +418,14 @@ namespace dev { namespace cd606 { namespace tm { namespace basic { namespace byt
         }
     };
     template <>
-    struct RunCBORSerializer<transport::MultiTransportSubscriberRemoveSubscription, void> {
-        static std::vector<uint8_t> apply(transport::MultiTransportSubscriberRemoveSubscription const &x) {
+    struct RunCBORSerializer<transport::MultiTransportBroadcastListenerRemoveSubscription, void> {
+        static std::vector<uint8_t> apply(transport::MultiTransportBroadcastListenerRemoveSubscription const &x) {
             std::tuple<
-                transport::MultiTransportSubscriberConnectionType const *
+                transport::MultiTransportBroadcastListenerConnectionType const *
                 , uint32_t const *
             > t {&x.connectionType, &x.subscriptionID};
             return RunCBORSerializerWithNameList<std::tuple<
-                transport::MultiTransportSubscriberConnectionType const *
+                transport::MultiTransportBroadcastListenerConnectionType const *
                 , uint32_t const *
             >, 2>
                 ::apply(t, {
@@ -435,18 +435,18 @@ namespace dev { namespace cd606 { namespace tm { namespace basic { namespace byt
         }   
     };
     template <>
-    struct RunCBORDeserializer<transport::MultiTransportSubscriberRemoveSubscription, void> {
-        static std::optional<std::tuple<transport::MultiTransportSubscriberRemoveSubscription,size_t>> apply(std::string_view const &data, size_t start) {
+    struct RunCBORDeserializer<transport::MultiTransportBroadcastListenerRemoveSubscription, void> {
+        static std::optional<std::tuple<transport::MultiTransportBroadcastListenerRemoveSubscription,size_t>> apply(std::string_view const &data, size_t start) {
             auto t = RunCBORDeserializerWithNameList<std::tuple<
-                transport::MultiTransportSubscriberConnectionType
+                transport::MultiTransportBroadcastListenerConnectionType
                 , uint32_t
             >, 2>::apply(data, start, {
                     "connection_type"
                     , "subscription_id"
                 });
             if (t) {
-                return std::tuple<transport::MultiTransportSubscriberRemoveSubscription,size_t> {
-                    transport::MultiTransportSubscriberRemoveSubscription {
+                return std::tuple<transport::MultiTransportBroadcastListenerRemoveSubscription,size_t> {
+                    transport::MultiTransportBroadcastListenerRemoveSubscription {
                         std::move(std::get<0>(std::get<0>(*t)))
                         , std::move(std::get<1>(std::get<0>(*t)))
                     }
@@ -458,8 +458,8 @@ namespace dev { namespace cd606 { namespace tm { namespace basic { namespace byt
         }
     };
     template <>
-    struct RunCBORSerializer<transport::MultiTransportSubscriberAddSubscriptionResponse, void> {
-        static std::vector<uint8_t> apply(transport::MultiTransportSubscriberAddSubscriptionResponse const &x) {
+    struct RunCBORSerializer<transport::MultiTransportBroadcastListenerAddSubscriptionResponse, void> {
+        static std::vector<uint8_t> apply(transport::MultiTransportBroadcastListenerAddSubscriptionResponse const &x) {
             std::tuple<
                 uint32_t const *
             > t {&x.subscriptionID};
@@ -472,16 +472,16 @@ namespace dev { namespace cd606 { namespace tm { namespace basic { namespace byt
         }   
     };
     template <>
-    struct RunCBORDeserializer<transport::MultiTransportSubscriberAddSubscriptionResponse, void> {
-        static std::optional<std::tuple<transport::MultiTransportSubscriberAddSubscriptionResponse,size_t>> apply(std::string_view const &data, size_t start) {
+    struct RunCBORDeserializer<transport::MultiTransportBroadcastListenerAddSubscriptionResponse, void> {
+        static std::optional<std::tuple<transport::MultiTransportBroadcastListenerAddSubscriptionResponse,size_t>> apply(std::string_view const &data, size_t start) {
             auto t = RunCBORDeserializerWithNameList<std::tuple<
                 uint32_t
             >, 1>::apply(data, start, {
                     "subscription_id"
                 });
             if (t) {
-                return std::tuple<transport::MultiTransportSubscriberAddSubscriptionResponse,size_t> {
-                    transport::MultiTransportSubscriberAddSubscriptionResponse {
+                return std::tuple<transport::MultiTransportBroadcastListenerAddSubscriptionResponse,size_t> {
+                    transport::MultiTransportBroadcastListenerAddSubscriptionResponse {
                         std::move(std::get<0>(std::get<0>(*t)))
                     }
                     , std::get<1>(*t)
@@ -492,18 +492,18 @@ namespace dev { namespace cd606 { namespace tm { namespace basic { namespace byt
         }
     };
     template <>
-    struct RunCBORSerializer<transport::MultiTransportSubscriberRemoveSubscriptionResponse, void> {
-        static std::vector<uint8_t> apply(transport::MultiTransportSubscriberRemoveSubscriptionResponse const &x) {
+    struct RunCBORSerializer<transport::MultiTransportBroadcastListenerRemoveSubscriptionResponse, void> {
+        static std::vector<uint8_t> apply(transport::MultiTransportBroadcastListenerRemoveSubscriptionResponse const &x) {
             return RunCBORSerializer<VoidStruct>::apply(VoidStruct {});
         }   
     };
     template <>
-    struct RunCBORDeserializer<transport::MultiTransportSubscriberRemoveSubscriptionResponse, void> {
-        static std::optional<std::tuple<transport::MultiTransportSubscriberRemoveSubscriptionResponse,size_t>> apply(std::string_view const &data, size_t start) {
+    struct RunCBORDeserializer<transport::MultiTransportBroadcastListenerRemoveSubscriptionResponse, void> {
+        static std::optional<std::tuple<transport::MultiTransportBroadcastListenerRemoveSubscriptionResponse,size_t>> apply(std::string_view const &data, size_t start) {
             auto t = RunCBORDeserializer<VoidStruct>::apply(data, start);
             if (t) {
-                return std::tuple<transport::MultiTransportSubscriberRemoveSubscriptionResponse,size_t> {
-                    transport::MultiTransportSubscriberRemoveSubscriptionResponse {}
+                return std::tuple<transport::MultiTransportBroadcastListenerRemoveSubscriptionResponse,size_t> {
+                    transport::MultiTransportBroadcastListenerRemoveSubscriptionResponse {}
                     , std::get<1>(*t)
                 };
             } else {
