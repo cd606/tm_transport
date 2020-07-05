@@ -123,7 +123,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
             , bool
         >;
 
-        std::optional<ByteDataHookPair> hookPair_; 
+        std::function<std::optional<ByteDataHookPair>(ConnectionLocator const &)> hookPairFactory_; 
         std::vector<std::tuple<ConnectionLocator, std::unique_ptr<RequestSender>>> underlyingSenders_;
         SenderMap senderMap_;
         std::mutex mutex_;
@@ -158,7 +158,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                                     , isFinal
                                 );
                             }
-                            , hookPair_
+                            , hookPairFactory_(locator)
                         );
                         RequestSender req;
                         if constexpr (std::is_same_v<Identity,void>) {
@@ -236,7 +236,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                                     , isFinal
                                 );
                             }
-                            , hookPair_
+                            , hookPairFactory_(locator)
                         );
                         RequestSender req;
                         if constexpr (std::is_same_v<Identity,void>) {
@@ -425,8 +425,8 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
             }
         }
     public:
-        MultiTransportRemoteFacility(std::optional<ByteDataHookPair> const &hookPair = std::nullopt)
-            : Parent(), hookPair_(hookPair), underlyingSenders_(), senderMap_(), mutex_()
+        MultiTransportRemoteFacility(std::function<std::optional<ByteDataHookPair>(ConnectionLocator const &)> const &hookPairFactory = [](ConnectionLocator const &) {return std::nullopt;})
+            : Parent(), hookPairFactory_(hookPairFactory), underlyingSenders_(), senderMap_(), mutex_()
         {
             static_assert(
                 (
