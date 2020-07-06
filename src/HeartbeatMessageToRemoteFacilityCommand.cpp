@@ -127,17 +127,25 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
     }
     std::optional<MultiTransportRemoteFacilityAction> HeartbeatMessageToRemoteFacilityCommand::parseStatusInfo(MultiTransportRemoteFacilityActionType actionType, std::string const &statusInfo) {
         if (boost::starts_with(statusInfo, "rabbitmq://")) {
-            return MultiTransportRemoteFacilityAction {
-                actionType
-                , MultiTransportRemoteFacilityConnectionType::RabbitMQ
-                , statusInfo.substr(std::string("rabbitmq://").length())
-            };
+            try {
+                return MultiTransportRemoteFacilityAction {
+                    actionType
+                    , MultiTransportRemoteFacilityConnectionType::RabbitMQ
+                    , ConnectionLocator::parse(statusInfo.substr(std::string("rabbitmq://").length()))
+                };
+            } catch (ConnectionLocatorParseError const &) {
+                return std::nullopt;
+            }
         } else if (boost::starts_with(statusInfo, "redis://")) {
-            return MultiTransportRemoteFacilityAction {
-                actionType
-                , MultiTransportRemoteFacilityConnectionType::Redis
-                , statusInfo.substr(std::string("redis://").length())
-            };
+            try {
+                return MultiTransportRemoteFacilityAction {
+                    actionType
+                    , MultiTransportRemoteFacilityConnectionType::Redis
+                    , ConnectionLocator::parse(statusInfo.substr(std::string("redis://").length()))
+                };
+            } catch (ConnectionLocatorParseError const &) {
+                return std::nullopt;
+            }
         } else {
             return std::nullopt;
         }

@@ -52,6 +52,30 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
         std::unordered_set<std::string> allEntries() const;
         std::unordered_set<std::string> allEntriesRE(std::regex const &re) const;
     };
+
+    /*
+    template <class R, class TriggeringT=basic::VoidStruct>
+    inline typename R::Source<HeartbeatMessage> triggerDedicatedHeartbeatListener(
+        R &r 
+        , R::Source<TriggeringT> &&triggeringSource
+        , MultiTransportBroadcastListenerAddSubscription const &listenerSpec
+        , std::string const &listenerName
+    ) {
+
+        auto createHeartbeatListenKey = M::simpleImporter<M::Key<transport::MultiTransportBroadcastListenerInput>>(
+        [](M::PublisherCall<M::Key<transport::MultiTransportBroadcastListenerInput>> &pub) {
+            pub(infra::withtime_utils::keyify<transport::MultiTransportBroadcastListenerInput,TheEnvironment>(
+                transport::MultiTransportBroadcastListenerInput { {
+                    transport::MultiTransportBroadcastListenerAddSubscription {
+                        transport::MultiTransportBroadcastListenerConnectionType::Redis
+                        , "127.0.0.1:6379"
+                        , "heartbeats.transaction_test_server"
+                    }
+                } }
+            ));
+        }
+    );
+    }*/
 } } } }
 
 #endif

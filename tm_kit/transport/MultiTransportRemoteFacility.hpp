@@ -37,14 +37,11 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
     struct MultiTransportRemoteFacilityAction {
         MultiTransportRemoteFacilityActionType actionType;
         MultiTransportRemoteFacilityConnectionType connectionType;
-        std::string connectionLocatorDescription;
-    };
-
-    struct MultiTransportRemoteFacilityActionResult {
-        MultiTransportRemoteFacilityActionType actionType;
-        MultiTransportRemoteFacilityConnectionType connectionType;
         ConnectionLocator connectionLocator;
     };
+
+    using MultiTransportRemoteFacilityActionResult = 
+        std::tuple<MultiTransportRemoteFacilityAction, bool>; //the bool part means whether it is handled
 
     enum class MultiTransportRemoteFacilityDispatchStrategy {
         Random
@@ -128,7 +125,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
         SenderMap senderMap_;
         std::mutex mutex_;
 
-        void registerFacility(Env *env, MultiTransportRemoteFacilityConnectionType connType, ConnectionLocator const &locator) {
+        bool registerFacility(Env *env, MultiTransportRemoteFacilityConnectionType connType, ConnectionLocator const &locator) {
             switch (connType) {
             case MultiTransportRemoteFacilityConnectionType::RabbitMQ:
                 if constexpr (std::is_convertible_v<Env *, rabbitmq::RabbitMQComponent *>) {
@@ -187,18 +184,6 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                         oss << "[MultiTransportRemoteFacility::registerFacility] Registered RabbitMQ facility for "
                             << locator;
                         env->log(infra::LogLevel::Info, oss.str());
-                        if constexpr (DispatchStrategy == MultiTransportRemoteFacilityDispatchStrategy::Designated) {
-                            this->ImporterParent::publish(
-                                M::template pureInnerData<MultiTransportRemoteFacilityActionResult>(
-                                    env
-                                    , MultiTransportRemoteFacilityActionResult {
-                                        MultiTransportRemoteFacilityActionType::Register
-                                        , connType
-                                        , locator
-                                    }
-                                )
-                            );
-                        }
                     } catch (rabbitmq::RabbitMQComponentException const &) {
                         std::ostringstream oss;
                         oss << "[MultiTransportRemoteFacility::registerFacility] Error registering RabbitMQ facility for "
@@ -206,6 +191,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                         env->log(infra::LogLevel::Error, oss.str());
                     }
                 }
+                return true;
                 break;
             case MultiTransportRemoteFacilityConnectionType::Redis:
                 if constexpr (std::is_convertible_v<Env *, redis::RedisComponent *>) {
@@ -263,18 +249,6 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                         oss << "[MultiTransportRemoteFacility::registerFacility] Registered Redis facility for "
                             << locator;
                         env->log(infra::LogLevel::Info, oss.str());
-                        if constexpr (DispatchStrategy == MultiTransportRemoteFacilityDispatchStrategy::Designated) {
-                            this->ImporterParent::publish(
-                                M::template pureInnerData<MultiTransportRemoteFacilityActionResult>(
-                                    env
-                                    , MultiTransportRemoteFacilityActionResult {
-                                        MultiTransportRemoteFacilityActionType::Register
-                                        , connType
-                                        , locator
-                                    }
-                                )
-                            );
-                        }
                     } catch (redis::RedisComponentException const &) {
                         std::ostringstream oss;
                         oss << "[MultiTransportRemoteFacility::registerFacility] Error registering Redis facility for "
@@ -282,12 +256,14 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                         env->log(infra::LogLevel::Error, oss.str());
                     }
                 }
+                return true;
                 break;
             default:
+                return false;
                 break;
             }
         }
-        void deregisterFacility(Env *env, MultiTransportRemoteFacilityConnectionType connType, ConnectionLocator const &locator) {
+        bool deregisterFacility(Env *env, MultiTransportRemoteFacilityConnectionType connType, ConnectionLocator const &locator) {
             switch (connType) {
             case MultiTransportRemoteFacilityConnectionType::RabbitMQ:
                 if constexpr (std::is_convertible_v<Env *, rabbitmq::RabbitMQComponent *>) {
@@ -313,18 +289,8 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                     oss << "[MultiTransportRemoteFacility::deregisterFacility] De-registered RabbitMQ facility for "
                         << locator;
                     env->log(infra::LogLevel::Info, oss.str());
-                    if constexpr (DispatchStrategy == MultiTransportRemoteFacilityDispatchStrategy::Designated) {
-                        this->ImporterParent::publish(
-                            M::template pureInnerData<MultiTransportRemoteFacilityActionResult>(
-                                env
-                                , MultiTransportRemoteFacilityActionResult {
-                                    MultiTransportRemoteFacilityActionType::Deregister
-                                    , connType
-                                    , locator
-                                }
-                            )
-                        );
-                    }
+
+                    return true;
                 }
                 break;
             case MultiTransportRemoteFacilityConnectionType::Redis:
@@ -351,41 +317,40 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                     oss << "[MultiTransportRemoteFacility::deregisterFacility] De-registered Redis facility for "
                         << locator;
                     env->log(infra::LogLevel::Info, oss.str());
-                    if constexpr (DispatchStrategy == MultiTransportRemoteFacilityDispatchStrategy::Designated) {
-                        this->ImporterParent::publish(
-                            M::template pureInnerData<MultiTransportRemoteFacilityActionResult>(
-                                env
-                                , MultiTransportRemoteFacilityActionResult {
-                                    MultiTransportRemoteFacilityActionType::Deregister
-                                    , connType
-                                    , locator
-                                }
-                            )
-                        );
-                    }
+
+                    return true;
                 }
                 break;
             default:
+                return false;
                 break;
             }
         }
 
         void actuallyHandleFacilityAction(typename M::template InnerData<MultiTransportRemoteFacilityAction> &&action) {
+            bool handled = false;
             switch (action.timedData.value.actionType) {
             case MultiTransportRemoteFacilityActionType::Register:
-                try {
-                    registerFacility(action.environment, action.timedData.value.connectionType, ConnectionLocator::parse(action.timedData.value.connectionLocatorDescription));
-                } catch (ConnectionLocatorParseError const &) {
-                }
+                handled = registerFacility(action.environment, action.timedData.value.connectionType, action.timedData.value.connectionLocator);
                 break;
             case MultiTransportRemoteFacilityActionType::Deregister:
-                try {
-                    deregisterFacility(action.environment, action.timedData.value.connectionType, ConnectionLocator::parse(action.timedData.value.connectionLocatorDescription));
-                } catch (ConnectionLocatorParseError const &) {
-                }
+                handled = deregisterFacility(action.environment, action.timedData.value.connectionType, action.timedData.value.connectionLocator);
                 break;
             default:
+                handled = false;
                 break;
+            }
+            if constexpr (DispatchStrategy == MultiTransportRemoteFacilityDispatchStrategy::Designated) {
+                //we ALWAYS publish the action itself as the response
+                this->ImporterParent::publish(
+                    M::template pureInnerData<MultiTransportRemoteFacilityActionResult>(
+                        action.environment
+                        , {
+                            std::move(action.timedData.value)
+                            , handled
+                        }
+                    )
+                );
             }
         }
         void actuallyHandleInput(typename M::template InnerData<typename M::template Key<Input>> &&input) {
@@ -527,17 +492,17 @@ namespace dev { namespace cd606 { namespace tm { namespace basic { namespace byt
             std::tuple<
                 transport::MultiTransportRemoteFacilityActionType const *
                 , transport::MultiTransportRemoteFacilityConnectionType const *
-                , std::string const *
-            > t {&x.actionType, &x.connectionType, &x.connectionLocatorDescription};
+                , transport::ConnectionLocator const *
+            > t {&x.actionType, &x.connectionType, &x.connectionLocator};
             return RunCBORSerializerWithNameList<std::tuple<
                 transport::MultiTransportRemoteFacilityActionType const *
                 , transport::MultiTransportRemoteFacilityConnectionType const *
-                , std::string const *
+                , transport::ConnectionLocator const *
             >, 3>
                 ::apply(t, {
                     "action_type"
                     , "connection_type"
-                    , "connection_locator_description"
+                    , "connection_locator"
                 });
         }   
     };
@@ -547,11 +512,11 @@ namespace dev { namespace cd606 { namespace tm { namespace basic { namespace byt
             auto t = RunCBORDeserializerWithNameList<std::tuple<
                 transport::MultiTransportRemoteFacilityActionType
                 , transport::MultiTransportRemoteFacilityConnectionType
-                , std::string
+                , transport::ConnectionLocator
             >, 3>::apply(data, start, {
                     "action_type"
                     , "connection_type"
-                    , "connection_locator_description"
+                    , "connection_locator"
                 });
             if (t) {
                 return std::tuple<transport::MultiTransportRemoteFacilityAction,size_t> {

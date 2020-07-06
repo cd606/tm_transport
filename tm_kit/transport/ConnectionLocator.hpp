@@ -7,6 +7,8 @@
 #include <exception>
 #include <functional>
 
+#include <tm_kit/basic/ByteData.hpp>
+
 namespace dev { namespace cd606 { namespace tm { namespace transport {
     class ConnectionLocatorParseError : public std::runtime_error {
     public:
@@ -84,5 +86,36 @@ namespace std {
         }
     };
 }
+
+namespace dev { namespace cd606 { namespace tm { namespace basic { namespace bytedata_utils {
+
+    template <>
+    struct RunCBORSerializer<transport::ConnectionLocator, void> {
+        static std::vector<uint8_t> apply(transport::ConnectionLocator const &x) {
+            return RunCBORSerializer<std::string>::apply(
+                x.toSerializationFormat()
+            );
+        }   
+    };
+    template <>
+    struct RunCBORDeserializer<transport::ConnectionLocator, void> {
+        static std::optional<std::tuple<transport::ConnectionLocator,size_t>> apply(std::string_view const &data, size_t start) {
+            auto t = RunCBORDeserializer<std::string>::apply(data, start);
+            if (t) {
+                try {
+                    auto l = transport::ConnectionLocator::parse(std::get<0>(*t));
+                    return std::tuple<transport::ConnectionLocator,size_t> {
+                        std::move(l)
+                        , std::get<1>(*t)
+                    };
+                } catch (transport::ConnectionLocatorParseError const &) {
+                    return std::nullopt;
+                }
+            } else {
+                return std::nullopt;
+            }
+        }
+    };
+} } } } }
 
 #endif

@@ -31,7 +31,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
     };
     struct MultiTransportBroadcastListenerAddSubscription {
         MultiTransportBroadcastListenerConnectionType connectionType;
-        std::string connectionLocatorDescription;
+        ConnectionLocator connectionLocator;
         std::string topicDescription; 
     };
     struct MultiTransportBroadcastListenerRemoveSubscription {
@@ -100,28 +100,12 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
             std::visit([this,env,&id](auto &&x) {
                 using X = std::decay_t<decltype(x)>;
                 if constexpr (std::is_same_v<X, MultiTransportBroadcastListenerAddSubscription>) {
-                    ConnectionLocator locator;
-                    try {
-                        locator = ConnectionLocator::parse(x.connectionLocatorDescription);
-                    } catch (ConnectionLocatorParseError const &) {
-                        this->FacilityParent::publish(
-                            env
-                            , typename M::template Key<MultiTransportBroadcastListenerOutput> {
-                                id
-                                , MultiTransportBroadcastListenerOutput { {
-                                    MultiTransportBroadcastListenerAddSubscriptionResponse {0}
-                                } }
-                            }
-                            , true
-                        );
-                        return;
-                    }
                     switch (x.connectionType) {
                     case MultiTransportBroadcastListenerConnectionType::Multicast:
                         if constexpr (std::is_convertible_v<Env *, multicast::MulticastComponent *>) {
                             auto *component = static_cast<multicast::MulticastComponent *>(env);
                             auto res = component->multicast_addSubscriptionClient(
-                                locator
+                                x.connectionLocator
                                 , parseTopic<multicast::MulticastComponent>(x.topicDescription)
                                 , [this,env](basic::ByteDataWithTopic &&d) {
                                     auto t = basic::bytedata_utils::RunDeserializer<T>::apply(d.content);
@@ -158,7 +142,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                         if constexpr (std::is_convertible_v<Env *, rabbitmq::RabbitMQComponent *>) {
                             auto *component = static_cast<rabbitmq::RabbitMQComponent *>(env);
                             auto res = component->rabbitmq_addExchangeSubscriptionClient(
-                                locator
+                                x.connectionLocator
                                 , x.topicDescription
                                 , [this,env](std::string const &, basic::ByteDataWithTopic &&d) {
                                     auto t = basic::bytedata_utils::RunDeserializer<T>::apply(d.content);
@@ -195,7 +179,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                         if constexpr (std::is_convertible_v<Env *, redis::RedisComponent *>) {
                             auto *component = static_cast<redis::RedisComponent *>(env);
                             auto res = component->redis_addSubscriptionClient(
-                                locator
+                                x.connectionLocator
                                 , x.topicDescription
                                 , [this,env](basic::ByteDataWithTopic &&d) {
                                     auto t = basic::bytedata_utils::RunDeserializer<T>::apply(d.content);
@@ -232,7 +216,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                         if constexpr (std::is_convertible_v<Env *, zeromq::ZeroMQComponent *>) {
                             auto *component = static_cast<zeromq::ZeroMQComponent *>(env);
                             auto res = component->zeroMQ_addSubscriptionClient(
-                                locator
+                                x.connectionLocator
                                 , parseTopic<zeromq::ZeroMQComponent>(x.topicDescription)
                                 , [this,env](basic::ByteDataWithTopic &&d) {
                                     auto t = basic::bytedata_utils::RunDeserializer<T>::apply(d.content);
@@ -376,17 +360,17 @@ namespace dev { namespace cd606 { namespace tm { namespace basic { namespace byt
         static std::vector<uint8_t> apply(transport::MultiTransportBroadcastListenerAddSubscription const &x) {
             std::tuple<
                 transport::MultiTransportBroadcastListenerConnectionType const *
+                , transport::ConnectionLocator const *
                 , std::string const *
-                , std::string const *
-            > t {&x.connectionType, &x.connectionLocatorDescription, &x.topicDescription};
+            > t {&x.connectionType, &x.connectionLocator, &x.topicDescription};
             return RunCBORSerializerWithNameList<std::tuple<
                 transport::MultiTransportBroadcastListenerConnectionType const *
-                , std::string const *
+                , transport::ConnectionLocator const *
                 , std::string const *
             >, 3>
                 ::apply(t, {
                     "connection_type"
-                    , "connection_locator_description"
+                    , "connection_locator"
                     , "topic_description"
                 });
         }   
@@ -396,11 +380,11 @@ namespace dev { namespace cd606 { namespace tm { namespace basic { namespace byt
         static std::optional<std::tuple<transport::MultiTransportBroadcastListenerAddSubscription,size_t>> apply(std::string_view const &data, size_t start) {
             auto t = RunCBORDeserializerWithNameList<std::tuple<
                 transport::MultiTransportBroadcastListenerConnectionType
-                , std::string
+                , transport::ConnectionLocator
                 , std::string
             >, 3>::apply(data, start, {
                     "connection_type"
-                    , "connection_locator_description"
+                    , "connection_locator"
                     , "topic_description"
                 });
             if (t) {
