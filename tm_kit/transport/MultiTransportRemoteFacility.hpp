@@ -74,6 +74,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
     {
     private:
         using M = infra::RealTimeMonad<Env>;
+    public:
         using Input = std::conditional_t<
             DispatchStrategy == MultiTransportRemoteFacilityDispatchStrategy::Random
             , A
@@ -84,6 +85,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
             >
         >;
         using Output = B;
+    private:
         using Parent = std::conditional_t<
             DispatchStrategy == MultiTransportRemoteFacilityDispatchStrategy::Random
             , typename M::template AbstractIntegratedLocalOnOrderFacility<
