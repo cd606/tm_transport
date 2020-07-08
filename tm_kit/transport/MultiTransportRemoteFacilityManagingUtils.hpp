@@ -229,7 +229,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
             auto initialCallbackPicker = std::get<CurrentIdx>(initialCallbackPickers);
 
             auto vieInitialCallbackFilter =
-                [initialCallbackPicker](typename M::KeyedData<
+                [initialCallbackPicker](typename M::template KeyedData<
                     std::tuple<
                         ConnectionLocator
                         , std::tuple_element_t<1, FirstRemainingIdentityAndInputAndOutput>
