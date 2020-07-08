@@ -291,9 +291,8 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                     oss << "[MultiTransportRemoteFacility::deregisterFacility] De-registered RabbitMQ facility for "
                         << locator;
                     env->log(infra::LogLevel::Info, oss.str());
-
-                    return true;
                 }
+                return true;
                 break;
             case MultiTransportRemoteFacilityConnectionType::Redis:
                 if constexpr (std::is_convertible_v<Env *, redis::RedisComponent *>) {
@@ -319,9 +318,8 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                     oss << "[MultiTransportRemoteFacility::deregisterFacility] De-registered Redis facility for "
                         << locator;
                     env->log(infra::LogLevel::Info, oss.str());
-
-                    return true;
                 }
+                return true;
                 break;
             default:
                 return false;
