@@ -44,6 +44,11 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
         HeartbeatAndAlertComponentImpl() : uuidStr_(BoostUUIDComponent::id_to_string(BoostUUIDComponent::new_id())), clock_(nullptr), host_(), pid_(0), identity_(), publisher_(std::nullopt), mutex_(), broadcastChannels_(), facilityChannels_(), status_() {}
         HeartbeatAndAlertComponentImpl(basic::real_time_clock::ClockComponent *clock, std::string const &identity) : uuidStr_(BoostUUIDComponent::id_to_string(BoostUUIDComponent::new_id())), clock_(clock), host_(getHost()), pid_(getPid()), identity_(identity), publisher_(std::nullopt), mutex_(), broadcastChannels_(), facilityChannels_(), status_() {}
         HeartbeatAndAlertComponentImpl(basic::real_time_clock::ClockComponent *clock, std::string const &identity, std::function<void(basic::ByteDataWithTopic &&)> pub) : uuidStr_(BoostUUIDComponent::id_to_string(BoostUUIDComponent::new_id())), clock_(clock), host_(getHost()), pid_(getPid()), identity_(identity), publisher_(pub), mutex_(), broadcastChannels_(), facilityChannels_(), status_() {}
+        void assignIdentity(HeartbeatAndAlertComponentImpl &&another) {
+            clock_ = std::move(another.clock_);
+            identity_ = std::move(another.identity_);
+            publisher_ = std::move(another.publisher_);
+        }
         void setStatus(std::string const &itemDescription, HeartbeatMessage::Status status, std::string const &info="") {
             std::lock_guard<std::mutex> _(mutex_);
             status_[itemDescription] = {status, info};
@@ -102,6 +107,9 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
     HeartbeatAndAlertComponent::HeartbeatAndAlertComponent(HeartbeatAndAlertComponent &&) = default;
     HeartbeatAndAlertComponent &HeartbeatAndAlertComponent::operator=(HeartbeatAndAlertComponent &&) = default;
     
+    void HeartbeatAndAlertComponent::assignIdentity(HeartbeatAndAlertComponent &&another) {
+        impl_->assignIdentity(std::move(*(another.impl_)));
+    }
     void HeartbeatAndAlertComponent::addBroadcastChannel(std::string const &channel) {
         impl_->addBroadcastChannel(channel);
     }

@@ -156,7 +156,9 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
         template <class ... IdentitiesAndInputsAndOutputs>
         using DistinguishedRemoteFacilityInitiators =
             std::tuple<
-                std::tuple_element_t<1,IdentitiesAndInputsAndOutputs>...
+                std::function<
+                    std::tuple_element_t<1,IdentitiesAndInputsAndOutputs>()
+                >...
             >;
 
         template <class Input, class Output>
@@ -242,7 +244,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                     , std::tuple_element_t<1, FirstRemainingIdentityAndInputAndOutput>
                 >
             {
-                return {std::get<0>(x).connectionLocator, initiator};
+                return {std::get<0>(x).connectionLocator, initiator()};
             };
 
             auto initialCallbackPicker = std::get<CurrentIdx>(initialCallbackPickers);
@@ -293,6 +295,12 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
 
             r.registerAction(prefix+"/"+names[CurrentIdx]+"/loop/extraOutputConverter", extraOutputConverter);
 
+            auto extraOutput = r.execute(extraOutputConverter, facilityLoopOutput.facilityExtraOutput.clone());
+
+            auto extraOutputCatcher = M::template trivialExporter<std::tuple<ConnectionLocator, bool>>();
+            r.registerExporter(prefix+"/"+names[CurrentIdx]+"/loop/extraOutputCatcher", extraOutputCatcher);
+            r.exportItem(extraOutputCatcher, extraOutput.clone());
+
             std::get<CurrentIdx>(output) = 
                 DistinguishedRemoteFacility<
                     std::tuple_element_t<1, FirstRemainingIdentityAndInputAndOutput>
@@ -300,7 +308,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                 > {
                     facilityLoopOutput.callIntoFacility
                     , r.sourceAsSourceoid(facilityLoopOutput.facilityOutput.clone())
-                    , r.sourceAsSourceoid(r.execute(extraOutputConverter, facilityLoopOutput.facilityExtraOutput.clone()))
+                    , r.sourceAsSourceoid(extraOutput.clone())
                 };
 
             if constexpr (sizeof...(RemainingIdentitiesAndInputsAndOutputs) == 0) {
@@ -399,6 +407,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                 , DistinguishedRemoteFacilityInitialCallbackPickers<DistinguishedRemoteFacilitiesSpec...> const &initialCallbackPickers
                 , std::array<std::string, sizeof...(DistinguishedRemoteFacilitiesSpec)+sizeof...(NonDistinguishedRemoteFacilitiesSpec)> const &facilityRegistrationNames
                 , std::string const &prefix
+                , std::optional<WireToUserHook> wireToUserHookForHeartbeat = std::nullopt
                 , std::function<std::optional<ByteDataHookPair>(std::string const &, ConnectionLocator const &)> const &hookPairFactory
                     = [](std::string const &, ConnectionLocator const &) {return std::nullopt;}
             ) 
@@ -442,7 +451,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                     r
                     , r.importItem(createHeartbeatListenKey)
                     , M::onOrderFacilityWithExternalEffects(
-                        new transport::MultiTransportBroadcastListener<typename M::EnvironmentType, HeartbeatMessage>()
+                        new transport::MultiTransportBroadcastListener<typename M::EnvironmentType, HeartbeatMessage>(wireToUserHookForHeartbeat)
                     )
                     , std::nullopt //the trigger response is not needed
                     , prefix+"/heartbeatListener"

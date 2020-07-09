@@ -34,6 +34,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
         ~HeartbeatAndAlertComponent();
         HeartbeatAndAlertComponent(HeartbeatAndAlertComponent &&);
         HeartbeatAndAlertComponent &operator=(HeartbeatAndAlertComponent &&);
+        void assignIdentity(HeartbeatAndAlertComponent &&);
         void addBroadcastChannel(std::string const &channel);
         void addFacilityChannel(std::string const &name, std::string const &channel);
         void setStatus(std::string const &itemDescription, HeartbeatMessage::Status status, std::string const &info="");
@@ -45,7 +46,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
     class HeartbeatAndAlertComponentInitializer {
     public:
         void operator()(Env *env, std::string const &identity, ConnectionLocator const &locator, std::optional<UserToWireHook> hook=std::nullopt) {
-            env->HeartbeatAndAlertComponent::operator=(HeartbeatAndAlertComponent {
+            env->HeartbeatAndAlertComponent::assignIdentity(HeartbeatAndAlertComponent {
                 static_cast<basic::real_time_clock::ClockComponent *>(env)
                 , identity
             });
@@ -55,7 +56,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
     class HeartbeatAndAlertComponentInitializer<Env, rabbitmq::RabbitMQComponent> {
     public:
         void operator()(Env *env, std::string const &identity, ConnectionLocator const &locator, std::optional<UserToWireHook> hook=std::nullopt) {
-            env->HeartbeatAndAlertComponent::operator=(HeartbeatAndAlertComponent {
+            env->HeartbeatAndAlertComponent::assignIdentity(HeartbeatAndAlertComponent {
                 static_cast<basic::real_time_clock::ClockComponent *>(env)
                 , identity
                 , std::bind(
@@ -71,7 +72,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
     class HeartbeatAndAlertComponentInitializer<Env, multicast::MulticastComponent> {
     public:
         void operator()(Env *env, std::string const &identity, ConnectionLocator const &locator, std::optional<UserToWireHook> hook=std::nullopt) {
-            env->HeartbeatAndAlertComponent::operator=(HeartbeatAndAlertComponent {
+            env->HeartbeatAndAlertComponent::assignIdentity(HeartbeatAndAlertComponent {
                 static_cast<basic::real_time_clock::ClockComponent *>(env)
                 , identity
                 , std::bind(
@@ -103,7 +104,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
     class HeartbeatAndAlertComponentInitializer<Env, redis::RedisComponent> {
     public:
         void operator()(Env *env, std::string const &identity, ConnectionLocator const &locator, std::optional<UserToWireHook> hook=std::nullopt) {
-            env->HeartbeatAndAlertComponent::operator=(HeartbeatAndAlertComponent {
+            env->HeartbeatAndAlertComponent::assignIdentity(HeartbeatAndAlertComponent {
                 static_cast<basic::real_time_clock::ClockComponent *>(env)
                 , identity
                 , static_cast<redis::RedisComponent *>(env)
