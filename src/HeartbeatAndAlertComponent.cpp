@@ -1,4 +1,7 @@
 #include <tm_kit/transport/HeartbeatAndAlertComponent.hpp>
+#include <tm_kit/transport/BoostUUIDComponent.hpp>
+
+#include <unordered_set>
 
 #ifdef _MSC_VER
 #include <windows.h>
@@ -12,12 +15,15 @@
 namespace dev { namespace cd606 { namespace tm { namespace transport {
     class HeartbeatAndAlertComponentImpl {
     private:
+        std::string uuidStr_;
         basic::real_time_clock::ClockComponent *clock_;
         std::string host_;
         int64_t pid_;
         std::string identity_;
         std::optional<std::function<void(basic::ByteDataWithTopic &&)>> publisher_;
         std::mutex mutex_;
+        std::unordered_set<std::string> broadcastChannels_;
+        std::unordered_map<std::string, std::string> facilityChannels_;
         std::map<std::string, HeartbeatMessage::OneItemStatus> status_;
         static std::string getHost() {
             char buf[1024];
@@ -35,12 +41,24 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
             #endif
         }
     public:
-        HeartbeatAndAlertComponentImpl() : clock_(nullptr), host_(), pid_(0), identity_(), publisher_(std::nullopt), mutex_(), status_() {}
-        HeartbeatAndAlertComponentImpl(basic::real_time_clock::ClockComponent *clock, std::string const &identity) : clock_(clock), host_(getHost()), pid_(getPid()), identity_(identity), publisher_(std::nullopt), mutex_(), status_() {}
-        HeartbeatAndAlertComponentImpl(basic::real_time_clock::ClockComponent *clock, std::string const &identity, std::function<void(basic::ByteDataWithTopic &&)> pub) : clock_(clock), host_(getHost()), pid_(getPid()), identity_(identity), publisher_(pub), mutex_(), status_() {}
+        HeartbeatAndAlertComponentImpl() : uuidStr_(BoostUUIDComponent::id_to_string(BoostUUIDComponent::new_id())), clock_(nullptr), host_(), pid_(0), identity_(), publisher_(std::nullopt), mutex_(), broadcastChannels_(), facilityChannels_(), status_() {}
+        HeartbeatAndAlertComponentImpl(basic::real_time_clock::ClockComponent *clock, std::string const &identity) : uuidStr_(BoostUUIDComponent::id_to_string(BoostUUIDComponent::new_id())), clock_(clock), host_(getHost()), pid_(getPid()), identity_(identity), publisher_(std::nullopt), mutex_(), broadcastChannels_(), facilityChannels_(), status_() {}
+        HeartbeatAndAlertComponentImpl(basic::real_time_clock::ClockComponent *clock, std::string const &identity, std::function<void(basic::ByteDataWithTopic &&)> pub) : uuidStr_(BoostUUIDComponent::id_to_string(BoostUUIDComponent::new_id())), clock_(clock), host_(getHost()), pid_(getPid()), identity_(identity), publisher_(pub), mutex_(), broadcastChannels_(), facilityChannels_(), status_() {}
         void setStatus(std::string const &itemDescription, HeartbeatMessage::Status status, std::string const &info="") {
             std::lock_guard<std::mutex> _(mutex_);
             status_[itemDescription] = {status, info};
+        }
+        void addBroadcastChannel(std::string const &c) {
+            std::lock_guard<std::mutex> _(mutex_);
+            if (broadcastChannels_.find(c) == broadcastChannels_.end()) {
+                broadcastChannels_.insert(c);
+            }
+        }
+        void addFacilityChannel(std::string const &name, std::string const &c) {
+            std::lock_guard<std::mutex> _(mutex_);
+            if (facilityChannels_.find(name) == facilityChannels_.end()) {
+                facilityChannels_.insert({name, c});
+            }
         }
         void sendAlert(std::string const &alertTopic, infra::LogLevel level, std::string const &message) {
             if (publisher_ && clock_) {
@@ -55,7 +73,16 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                 HeartbeatMessage msg;
                 {
                     std::lock_guard<std::mutex> _(mutex_);
-                    msg = HeartbeatMessage {clock_->now(), host_, pid_, identity_, status_};
+                    msg = HeartbeatMessage {
+                        uuidStr_
+                        , clock_->now()
+                        , host_
+                        , pid_
+                        , identity_
+                        , std::vector<std::string> {broadcastChannels_.begin(), broadcastChannels_.end()}
+                        , std::map<std::string, std::string> {facilityChannels_.begin(), facilityChannels_.end()}
+                        , status_
+                    };
                 }
                 std::string buf;
                 msg.SerializeToString(&buf);
@@ -75,6 +102,12 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
     HeartbeatAndAlertComponent::HeartbeatAndAlertComponent(HeartbeatAndAlertComponent &&) = default;
     HeartbeatAndAlertComponent &HeartbeatAndAlertComponent::operator=(HeartbeatAndAlertComponent &&) = default;
     
+    void HeartbeatAndAlertComponent::addBroadcastChannel(std::string const &channel) {
+        impl_->addBroadcastChannel(channel);
+    }
+    void HeartbeatAndAlertComponent::addFacilityChannel(std::string const &name, std::string const &channel) {
+        impl_->addFacilityChannel(name, channel);
+    }
     void HeartbeatAndAlertComponent::setStatus(std::string const &itemDescription, HeartbeatMessage::Status status, std::string const &info) {
         impl_->setStatus(itemDescription, status, info);
     }

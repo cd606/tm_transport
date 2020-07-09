@@ -38,6 +38,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
         MultiTransportRemoteFacilityActionType actionType;
         MultiTransportRemoteFacilityConnectionType connectionType;
         ConnectionLocator connectionLocator;
+        std::string description;
     };
 
     using MultiTransportRemoteFacilityActionResult = 
@@ -122,12 +123,12 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
             , bool
         >;
 
-        std::function<std::optional<ByteDataHookPair>(ConnectionLocator const &)> hookPairFactory_; 
+        std::function<std::optional<ByteDataHookPair>(std::string const &, ConnectionLocator const &)> hookPairFactory_; 
         std::vector<std::tuple<ConnectionLocator, std::unique_ptr<RequestSender>>> underlyingSenders_;
         SenderMap senderMap_;
         std::mutex mutex_;
 
-        bool registerFacility(Env *env, MultiTransportRemoteFacilityConnectionType connType, ConnectionLocator const &locator) {
+        bool registerFacility(Env *env, MultiTransportRemoteFacilityConnectionType connType, ConnectionLocator const &locator, std::string const &description) {
             switch (connType) {
             case MultiTransportRemoteFacilityConnectionType::RabbitMQ:
                 if constexpr (std::is_convertible_v<Env *, rabbitmq::RabbitMQComponent *>) {
@@ -157,7 +158,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                                     , isFinal
                                 );
                             }
-                            , hookPairFactory_(locator)
+                            , hookPairFactory_(description, locator)
                         );
                         RequestSender req;
                         if constexpr (std::is_same_v<Identity,void>) {
@@ -224,7 +225,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                                     , isFinal
                                 );
                             }
-                            , hookPairFactory_(locator)
+                            , hookPairFactory_(description, locator)
                         );
                         RequestSender req;
                         if constexpr (std::is_same_v<Identity,void>) {
@@ -331,7 +332,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
             bool handled = false;
             switch (action.timedData.value.actionType) {
             case MultiTransportRemoteFacilityActionType::Register:
-                handled = registerFacility(action.environment, action.timedData.value.connectionType, action.timedData.value.connectionLocator);
+                handled = registerFacility(action.environment, action.timedData.value.connectionType, action.timedData.value.connectionLocator, action.timedData.value.description);
                 break;
             case MultiTransportRemoteFacilityActionType::Deregister:
                 handled = deregisterFacility(action.environment, action.timedData.value.connectionType, action.timedData.value.connectionLocator);
@@ -390,7 +391,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
             }
         }
     public:
-        MultiTransportRemoteFacility(std::function<std::optional<ByteDataHookPair>(ConnectionLocator const &)> const &hookPairFactory = [](ConnectionLocator const &) {return std::nullopt;})
+        MultiTransportRemoteFacility(std::function<std::optional<ByteDataHookPair>(std::string const &, ConnectionLocator const &)> const &hookPairFactory = [](std::string const &, ConnectionLocator const &) {return std::nullopt;})
             : Parent(), hookPairFactory_(hookPairFactory), underlyingSenders_(), senderMap_(), mutex_()
         {
             static_assert(
@@ -493,16 +494,19 @@ namespace dev { namespace cd606 { namespace tm { namespace basic { namespace byt
                 transport::MultiTransportRemoteFacilityActionType const *
                 , transport::MultiTransportRemoteFacilityConnectionType const *
                 , transport::ConnectionLocator const *
-            > t {&x.actionType, &x.connectionType, &x.connectionLocator};
+                , std::string const *
+            > t {&x.actionType, &x.connectionType, &x.connectionLocator, &x.description};
             return RunCBORSerializerWithNameList<std::tuple<
                 transport::MultiTransportRemoteFacilityActionType const *
                 , transport::MultiTransportRemoteFacilityConnectionType const *
                 , transport::ConnectionLocator const *
-            >, 3>
+                , std::string const *
+            >, 4>
                 ::apply(t, {
                     "action_type"
                     , "connection_type"
                     , "connection_locator"
+                    , "description"
                 });
         }   
     };
@@ -513,10 +517,12 @@ namespace dev { namespace cd606 { namespace tm { namespace basic { namespace byt
                 transport::MultiTransportRemoteFacilityActionType
                 , transport::MultiTransportRemoteFacilityConnectionType
                 , transport::ConnectionLocator
-            >, 3>::apply(data, start, {
+                , std::string
+            >, 4>::apply(data, start, {
                     "action_type"
                     , "connection_type"
                     , "connection_locator"
+                    , "description"
                 });
             if (t) {
                 return std::tuple<transport::MultiTransportRemoteFacilityAction,size_t> {
@@ -524,6 +530,7 @@ namespace dev { namespace cd606 { namespace tm { namespace basic { namespace byt
                         std::move(std::get<0>(std::get<0>(*t)))
                         , std::move(std::get<1>(std::get<0>(*t)))
                         , std::move(std::get<2>(std::get<0>(*t)))
+                        , std::move(std::get<3>(std::get<0>(*t)))
                     }
                     , std::get<1>(*t)
                 };

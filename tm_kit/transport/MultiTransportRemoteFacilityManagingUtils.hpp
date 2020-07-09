@@ -2,6 +2,11 @@
 #define TM_KIT_TRANSPORT_MULTI_TRANSPORT_REMOTE_FACILITY_MANAGING_UTILS_HPP_
 
 #include <tm_kit/transport/MultiTransportRemoteFacility.hpp>
+#include <tm_kit/transport/MultiTransportBroadcastListener.hpp>
+#include <tm_kit/transport/HeartbeatMessageToRemoteFacilityCommand.hpp>
+
+#include <tm_kit/basic/real_time_clock/ClockComponent.hpp>
+#include <tm_kit/basic/real_time_clock/ClockImporter.hpp>
 
 namespace dev { namespace cd606 { namespace tm { namespace transport {
 
@@ -31,7 +36,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
             > &&actionSource
             , std::array<std::string, CurrentIdx> const &names
             , std::string const &prefix
-            , std::function<std::optional<ByteDataHookPair>(ConnectionLocator const &)> const &hookPairFactory
+            , std::function<std::optional<ByteDataHookPair>(std::string const &, ConnectionLocator const &)> const &hookPairFactory
             , Output &output
         ) 
         {}
@@ -49,7 +54,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
             > &&actionSource
             , std::array<std::string, sizeof...(RemainingIdentitiesAndInputsAndOutputs)+CurrentIdx+1> const &names
             , std::string const &prefix
-            , std::function<std::optional<ByteDataHookPair>(ConnectionLocator const &)> const &hookPairFactory
+            , std::function<std::optional<ByteDataHookPair>(std::string const &, ConnectionLocator const &)> const &hookPairFactory
             , Output &output
         ) {
             auto facility = M::localOnOrderFacility(
@@ -98,8 +103,8 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
             > &&actionSource
             , std::array<std::string, sizeof...(IdentitiesAndInputsAndOutputs)> const &names
             , std::string const &prefix
-            , std::function<std::optional<ByteDataHookPair>(ConnectionLocator const &)> const &hookPairFactory
-                = [](ConnectionLocator const &) {return std::nullopt;}
+            , std::function<std::optional<ByteDataHookPair>(std::string const &, ConnectionLocator const &)> const &hookPairFactory
+                = [](std::string const &, ConnectionLocator const &) {return std::nullopt;}
         ) -> NonDistinguishedRemoteFacilities<IdentitiesAndInputsAndOutputs...>
         {
             if constexpr (sizeof...(IdentitiesAndInputsAndOutputs) < 1) {
@@ -181,10 +186,18 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
             , InitialCallbackPickers const &initialCallbackPickers
             , std::array<std::string, CurrentIdx> const &names
             , std::string const &prefix
-            , std::function<std::optional<ByteDataHookPair>(ConnectionLocator const &)> const &hookPairFactory
+            , std::function<std::optional<ByteDataHookPair>(std::string const &, ConnectionLocator const &)> const &hookPairFactory
+            , bool lastOneNeedsToBeTiedUp
             , Output &output
+            , typename R::template Source<
+                std::array<MultiTransportRemoteFacilityAction, CurrentIdx>
+            > *nextSourceOutput
         ) 
-        {}
+        {
+            if (nextSourceOutput) {
+                *nextSourceOutput = std::move(actionSource);
+            }
+        }
 
         template <
             int CurrentIdx
@@ -203,8 +216,12 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
             , InitialCallbackPickers const &initialCallbackPickers
             , std::array<std::string, sizeof...(RemainingIdentitiesAndInputsAndOutputs)+CurrentIdx+1> const &names
             , std::string const &prefix
-            , std::function<std::optional<ByteDataHookPair>(ConnectionLocator const &)> const &hookPairFactory
+            , std::function<std::optional<ByteDataHookPair>(std::string const &, ConnectionLocator const &)> const &hookPairFactory
+            , bool lastOneNeedsToBeTiedUp
             , Output &output
+            , typename R::template Source<
+                std::array<MultiTransportRemoteFacilityAction, sizeof...(RemainingIdentitiesAndInputsAndOutputs)+CurrentIdx+1>
+            > *nextSourceOutput
         ) {
             using InputArray = std::array<MultiTransportRemoteFacilityAction, sizeof...(RemainingIdentitiesAndInputsAndOutputs)+CurrentIdx+1>;
             
@@ -285,8 +302,13 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                 };
 
             if constexpr (sizeof...(RemainingIdentitiesAndInputsAndOutputs) == 0) {
-                auto emptyExporter = M::template trivialExporter<InputArray>();
-                r.exportItem(prefix+"/"+names[CurrentIdx]+"/loop/emptyExporter", emptyExporter, std::move(facilityLoopOutput.nextTriggeringSource));
+                if (lastOneNeedsToBeTiedUp) {
+                    auto emptyExporter = M::template trivialExporter<InputArray>();
+                    r.exportItem(prefix+"/"+names[CurrentIdx]+"/loop/emptyExporter", emptyExporter, facilityLoopOutput.nextTriggeringSource.clone());
+                }
+                if (nextSourceOutput) {
+                    *nextSourceOutput = facilityLoopOutput.nextTriggeringSource;
+                }
             } else {
                 setupDistinguishedRemoteFacilitiesInternal<
                     (CurrentIdx+1)
@@ -300,7 +322,9 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                     , names
                     , prefix
                     , hookPairFactory
+                    , lastOneNeedsToBeTiedUp
                     , output
+                    , nextSourceOutput
                 );
             }
         }
@@ -315,8 +339,12 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
             , DistinguishedRemoteFacilityInitialCallbackPickers<IdentitiesAndInputsAndOutputs...> const &initialCallbackPickers
             , std::array<std::string, sizeof...(IdentitiesAndInputsAndOutputs)> const &names
             , std::string const &prefix
-            , std::function<std::optional<ByteDataHookPair>(ConnectionLocator const &)> const &hookPairFactory
-                = [](ConnectionLocator const &) {return std::nullopt;}
+            , std::function<std::optional<ByteDataHookPair>(std::string const &, ConnectionLocator const &)> const &hookPairFactory
+                = [](std::string const &, ConnectionLocator const &) {return std::nullopt;}
+            , bool lastOneNeedsToBeTiedUp = true
+            , typename R::template Source<
+                std::array<MultiTransportRemoteFacilityAction, sizeof...(IdentitiesAndInputsAndOutputs)>
+            > *nextTriggeringSource = nullptr
         ) -> DistinguishedRemoteFacilities<IdentitiesAndInputsAndOutputs...>
         {
             if constexpr (sizeof...(IdentitiesAndInputsAndOutputs) < 1) {
@@ -340,11 +368,242 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                     , names
                     , prefix
                     , hookPairFactory
+                    , lastOneNeedsToBeTiedUp
                     , output
+                    , nextTriggeringSource
                 );
                 return output;
             }
         }
+    
+    public:
+        template <class ... Specs>
+        class SetupRemoteFacilities {};
+
+        template <class ... DistinguishedRemoteFacilitiesSpec, class ... NonDistinguishedRemoteFacilitiesSpec>
+        class SetupRemoteFacilities<
+            std::tuple<DistinguishedRemoteFacilitiesSpec...>
+            , std::tuple<NonDistinguishedRemoteFacilitiesSpec...>
+        > {
+        public:
+            static auto run(
+                R &r
+                , MultiTransportBroadcastListenerAddSubscription const &heartbeatSpec
+                , std::regex const &serverNameRE
+                , std::array<std::string, sizeof...(DistinguishedRemoteFacilitiesSpec)+sizeof...(NonDistinguishedRemoteFacilitiesSpec)> const &channelNames
+                , std::chrono::system_clock::duration ttl
+                , std::chrono::system_clock::duration checkPeriod
+                , DistinguishedRemoteFacilityInitiators<DistinguishedRemoteFacilitiesSpec...> const &initiators
+                , DistinguishedRemoteFacilityInitialCallbackPickers<DistinguishedRemoteFacilitiesSpec...> const &initialCallbackPickers
+                , std::array<std::string, sizeof...(DistinguishedRemoteFacilitiesSpec)+sizeof...(NonDistinguishedRemoteFacilitiesSpec)> const &facilityRegistrationNames
+                , std::string const &prefix
+                , std::function<std::optional<ByteDataHookPair>(std::string const &, ConnectionLocator const &)> const &hookPairFactory
+                    = [](std::string const &, ConnectionLocator const &) {return std::nullopt;}
+            ) 
+            -> std::tuple<
+                DistinguishedRemoteFacilities<DistinguishedRemoteFacilitiesSpec...>
+                , NonDistinguishedRemoteFacilities<NonDistinguishedRemoteFacilitiesSpec...>
+            >
+            {
+                std::array<std::string, sizeof...(DistinguishedRemoteFacilitiesSpec)> distinguishedChannelNames;
+                std::array<std::string, sizeof...(NonDistinguishedRemoteFacilitiesSpec)> nonDistinguishedChannelNames;
+                for (int ii=0; ii<sizeof...(DistinguishedRemoteFacilitiesSpec); ++ii) {
+                    distinguishedChannelNames[ii] = channelNames[ii];
+                }
+                for (int ii=0; ii<sizeof...(NonDistinguishedRemoteFacilitiesSpec); ++ii) {
+                    nonDistinguishedChannelNames[ii] = channelNames[ii+sizeof...(DistinguishedRemoteFacilitiesSpec)];
+                }
+                std::array<std::string, sizeof...(DistinguishedRemoteFacilitiesSpec)> distinguishedRegNames;
+                std::array<std::string, sizeof...(NonDistinguishedRemoteFacilitiesSpec)> nonDistinguishedRegNames;
+                for (int ii=0; ii<sizeof...(DistinguishedRemoteFacilitiesSpec); ++ii) {
+                    distinguishedRegNames[ii] = facilityRegistrationNames[ii];
+                }
+                for (int ii=0; ii<sizeof...(NonDistinguishedRemoteFacilitiesSpec); ++ii) {
+                    nonDistinguishedRegNames[ii] = facilityRegistrationNames[ii+sizeof...(DistinguishedRemoteFacilitiesSpec)];
+                }
+
+                auto createHeartbeatListenKey = M::constFirstPushKeyImporter(
+                    transport::MultiTransportBroadcastListenerInput { {
+                        heartbeatSpec
+                    } }
+                );
+                r.registerImporter(prefix+"/createHeartbeatListenKey", createHeartbeatListenKey);
+
+                auto discardTopicFromHeartbeat = M::template liftPure<basic::TypedDataWithTopic<HeartbeatMessage>>(
+                    [](basic::TypedDataWithTopic<HeartbeatMessage> &&d) {
+                        return std::move(d.content);
+                    }
+                );
+                r.registerAction(prefix+"/discardTopicFromHeartbeat", discardTopicFromHeartbeat);
+
+                auto heartbeatSource = basic::MonadRunnerUtilComponents<R>::importWithTrigger(
+                    r
+                    , r.importItem(createHeartbeatListenKey)
+                    , M::onOrderFacilityWithExternalEffects(
+                        new transport::MultiTransportBroadcastListener<typename M::EnvironmentType, HeartbeatMessage>()
+                    )
+                    , std::nullopt //the trigger response is not needed
+                    , prefix+"/heartbeatListener"
+                );
+
+                auto facilityCheckTimer = basic::real_time_clock::ClockImporter<typename M::EnvironmentType>
+                    ::template createRecurringClockImporter<basic::VoidStruct>(
+                        std::chrono::system_clock::now()
+                        , std::chrono::system_clock::now()+std::chrono::hours(24)
+                        , checkPeriod
+                        , [](typename M::EnvironmentType::TimePointType const &tp) {
+                            return basic::VoidStruct {};
+                        }
+                    );
+                auto timerInput = r.importItem(prefix+"/checkTimer", facilityCheckTimer);
+
+                auto heartbeatParser = M::template enhancedMulti2<
+                    HeartbeatMessage, basic::VoidStruct
+                >(
+                    HeartbeatMessageToRemoteFacilityCommandConverter<
+                        std::tuple<
+                            DistinguishedRemoteFacilitiesSpec...
+                        >
+                        , std::tuple<
+                            NonDistinguishedRemoteFacilitiesSpec...
+                        >
+                    >(
+                        serverNameRE
+                        , distinguishedChannelNames
+                        , nonDistinguishedChannelNames
+                        , ttl
+                    )
+                );
+                r.registerAction(prefix+"/heartbeatParser", heartbeatParser);
+
+                auto distinguishedSpecInputBrancher = M::template liftPure<
+                    std::tuple<
+                        std::array<MultiTransportRemoteFacilityAction, sizeof...(DistinguishedRemoteFacilitiesSpec)>
+                        , std::array<MultiTransportRemoteFacilityAction, sizeof...(NonDistinguishedRemoteFacilitiesSpec)>
+                    >
+                >(
+                    [](
+                        std::tuple<
+                            std::array<MultiTransportRemoteFacilityAction, sizeof...(DistinguishedRemoteFacilitiesSpec)>
+                            , std::array<MultiTransportRemoteFacilityAction, sizeof...(NonDistinguishedRemoteFacilitiesSpec)>
+                        > &&x
+                    ) -> std::array<MultiTransportRemoteFacilityAction, sizeof...(DistinguishedRemoteFacilitiesSpec)> {
+                        return std::get<0>(x);
+                    }
+                );
+                auto nonDistinguishedSpecInputBrancher = M::template liftPure<
+                    std::tuple<
+                        std::array<MultiTransportRemoteFacilityAction, sizeof...(DistinguishedRemoteFacilitiesSpec)>
+                        , std::array<MultiTransportRemoteFacilityAction, sizeof...(NonDistinguishedRemoteFacilitiesSpec)>
+                    >
+                >(
+                    [](
+                        std::tuple<
+                            std::array<MultiTransportRemoteFacilityAction, sizeof...(DistinguishedRemoteFacilitiesSpec)>
+                            , std::array<MultiTransportRemoteFacilityAction, sizeof...(NonDistinguishedRemoteFacilitiesSpec)>
+                        > &&x
+                    ) -> std::array<MultiTransportRemoteFacilityAction, sizeof...(NonDistinguishedRemoteFacilitiesSpec)> {
+                        return std::get<1>(x);
+                    }
+                );
+
+                r.registerAction(prefix+"/distinguishedBranch", distinguishedSpecInputBrancher);
+                r.registerAction(prefix+"/nonDistinguishedBranch", nonDistinguishedSpecInputBrancher);
+
+                auto commands 
+                    = r.execute(
+                        heartbeatParser
+                        , r.execute(
+                            discardTopicFromHeartbeat
+                            , std::move(heartbeatSource)
+                        )
+                    );
+                r.execute(heartbeatParser, std::move(timerInput));
+                auto distinguishedCommands
+                    = r.execute(
+                        distinguishedSpecInputBrancher
+                        , commands.clone()
+                    );
+                auto nonDistinguishedCommands
+                    = r.execute(
+                        nonDistinguishedSpecInputBrancher
+                        , commands.clone()
+                    );
+
+                auto nextTriggeringSource = distinguishedCommands.clone();
+                auto distinguishedFacilities = 
+                    setupDistinguishedRemoteFacilities<DistinguishedRemoteFacilitiesSpec...>
+                    (
+                        r 
+                        , distinguishedCommands.clone()
+                        , initiators
+                        , initialCallbackPickers
+                        , distinguishedRegNames
+                        , prefix+"/facilities"
+                        , hookPairFactory
+                        , (sizeof...(NonDistinguishedRemoteFacilitiesSpec) == 0)
+                        , &nextTriggeringSource
+                    );
+
+                if constexpr (sizeof...(NonDistinguishedRemoteFacilitiesSpec) > 0) {
+                    auto synchronizerInput = M::template liftPure<
+                        std::array<MultiTransportRemoteFacilityAction, sizeof...(DistinguishedRemoteFacilitiesSpec)>
+                    >(
+                        [](std::array<MultiTransportRemoteFacilityAction, sizeof...(DistinguishedRemoteFacilitiesSpec)> &&) 
+                            -> basic::VoidStruct 
+                        {
+                            return basic::VoidStruct {};
+                        }
+                    );
+                    r.registerAction(prefix+"/synchronizerInput", synchronizerInput);
+
+                    auto synchronizer = basic::CommonFlowUtilComponents<M>::template synchronizer2<
+                        basic::VoidStruct
+                        , std::array<MultiTransportRemoteFacilityAction, sizeof...(NonDistinguishedRemoteFacilitiesSpec)>
+                    >
+                    (
+                        [](
+                            basic::VoidStruct
+                            , std::array<MultiTransportRemoteFacilityAction, sizeof...(NonDistinguishedRemoteFacilitiesSpec)> &&x
+                        ) -> std::array<MultiTransportRemoteFacilityAction, sizeof...(NonDistinguishedRemoteFacilitiesSpec)>
+                        {
+                            return std::move(x);
+                        }
+                    );
+                    r.registerAction(prefix+"/synchronizer", synchronizer);
+
+                    auto synchronizedNonDistinguishedCommands =
+                        r.execute(
+                            synchronizer
+                            , r.execute(
+                                synchronizerInput
+                                , nextTriggeringSource.clone()
+                            )
+                        );
+                    r.execute(synchronizer, nonDistinguishedCommands.clone());
+
+                    auto nonDistinguishedFacilities = 
+                        setupNonDistinguishedRemoteFacilities<NonDistinguishedRemoteFacilitiesSpec...>
+                        (
+                            r 
+                            , std::move(synchronizedNonDistinguishedCommands)
+                            , nonDistinguishedRegNames
+                            , prefix+"/facilities"
+                        );
+
+                    return {
+                        std::move(distinguishedFacilities)
+                        , std::move(nonDistinguishedFacilities)
+                    };
+                } else {
+                    return {
+                        std::move(distinguishedFacilities)
+                        , {}
+                    };
+                }               
+            }
+
+        };
     };
     
 } } } }

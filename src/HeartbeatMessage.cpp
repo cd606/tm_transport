@@ -1,5 +1,6 @@
 #include <tm_kit/transport/HeartbeatMessage.hpp>
 #include <tm_kit/infra/ChronoUtils.hpp>
+#include <tm_kit/basic/ByteData.hpp>
 
 #include <cstddef>
 #include <cstring>
@@ -11,6 +12,90 @@
 using boost::property_tree::ptree;
 using boost::property_tree::read_json;
 using boost::property_tree::write_json;
+
+namespace dev { namespace cd606 { namespace tm { namespace basic { namespace bytedata_utils {
+    
+    namespace {
+        const std::array<std::string,4> STATUS_NAMES = {
+            "Good", "Warning", "Bad", "Unknown"
+        };
+    }
+
+    template <>
+    struct RunCBORSerializer<transport::HeartbeatMessage::Status, void> {
+        static std::vector<uint8_t> apply(transport::HeartbeatMessage::Status const &x) {
+            return RunCBORSerializer<std::string>::apply(
+                STATUS_NAMES[static_cast<int>(x)]
+            );
+        }   
+    };
+    template <>
+    struct RunCBORDeserializer<transport::HeartbeatMessage::Status, void> {
+        static std::optional<std::tuple<transport::HeartbeatMessage::Status,size_t>> apply(std::string_view const &data, size_t start) {
+            auto t = RunCBORDeserializer<std::string>::apply(data, start);
+            if (!t) {
+                return std::nullopt;
+            }
+            size_t ii=0;
+            bool good = false;
+            for (ii=0; ii<STATUS_NAMES.size(); ++ii) {
+                if (STATUS_NAMES[ii] == std::get<0>(*t)) {
+                    good = true;
+                    break;
+                }
+            }
+            if (!good) {
+                return std::nullopt;
+            }
+            return std::tuple<transport::HeartbeatMessage::Status,size_t> {
+                static_cast<transport::HeartbeatMessage::Status>(ii)
+                , std::get<1>(*t)
+            };
+        }
+    };
+    template <>
+    struct RunCBORSerializer<transport::HeartbeatMessage::OneItemStatus, void> {
+        static std::vector<uint8_t> apply(transport::HeartbeatMessage::OneItemStatus const &x) {
+            std::tuple<transport::HeartbeatMessage::Status const *, std::string const *> t {
+                &(x.status), &(x.info)
+            };
+            return RunCBORSerializerWithNameList<
+                std::tuple<transport::HeartbeatMessage::Status const *, std::string const *>
+                , 2
+            >::apply(
+                t
+                , {
+                    "status", "info"
+                }
+            );
+        }   
+    };
+    template <>
+    struct RunCBORDeserializer<transport::HeartbeatMessage::OneItemStatus, void> {
+        static std::optional<std::tuple<transport::HeartbeatMessage::OneItemStatus,size_t>> apply(std::string_view const &data, size_t start) {
+            auto t = RunCBORDeserializerWithNameList<
+                std::tuple<transport::HeartbeatMessage::Status, std::string>
+                , 2
+            >::apply(
+                data, start
+                , {
+                    "status", "info"
+                }
+            );
+            if (t) {
+                return std::tuple<transport::HeartbeatMessage::OneItemStatus,size_t> {
+                    transport::HeartbeatMessage::OneItemStatus {
+                        std::move(std::get<0>(std::get<0>(*t)))
+                        , std::move(std::get<1>(std::get<0>(*t)))
+                    }
+                    , std::get<1>(*t)
+                };
+            } else {
+                return std::nullopt;
+            }
+        }
+    };
+} } } } }
 
 namespace dev { namespace cd606 { namespace tm { namespace transport {
     std::string HeartbeatMessage::statusString(HeartbeatMessage::Status status) {
@@ -38,39 +123,87 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
         return HeartbeatMessage::Status::Unknown;
     }
     void HeartbeatMessage::SerializeToString(std::string *s) const {
-        ptree pt;
-        pt.put("heartbeatTime", infra::withtime_utils::sinceEpoch<std::chrono::microseconds>(heartbeatTime_));
-        pt.put("host", host_);
-        pt.put("pid", pid_);
-        pt.put("sender", senderDescription_);
-        for (auto const &item : details_) {
-            pt.put(std::string("details.")+item.first+".status", statusString(item.second.status));
-            pt.put(std::string("details.")+item.first+".info", item.second.info);
-        }
-        std::ostringstream oss;
-        write_json(oss, pt, false);
-        *s = oss.str();
+        int64_t t = infra::withtime_utils::sinceEpoch<std::chrono::microseconds>(heartbeatTime_);
+
+        std::tuple<
+            std::string const *
+            , int64_t const *
+            , std::string const *
+            , int64_t const *
+            , std::string const *
+            , std::vector<std::string> const *
+            , std::map<std::string, std::string> const *
+            , std::map<std::string, OneItemStatus> const *
+        > x {
+            &uuidStr_
+            , &t 
+            , &host_
+            , &pid_
+            , &senderDescription_
+            , &broadcastChannels_
+            , &facilityChannels_
+            , &details_
+        };
+        auto res = basic::bytedata_utils::RunCBORSerializerWithNameList<
+            std::tuple<
+                std::string const *
+                , int64_t const *
+                , std::string const *
+                , int64_t const *
+                , std::string const *
+                , std::vector<std::string> const *
+                , std::map<std::string, std::string> const *
+                , std::map<std::string, OneItemStatus> const *
+            >
+            , 8
+        >::apply(
+            x
+            , {
+                "uuid_str", "timestamp", "host", "pid", "sender_description"
+                , "broadcast_channels", "facility_channels"
+                , "details"
+            }
+        );
+        const char *p = reinterpret_cast<const char *>(res.data());
+        *s = std::string(p, p+res.size());
     }
     bool HeartbeatMessage::ParseFromString(std::string const &s) {
-        HeartbeatMessage msg;
-        try {
-            ptree pt;
-            std::istringstream iss (s);
-            read_json(iss, pt);
-            msg.heartbeatTime_ = infra::withtime_utils::epochDurationToTime<std::chrono::microseconds>(pt.get<int64_t>("heartbeatTime"));
-            msg.host_ = pt.get<std::string>("host");
-            msg.pid_ = pt.get<int64_t>("pid");
-            msg.senderDescription_ = pt.get<std::string>("sender");
-            for (auto const &item : pt.get_child("details")) {
-                auto status = parseStatus(item.second.get<std::string>("status"));
-                auto info = item.second.get<std::string>("info");
-                msg.details_.insert({item.first, {status, info}});
+        auto t = basic::bytedata_utils::RunCBORDeserializerWithNameList<
+            std::tuple<
+                std::string
+                , int64_t
+                , std::string
+                , int64_t
+                , std::string
+                , std::vector<std::string>
+                , std::map<std::string, std::string>
+                , std::map<std::string, OneItemStatus>
+            >
+            , 8
+        >::apply(
+            std::string_view {s}, 0
+            , {
+                "uuid_str", "timestamp", "host", "pid", "sender_description"
+                , "broadcast_channels", "facility_channels"
+                , "details"
             }
-            *this = msg;
-            return true;
-        } catch (...) {
+        );
+        if (!t) {
             return false;
-        }  
+        }
+        if (std::get<1>(*t) != s.length()) {
+            return false;
+        }
+        auto const &x = std::get<0>(*t);
+        uuidStr_ = std::get<0>(x);
+        heartbeatTime_ = infra::withtime_utils::epochDurationToTime<std::chrono::microseconds>(std::get<1>(x));
+        host_ = std::get<2>(x);
+        pid_ = std::get<3>(x);
+        senderDescription_ = std::get<4>(x);
+        broadcastChannels_ = std::get<5>(x);
+        facilityChannels_ = std::get<6>(x);
+        details_ = std::get<7>(x);
+        return true; 
     }
     HeartbeatMessage::OneItemStatus const &HeartbeatMessage::status(std::string const &entry) const {
         static const HeartbeatMessage::OneItemStatus EMPTY_STATUS {Status::Unknown, ""};

@@ -10,6 +10,7 @@
 #include <tm_kit/basic/ByteData.hpp>
 #include <tm_kit/transport/rabbitmq/RabbitMQComponent.hpp>
 #include <tm_kit/transport/AbstractIdentityCheckerComponent.hpp>
+#include <tm_kit/transport/HeartbeatAndAlertComponent.hpp>
 
 namespace dev { namespace cd606 { namespace tm { namespace transport { namespace rabbitmq {
 
@@ -209,6 +210,18 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             );
         }
 
+        static void addChannelRegistration(infra::MonadRunner<M> &runner, std::string const &name, ConnectionLocator const &locator) {
+            if constexpr (std::is_convertible_v<
+                Env *
+                , HeartbeatAndAlertComponent *
+            >) {
+                static_cast<HeartbeatAndAlertComponent *>(runner.environment())->addFacilityChannel(
+                    name
+                    , std::string("rabbitmq://")+locator.toSerializationFormat()
+                );
+            }
+        }
+
     public:
         class WithoutIdentity {
         public:
@@ -269,6 +282,8 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 runner.execute(deserializer, runner.importItem(std::get<0>(importerExporterPair)));
                 runner.placeOrderWithFacility(runner.actionAsSource(deserializer), toBeWrapped, runner.actionAsSink(serializer));
                 runner.connect(runner.actionAsSource(serializer), runner.exporterAsSink(std::get<1>(importerExporterPair)));
+            
+                addChannelRegistration(runner, runner.getRegisteredName(toBeWrapped), rpcQueueLocator);
             }
             template <class A, class B>
             static void wrapOnOrderFacilityWithoutReply(
@@ -285,6 +300,8 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 runner.registerAction(deserializer, wrapperItemsNamePrefix+"_deserializer");
                 runner.execute(deserializer, runner.importItem(importer));
                 runner.placeOrderWithFacilityAndForget(runner.actionAsSource(deserializer), toBeWrapped);
+
+                addChannelRegistration(runner, runner.getRegisteredName(toBeWrapped), rpcQueueLocator);
             }
             template <class A, class B, class C>
             static void wrapLocalOnOrderFacility(
@@ -305,6 +322,8 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 runner.execute(deserializer, runner.importItem(std::get<0>(importerExporterPair)));
                 runner.placeOrderWithLocalFacility(runner.actionAsSource(deserializer), toBeWrapped, runner.actionAsSink(serializer));
                 runner.connect(runner.actionAsSource(serializer), runner.exporterAsSink(std::get<1>(importerExporterPair)));
+
+                addChannelRegistration(runner, runner.getRegisteredName(toBeWrapped), rpcQueueLocator);
             }
             template <class A, class B, class C>
             static void wrapLocalOnOrderFacilityWithoutReply(
@@ -321,6 +340,8 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 runner.registerAction(deserializer, wrapperItemsNamePrefix+"_deserializer");
                 runner.execute(deserializer, runner.importItem(importer));
                 runner.placeOrderWithLocalFacilityAndForget(runner.actionAsSource(deserializer), toBeWrapped);
+
+                addChannelRegistration(runner, runner.getRegisteredName(toBeWrapped), rpcQueueLocator);
             }
             template <class A, class B, class C>
             static void wrapOnOrderFacilityWithExternalEffects(
@@ -341,6 +362,8 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 runner.execute(deserializer, runner.importItem(std::get<0>(importerExporterPair)));
                 runner.placeOrderWithFacilityWithExternalEffects(runner.actionAsSource(deserializer), toBeWrapped, runner.actionAsSink(serializer));
                 runner.connect(runner.actionAsSource(serializer), runner.exporterAsSink(std::get<1>(importerExporterPair)));
+
+                addChannelRegistration(runner, runner.getRegisteredName(toBeWrapped), rpcQueueLocator);
             }
             template <class A, class B, class C>
             static void wrapOnOrderFacilityWithExternalEffectsWithoutReply(
@@ -357,6 +380,8 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 runner.registerAction(deserializer, wrapperItemsNamePrefix+"_deserializer");
                 runner.execute(deserializer, runner.importItem(importer));
                 runner.placeOrderWithFacilityWithExternalEffectsAndForget(runner.actionAsSource(deserializer), toBeWrapped);
+
+                addChannelRegistration(runner, runner.getRegisteredName(toBeWrapped), rpcQueueLocator);
             }
             template <class A, class B, class C, class D>
             static void wrapVIEOnOrderFacility(
@@ -377,6 +402,8 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 runner.execute(deserializer, runner.importItem(std::get<0>(importerExporterPair)));
                 runner.placeOrderWithVIEFacility(runner.actionAsSource(deserializer), toBeWrapped, runner.actionAsSink(serializer));
                 runner.connect(runner.actionAsSource(serializer), runner.exporterAsSink(std::get<1>(importerExporterPair)));
+
+                addChannelRegistration(runner, runner.getRegisteredName(toBeWrapped), rpcQueueLocator);
             }
             template <class A, class B, class C, class D>
             static void wrapVIEOnOrderFacilityWithoutReply(
@@ -393,6 +420,8 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 runner.registerAction(deserializer, wrapperItemsNamePrefix+"_deserializer");
                 runner.execute(deserializer, runner.importItem(importer));
                 runner.placeOrderWithVIEFacilityAndForget(runner.actionAsSource(deserializer), toBeWrapped);
+
+                addChannelRegistration(runner, runner.getRegisteredName(toBeWrapped), rpcQueueLocator);
             }
             template <class A, class B>
             static auto facilityWrapper(
@@ -554,6 +583,8 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 runner.execute(deserializer, runner.importItem(std::get<0>(importerExporterPair)));
                 runner.placeOrderWithFacility(runner.actionAsSource(deserializer), toBeWrapped, runner.actionAsSink(serializer));
                 runner.connect(runner.actionAsSource(serializer), runner.exporterAsSink(std::get<1>(importerExporterPair)));
+
+                addChannelRegistration(runner, runner.getRegisteredName(toBeWrapped), rpcQueueLocator);
             }
             template <class A, class B>
             static void wrapOnOrderFacilityWithoutReply(
@@ -570,6 +601,8 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 runner.registerAction(deserializer, wrapperItemsNamePrefix+"_deserializer");
                 runner.execute(deserializer, runner.importItem(importer));
                 runner.placeOrderWithFacilityAndForget(runner.actionAsSource(deserializer), toBeWrapped);
+
+                addChannelRegistration(runner, runner.getRegisteredName(toBeWrapped), rpcQueueLocator);
             }
             template <class A, class B, class C>
             static void wrapLocalOnOrderFacility(
@@ -590,6 +623,8 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 runner.execute(deserializer, runner.importItem(std::get<0>(importerExporterPair)));
                 runner.placeOrderWithLocalFacility(runner.actionAsSource(deserializer), toBeWrapped, runner.actionAsSink(serializer));
                 runner.connect(runner.actionAsSource(serializer), runner.exporterAsSink(std::get<1>(importerExporterPair)));
+
+                addChannelRegistration(runner, runner.getRegisteredName(toBeWrapped), rpcQueueLocator);
             }
             template <class A, class B, class C>
             static void wrapLocalOnOrderFacilityWithoutReply(
@@ -606,6 +641,8 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 runner.registerAction(deserializer, wrapperItemsNamePrefix+"_deserializer");
                 runner.execute(deserializer, runner.importItem(importer));
                 runner.placeOrderWithLocalFacilityAndForget(runner.actionAsSource(deserializer), toBeWrapped);
+
+                addChannelRegistration(runner, runner.getRegisteredName(toBeWrapped), rpcQueueLocator);
             }
             template <class A, class B, class C>
             static void wrapOnOrderFacilityWithExternalEffects(
@@ -626,6 +663,8 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 runner.execute(deserializer, runner.importItem(std::get<0>(importerExporterPair)));
                 runner.placeOrderWithFacilityWithExternalEffects(runner.actionAsSource(deserializer), toBeWrapped, runner.actionAsSink(serializer));
                 runner.connect(runner.actionAsSource(serializer), runner.exporterAsSink(std::get<1>(importerExporterPair)));
+
+                addChannelRegistration(runner, runner.getRegisteredName(toBeWrapped), rpcQueueLocator);
             }
             template <class A, class B, class C>
             static void wrapOnOrderFacilityWithExternalEffectsWithoutReply(
@@ -642,6 +681,8 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 runner.registerAction(deserializer, wrapperItemsNamePrefix+"_deserializer");
                 runner.execute(deserializer, runner.importItem(importer));
                 runner.placeOrderWithFacilityWithExternalEffectsAndForget(runner.actionAsSource(deserializer), toBeWrapped);
+
+                addChannelRegistration(runner, runner.getRegisteredName(toBeWrapped), rpcQueueLocator);
             }
             template <class A, class B, class C, class D>
             static void wrapVIEOnOrderFacility(
@@ -662,6 +703,8 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 runner.execute(deserializer, runner.importItem(std::get<0>(importerExporterPair)));
                 runner.placeOrderWithVIEFacility(runner.actionAsSource(deserializer), toBeWrapped, runner.actionAsSink(serializer));
                 runner.connect(runner.actionAsSource(serializer), runner.exporterAsSink(std::get<1>(importerExporterPair)));
+
+                addChannelRegistration(runner, runner.getRegisteredName(toBeWrapped), rpcQueueLocator);
             }
             template <class A, class B, class C, class D>
             static void wrapVIEOnOrderFacilityWithoutReply(
@@ -678,6 +721,8 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 runner.registerAction(deserializer, wrapperItemsNamePrefix+"_deserializer");
                 runner.execute(deserializer, runner.importItem(importer));
                 runner.placeOrderWithVIEFacilityAndForget(runner.actionAsSource(deserializer), toBeWrapped);
+
+                addChannelRegistration(runner, runner.getRegisteredName(toBeWrapped), rpcQueueLocator);
             }
 
             template <class A, class B>

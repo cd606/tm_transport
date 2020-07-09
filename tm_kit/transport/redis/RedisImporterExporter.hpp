@@ -8,6 +8,7 @@
 #include <tm_kit/infra/RealTimeMonad.hpp>
 #include <tm_kit/basic/ByteData.hpp>
 #include <tm_kit/transport/redis/RedisComponent.hpp>
+#include <tm_kit/transport/HeartbeatAndAlertComponent.hpp>
 
 namespace dev { namespace cd606 { namespace tm { namespace transport { namespace redis {
 
@@ -35,6 +36,14 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                         }
                         , wireToUserHook_
                     );
+                    if constexpr (std::is_convertible_v<
+                        Env *
+                        , HeartbeatAndAlertComponent *
+                    >) {
+                        static_cast<HeartbeatAndAlertComponent *>(env)->addBroadcastChannel(
+                            std::string("redis://")+locator_.toSerializationFormat()
+                        );
+                    }
                 }
             };
             return M::importer(new LocalI(locator, topic, wireToUserHook));
@@ -63,6 +72,14 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                         }
                         , wireToUserHook_
                     );
+                    if constexpr (std::is_convertible_v<
+                        Env *
+                        , HeartbeatAndAlertComponent *
+                    >) {
+                        static_cast<HeartbeatAndAlertComponent *>(env)->addBroadcastChannel(
+                            std::string("redis://")+locator_.toSerializationFormat()
+                        );
+                    }
                 }
             };
             return M::importer(new LocalI(locator, topic, wireToUserHook));
