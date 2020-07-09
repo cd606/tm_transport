@@ -360,7 +360,8 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                 if (underlyingSenders_.empty()) {
                     return;
                 }
-                int idx = std::rand()%underlyingSenders_.size();
+                int sz = underlyingSenders_.size();
+                int idx = ((sz==1)?0:(std::rand()%sz));
                 basic::ByteData s = { 
                     basic::SerializationActions<M>::template serializeFunc<A>(
                         input.timedData.value.key()
