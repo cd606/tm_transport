@@ -96,7 +96,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                 , output
             );
         }
-    public:
+
         template <class ... IdentitiesAndInputsAndOutputs>
         static auto setupNonDistinguishedRemoteFacilities(
             R &r
@@ -106,7 +106,6 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
             , std::array<std::string, sizeof...(IdentitiesAndInputsAndOutputs)> const &names
             , std::string const &prefix
             , std::function<std::optional<ByteDataHookPair>(std::string const &, ConnectionLocator const &)> const &hookPairFactory
-                = [](std::string const &, ConnectionLocator const &) {return std::nullopt;}
         ) -> NonDistinguishedRemoteFacilities<IdentitiesAndInputsAndOutputs...>
         {
             if constexpr (sizeof...(IdentitiesAndInputsAndOutputs) < 1) {
@@ -261,13 +260,13 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                 };
 
             auto facility = M::vieOnOrderFacility(
-                new transport::MultiTransportRemoteFacility<
+                new MultiTransportRemoteFacility<
                     typename M::EnvironmentType
                     , std::tuple_element_t<1, FirstRemainingIdentityAndInputAndOutput>
                     , std::tuple_element_t<2, FirstRemainingIdentityAndInputAndOutput>
                     , std::tuple_element_t<0, FirstRemainingIdentityAndInputAndOutput>
                     , transport::MultiTransportRemoteFacilityDispatchStrategy::Designated
-                >
+                >(hookPairFactory)
             );
 
             auto facilityLoopOutput = basic::MonadRunnerUtilComponents<R>::setupVIEFacilitySelfLoopAndWait(
@@ -338,7 +337,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                 );
             }
         }
-    public:
+
         template <class ... IdentitiesAndInputsAndOutputs>
         static auto setupDistinguishedRemoteFacilities(
             R &r
@@ -350,11 +349,10 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
             , std::array<std::string, sizeof...(IdentitiesAndInputsAndOutputs)> const &names
             , std::string const &prefix
             , std::function<std::optional<ByteDataHookPair>(std::string const &, ConnectionLocator const &)> const &hookPairFactory
-                = [](std::string const &, ConnectionLocator const &) {return std::nullopt;}
-            , bool lastOneNeedsToBeTiedUp = true
+            , bool lastOneNeedsToBeTiedUp
             , typename R::template Source<
                 std::array<MultiTransportRemoteFacilityAction, sizeof...(IdentitiesAndInputsAndOutputs)>
-            > *nextTriggeringSource = nullptr
+            > *nextTriggeringSource
         ) -> DistinguishedRemoteFacilities<IdentitiesAndInputsAndOutputs...>
         {
             if constexpr (sizeof...(IdentitiesAndInputsAndOutputs) < 1) {
@@ -600,6 +598,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                             , std::move(synchronizedNonDistinguishedCommands)
                             , nonDistinguishedRegNames
                             , prefix+"/facilities"
+                            , hookPairFactory
                         );
 
                     return {
