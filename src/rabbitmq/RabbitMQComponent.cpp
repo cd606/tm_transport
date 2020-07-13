@@ -183,6 +183,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             std::thread th_;
             std::atomic<bool> running_;
             OnePublishingConnection *publishing_;
+            bool persistent_;
             void run() {
                 while (running_) {
                     AmqpClient::Envelope::ptr_t msg;
@@ -209,6 +210,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 , th_()
                 , running_(true)
                 , publishing_(publishing)
+                , persistent_(l.query("persistent", "false") == "true")
             {
                 channel_->BasicConsume(
                     localQueue_
@@ -228,7 +230,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 msg->CorrelationId(data.id);
                 msg->ReplyTo(localQueue_);
                 msg->ContentEncoding(contentEncoding);
-                msg->DeliveryMode(AmqpClient::BasicMessage::dm_nonpersistent);
+                msg->DeliveryMode(persistent_?AmqpClient::BasicMessage::dm_persistent:AmqpClient::BasicMessage::dm_nonpersistent);
                 msg->Expiration("5000");
                 publishing_->publishOnQueue(rpcQueue_, msg);           
             }
