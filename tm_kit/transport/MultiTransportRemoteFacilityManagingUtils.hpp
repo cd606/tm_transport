@@ -500,25 +500,9 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                         return std::get<0>(x);
                     }
                 );
-                auto nonDistinguishedSpecInputBrancher = M::template liftPure<
-                    std::tuple<
-                        std::array<MultiTransportRemoteFacilityAction, sizeof...(DistinguishedRemoteFacilitiesSpec)>
-                        , std::array<MultiTransportRemoteFacilityAction, sizeof...(NonDistinguishedRemoteFacilitiesSpec)>
-                    >
-                >(
-                    [](
-                        std::tuple<
-                            std::array<MultiTransportRemoteFacilityAction, sizeof...(DistinguishedRemoteFacilitiesSpec)>
-                            , std::array<MultiTransportRemoteFacilityAction, sizeof...(NonDistinguishedRemoteFacilitiesSpec)>
-                        > &&x
-                    ) -> std::array<MultiTransportRemoteFacilityAction, sizeof...(NonDistinguishedRemoteFacilitiesSpec)> {
-                        return std::get<1>(x);
-                    }
-                );
 
                 r.registerAction(prefix+"/distinguishedBranch", distinguishedSpecInputBrancher);
-                r.registerAction(prefix+"/nonDistinguishedBranch", nonDistinguishedSpecInputBrancher);
-
+                
                 auto commands 
                     = r.execute(
                         heartbeatParser
@@ -531,11 +515,6 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                 auto distinguishedCommands
                     = r.execute(
                         distinguishedSpecInputBrancher
-                        , commands.clone()
-                    );
-                auto nonDistinguishedCommands
-                    = r.execute(
-                        nonDistinguishedSpecInputBrancher
                         , commands.clone()
                     );
 
@@ -555,6 +534,30 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                     );
 
                 if constexpr (sizeof...(NonDistinguishedRemoteFacilitiesSpec) > 0) {
+                    auto nonDistinguishedSpecInputBrancher = M::template liftPure<
+                        std::tuple<
+                            std::array<MultiTransportRemoteFacilityAction, sizeof...(DistinguishedRemoteFacilitiesSpec)>
+                            , std::array<MultiTransportRemoteFacilityAction, sizeof...(NonDistinguishedRemoteFacilitiesSpec)>
+                        >
+                    >(
+                        [](
+                            std::tuple<
+                                std::array<MultiTransportRemoteFacilityAction, sizeof...(DistinguishedRemoteFacilitiesSpec)>
+                                , std::array<MultiTransportRemoteFacilityAction, sizeof...(NonDistinguishedRemoteFacilitiesSpec)>
+                            > &&x
+                        ) -> std::array<MultiTransportRemoteFacilityAction, sizeof...(NonDistinguishedRemoteFacilitiesSpec)> {
+                            return std::get<1>(x);
+                        }
+                    );
+
+                    r.registerAction(prefix+"/nonDistinguishedBranch", nonDistinguishedSpecInputBrancher);
+                    
+                    auto nonDistinguishedCommands
+                        = r.execute(
+                            nonDistinguishedSpecInputBrancher
+                            , commands.clone()
+                        );
+
                     auto synchronizerInput = M::template liftPure<
                         std::array<MultiTransportRemoteFacilityAction, sizeof...(DistinguishedRemoteFacilitiesSpec)>
                     >(

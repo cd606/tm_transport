@@ -29,6 +29,26 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
         , "redis"
         , "zeromq"
     };
+    inline auto parseMultiTransportBroadcastChannel(std::string const &s) 
+        -> std::optional<std::tuple<MultiTransportBroadcastListenerConnectionType, ConnectionLocator>>
+    {
+        size_t ii = 0;
+        for (auto const &item : MULTI_TRANSPORT_SUBSCRIBER_CONNECTION_TYPE_STR) {
+            if (boost::starts_with(s, item+"://")) {
+                try {
+                    auto locator = ConnectionLocator::parse(s.substr(item.length()+3));
+                    return std::tuple<MultiTransportBroadcastListenerConnectionType, ConnectionLocator> {
+                        static_cast<MultiTransportBroadcastListenerConnectionType>(ii)
+                        , locator
+                    };
+                } catch (ConnectionLocatorParseError const &) {
+                    return std::nullopt;
+                }
+            }
+            ++ii;
+        }
+        return std::nullopt;
+    }
     struct MultiTransportBroadcastListenerAddSubscription {
         MultiTransportBroadcastListenerConnectionType connectionType;
         ConnectionLocator connectionLocator;
