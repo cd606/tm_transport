@@ -160,6 +160,19 @@ class TMTransportUtils {
             return amqp.connect(url);
         }
     }
+    static bufferTransformer(f : (data : Buffer) => Buffer) : Stream.Transform {
+        let t = new Stream.Transform({
+            transform : function(chunk : [string, Buffer], encoding : BufferEncoding, callback) {
+                let processed = f(chunk[1]);
+                if (processed) {
+                    this.push([chunk[0], processed], encoding);
+                }
+                callback();
+            }
+            , objectMode : true
+        });
+        return t;
+    }
 }
 
 export class MultiTransportListener {
@@ -299,7 +312,7 @@ export class MultiTransportListener {
         }
     }
 
-    static inputStream(address : string, topic? : string) : Stream.Readable {
+    static inputStream(address : string, topic? : string, wireToUserHook? : ((data: Buffer) => Buffer)) : Stream.Readable {
         let parsedAddr = TMTransportUtils.parseAddress(address);
         if (parsedAddr == null) {
             return null;
@@ -333,7 +346,13 @@ export class MultiTransportListener {
             default:
                 return;
         }
-        return s;
+        if (wireToUserHook) {
+            let decode = TMTransportUtils.bufferTransformer(wireToUserHook);
+            s.pipe(decode);
+            return decode;
+        } else {
+            return s;
+        }
     }
 }
 
@@ -384,7 +403,7 @@ export class MultiTransportPublisher {
             sock.send(cbor.encode(chunk));
         };
     }
-    static async outputStream(address : string) : Promise<Stream.Writable> {
+    static async outputStream(address : string, userToWireHook? : ((data : Buffer) => Buffer)) : Promise<Stream.Writable> {
         let parsedAddr = TMTransportUtils.parseAddress(address);
         if (parsedAddr == null) {
             return null;
@@ -407,13 +426,20 @@ export class MultiTransportPublisher {
             default:
                 return null;
         }
-        return new Stream.Writable({
+        let s = new Stream.Writable({
             write : function(chunk : [string, Buffer], encoding : BufferEncoding, callback) {
                 writeFunc(chunk, encoding);
                 callback();
             }
             , objectMode : true
         });
+        if (userToWireHook) {
+            let encode = TMTransportUtils.bufferTransformer(userToWireHook);
+            encode.pipe(s);
+            return encode;
+        } else {
+            return s;
+        }
     }
 }
 
@@ -422,6 +448,13 @@ export interface FacilityOutput {
     , originalInput : Buffer
     , output : Buffer
     , isFinal : boolean
+}
+
+export interface FacilityStreamParameters {
+    address : string
+    , userToWireHook? : (data : Buffer) => Buffer
+    , wireToUserHook? : (data : Buffer) => Buffer
+    , identityAttacher? : (data : Buffer) => Buffer
 }
 
 export class MultiTransportFacilityClient {
@@ -561,19 +594,41 @@ export class MultiTransportFacilityClient {
 
         return stream;
     }
-    static async facilityStream(address : string) : Promise<Stream.Duplex> {
-        let parsedAddr = TMTransportUtils.parseAddress(address);
+    
+    static async facilityStream(param : FacilityStreamParameters) : Promise<[Stream.Writable, Stream.Readable]> {
+        let parsedAddr = TMTransportUtils.parseAddress(param.address);
         if (parsedAddr == null) {
             return null;
         }
+        let s : Stream.Duplex = null;
         switch (parsedAddr[0]) {
             case Transport.RabbitMQ:
-                return this.rabbitmqFacilityStream(parsedAddr[1]);
+                s = await this.rabbitmqFacilityStream(parsedAddr[1]);
+                break;
             case Transport.Redis:
-                return this.redisFacilityStream(parsedAddr[1]);
+                s = this.redisFacilityStream(parsedAddr[1]);
+                break;
             default:
                 return null;
         }
+        let input : Stream.Writable = s;
+        let output : Stream.Readable = s;
+        if (param.userToWireHook) {
+            let encode = TMTransportUtils.bufferTransformer(param.userToWireHook);
+            encode.pipe(input);
+            input = encode;
+        }
+        if (param.identityAttacher) {
+            let attach = TMTransportUtils.bufferTransformer(param.identityAttacher);
+            attach.pipe(input);
+            input = attach;
+        }
+        if (param.wireToUserHook) {
+            let decode = TMTransportUtils.bufferTransformer(param.wireToUserHook);
+            output.pipe(decode);
+            output = decode;
+        }
+        return [input, output];
     }
     static keyify() : Stream.Transform {
         return new Stream.Transform({
