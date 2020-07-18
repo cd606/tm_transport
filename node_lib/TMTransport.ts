@@ -247,18 +247,27 @@ export class MultiTransportListener {
     }
 
     private static redisInputToStream(locator : ConnectionLocator, topic : TopicSpec, stream : Stream.Readable) {
-        let subscriber = redis.createClient({
-            host : locator.host
-            , port : ((locator.port>0)?locator.port:6379)
-            , return_buffers : true
-        });
-        subscriber.on('pmessage_buffer', function(_pattern : string, channel : string, message : Buffer) {
-            stream.push([channel, message]);
-        });
-        subscriber.on('pmessage', function(_pattern : string, channel : string, message : Buffer) {
-            stream.push([channel, message]);
-        });
-        subscriber.psubscribe(topic.exactString);
+        (async () => {
+            let subscriber = redis.createClient({
+                host : locator.host
+                , port : ((locator.port>0)?locator.port:6379)
+                , return_buffers : true
+            });
+            subscriber.on('pmessage_buffer', function(_pattern : string, channel : string, message : Buffer) {
+                stream.push([channel, message]);
+            });
+            subscriber.on('pmessage', function(_pattern : string, channel : string, message : Buffer) {
+                stream.push([channel, message]);
+            });
+            await new Promise<string>((resolve, reject) => {
+                subscriber.psubscribe(topic.exactString, function(err, reply) {
+                    if (err) {
+                        reject(err);
+                    }
+                    resolve(reply);
+                });
+            });
+        })();
     }
 
     private static zeromqInputToStream(locator : ConnectionLocator, topic : TopicSpec, stream : Stream.Readable) {
@@ -523,7 +532,7 @@ export class MultiTransportFacilityClient {
 
         return stream;
     }
-    private static redisFacilityStream(locator : ConnectionLocator) : Stream.Duplex {
+    private static async redisFacilityStream(locator : ConnectionLocator) : Promise<Stream.Duplex> {
         let publisher = redis.createClient({
             host : locator.host
             , port : ((locator.port>0)?locator.port:6379)
@@ -539,7 +548,7 @@ export class MultiTransportFacilityClient {
         let stream = new Stream.Duplex({
             write : function(chunk : [string, Buffer], _encoding, callback) {
                 inputMap.set(chunk[0], chunk[1]);
-                publisher.send_command("PUBLISH", [streamID, cbor.encode(chunk)]);
+                publisher.send_command("PUBLISH", [locator.identifier, cbor.encode([streamID, cbor.encode(chunk)])]);
                 callback();
             }
             , read : function() {}   
@@ -547,7 +556,7 @@ export class MultiTransportFacilityClient {
         })
 
         let handleMessage = function(message : Buffer) : void {
-            let parsed = cbor.decodeAllSync(message);
+            let parsed = cbor.decode(message);
             if (parsed.length != 2) {
                 return;
             }
@@ -590,9 +599,14 @@ export class MultiTransportFacilityClient {
         subscriber.on('message', function(_channel : string, message : Buffer) {
             handleMessage(message);
         });
-        subscriber.subscribe(streamID);
-
-        return stream;
+        return new Promise<Stream.Duplex>((resolve, reject) => {
+            subscriber.subscribe(streamID, function(err, reply) {
+                if (err) {
+                    return reject(err);
+                }
+                return resolve(stream);
+            });
+        });
     }
     
     static async facilityStream(param : FacilityStreamParameters) : Promise<[Stream.Writable, Stream.Readable]> {
@@ -606,7 +620,7 @@ export class MultiTransportFacilityClient {
                 s = await this.rabbitmqFacilityStream(parsedAddr[1]);
                 break;
             case Transport.Redis:
-                s = this.redisFacilityStream(parsedAddr[1]);
+                s = await this.redisFacilityStream(parsedAddr[1]);
                 break;
             default:
                 return null;
