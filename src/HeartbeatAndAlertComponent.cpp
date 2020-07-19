@@ -46,6 +46,8 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
         HeartbeatAndAlertComponentImpl(basic::real_time_clock::ClockComponent *clock, std::string const &identity, std::function<void(basic::ByteDataWithTopic &&)> pub) : uuidStr_(BoostUUIDComponent::id_to_string(BoostUUIDComponent::new_id())), clock_(clock), host_(getHost()), pid_(getPid()), identity_(identity), publisher_(pub), mutex_(), broadcastChannels_(), facilityChannels_(), status_() {}
         void assignIdentity(HeartbeatAndAlertComponentImpl &&another) {
             clock_ = std::move(another.clock_);
+            host_ = std::move(another.host_);
+            pid_ = std::move(another.pid_);
             identity_ = std::move(another.identity_);
             publisher_ = std::move(another.publisher_);
         }

@@ -459,11 +459,18 @@ export interface FacilityOutput {
     , isFinal : boolean
 }
 
-export interface FacilityStreamParameters {
+export interface ClientFacilityStreamParameters {
     address : string
     , userToWireHook? : (data : Buffer) => Buffer
     , wireToUserHook? : (data : Buffer) => Buffer
     , identityAttacher? : (data : Buffer) => Buffer
+}
+
+export interface ServerFacilityStreamParameters {
+    address : string
+    , userToWireHook? : (data : Buffer) => Buffer
+    , wireToUserHook? : (data : Buffer) => Buffer
+    , identityResolver? : (data : Buffer) => [boolean, string, Buffer]
 }
 
 export class MultiTransportFacilityClient {
@@ -609,7 +616,7 @@ export class MultiTransportFacilityClient {
         });
     }
     
-    static async facilityStream(param : FacilityStreamParameters) : Promise<[Stream.Writable, Stream.Readable]> {
+    static async facilityStream(param : ClientFacilityStreamParameters) : Promise<[Stream.Writable, Stream.Readable]> {
         let parsedAddr = TMTransportUtils.parseAddress(param.address);
         if (parsedAddr == null) {
             return null;
@@ -652,5 +659,171 @@ export class MultiTransportFacilityClient {
             }
             , readableObjectMode : true
         })
+    }
+}
+
+export class MultiTransportFacilityServer {
+    private static async rabbitmqFacilityStream(locator : ConnectionLocator) : Promise<Stream.Duplex> {
+        let connection = await TMTransportUtils.createAMQPConnection(locator);
+        let channel = await connection.createChannel();
+        let serviceQueue = await channel.assertQueue(
+            locator.identifier
+            , {
+                durable : ("durable" in locator.properties && locator.properties.durable === "true")
+                , autoDelete : false 
+                , exclusive : false
+            }
+        );
+        let replyMap = new Map<string, [string, string]>();
+        let ret = new Stream.Duplex({
+            write : function(chunk : [string, Buffer, boolean], _encoding, callback) {
+                if (!replyMap.has(chunk[0])) {
+                    callback();
+                    return;
+                }
+                let replyInfo = replyMap.get(chunk[0]);
+                let outBuffer : Buffer = chunk[1];
+                if (replyInfo[1] == 'with_final') {
+                    outBuffer = Buffer.concat([chunk[1], Buffer.from([chunk[2]?1:0])]);
+                }
+                channel.sendToQueue(
+                    replyInfo[0]
+                    , outBuffer
+                    , {
+                        correlationId : chunk[0]
+                        , contentEncoding : replyInfo[1]
+                        , replyTo : serviceQueue.queue
+                    }
+                );
+                if (chunk[2]) {
+                    replyMap.delete(chunk[0]);
+                }
+                callback();
+            }
+            , read : function(_size : number) {}
+            , objectMode : true
+        });
+        channel.consume(serviceQueue.queue, function(msg) {
+            if (msg != null) {
+                let id = msg.properties.correlationId as string;
+                if (replyMap.has(id)) {
+                    return;
+                }
+                replyMap.set(id, [msg.properties.replyTo as string, msg.properties.contentEncoding as string]);
+                ret.push(
+                    [id, msg.content]
+                );
+            }
+        });
+
+        return ret;
+    }
+    private static async redisFacilityStream(locator : ConnectionLocator) : Promise<Stream.Duplex> {
+        let publisher = redis.createClient({
+            host : locator.host
+            , port : ((locator.port>0)?locator.port:6379)
+        });
+        let subscriber = redis.createClient({
+            host : locator.host
+            , port : ((locator.port>0)?locator.port:6379)
+            , return_buffers : true
+        });
+
+        let replyMap = new Map<string, string>();
+
+        let ret = new Stream.Duplex({
+            write : function(chunk : [string, Buffer, boolean], _encoding, callback) {
+                if (!replyMap.has(chunk[0])) {
+                    callback();
+                    return;
+                }
+                let replyInfo = replyMap.get(chunk[0]);
+                let outBuffer = Buffer.concat([chunk[1], Buffer.from([chunk[2]?1:0])]);
+                publisher.send_command("PUBLISH", [replyInfo, outBuffer]);
+                if (chunk[2]) {
+                    replyMap.delete(chunk[0]);
+                }
+                callback();
+            }
+        });
+        let handleMessage = function(message : Buffer) : void {
+            let parsed = cbor.decode(message);
+            if (parsed.length != 2) {
+                return;
+            }
+
+            let replyQueue = parsed[0];
+            parsed = cbor.decode(parsed[1]);
+            if (parsed.length != 2) {
+                return;
+            }
+
+            if (replyMap.has(parsed[0])) {
+                return;
+            }
+
+            replyMap.set(parsed[0], replyQueue);
+            ret.push(parsed);
+        }
+
+        subscriber.on('message_buffer', function(_channel : string, message : Buffer) {
+            handleMessage(message);
+        });
+        subscriber.on('message', function(_channel : string, message : Buffer) {
+            handleMessage(message);
+        });
+        return new Promise<Stream.Duplex>((resolve, reject) => {
+            subscriber.subscribe(locator.identifier, function(err, reply) {
+                if (err) {
+                    return reject(err);
+                }
+                return resolve(ret);
+            });
+        });
+    }
+    
+    static async facilityStream(param : ServerFacilityStreamParameters) : Promise<[Stream.Writable, Stream.Readable]> {
+        let parsedAddr = TMTransportUtils.parseAddress(param.address);
+        if (parsedAddr == null) {
+            return null;
+        }
+        let s : Stream.Duplex = null;
+        switch (parsedAddr[0]) {
+            case Transport.RabbitMQ:
+                s = await this.rabbitmqFacilityStream(parsedAddr[1]);
+                break;
+            case Transport.Redis:
+                s = await this.redisFacilityStream(parsedAddr[1]);
+                break;
+            default:
+                return null;
+        }
+        let input : Stream.Writable = s;
+        let output : Stream.Readable = s;
+        if (param.userToWireHook) {
+            let encode = TMTransportUtils.bufferTransformer(param.userToWireHook);
+            encode.pipe(input);
+            input = encode;
+        }
+        if (param.wireToUserHook) {
+            let decode = TMTransportUtils.bufferTransformer(param.wireToUserHook);
+            output.pipe(decode);
+            output = decode;
+        }
+        if (param.identityResolver) {
+            let resolve = new Stream.Transform({
+                transform : function(chunk : [string, Buffer], encoding : BufferEncoding, callback) {
+                    let processed = param.identityResolver(chunk[1]);
+                    if (processed && processed[0]) {
+                        this.push([chunk[0], [processed[1], processed[2]]], encoding);
+                    }
+                    callback();
+                }
+                , objectMode : true
+            });
+            output.pipe(resolve);
+            output = resolve;
+        }
+        return [input, output];
     }
 }
