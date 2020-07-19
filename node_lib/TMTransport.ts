@@ -607,7 +607,7 @@ export class MultiTransportFacilityClient {
             handleMessage(message);
         });
         return new Promise<Stream.Duplex>((resolve, reject) => {
-            subscriber.subscribe(streamID, function(err, reply) {
+            subscriber.subscribe(streamID, function(err, _reply) {
                 if (err) {
                     return reject(err);
                 }
@@ -733,37 +733,41 @@ export class MultiTransportFacilityServer {
 
         let ret = new Stream.Duplex({
             write : function(chunk : [string, Buffer, boolean], _encoding, callback) {
-                if (!replyMap.has(chunk[0])) {
+                let [id, data, final] = chunk;
+                if (!replyMap.has(id)) {
                     callback();
                     return;
                 }
-                let replyInfo = replyMap.get(chunk[0]);
-                let outBuffer = Buffer.concat([chunk[1], Buffer.from([chunk[2]?1:0])]);
-                publisher.send_command("PUBLISH", [replyInfo, outBuffer]);
-                if (chunk[2]) {
-                    replyMap.delete(chunk[0]);
+                let replyInfo = replyMap.get(id);
+                let outBuffer = Buffer.concat([data, Buffer.from([final?1:0])]);
+                publisher.send_command("PUBLISH", [replyInfo, cbor.encode([id, outBuffer])]);
+                if (final) {
+                    replyMap.delete(id);
                 }
                 callback();
             }
+            , read : function(_size : number) {}
+            , objectMode : true
         });
         let handleMessage = function(message : Buffer) : void {
             let parsed = cbor.decode(message);
             if (parsed.length != 2) {
                 return;
             }
+            let [replyQueue, idAndData] = parsed;
 
-            let replyQueue = parsed[0];
-            parsed = cbor.decode(parsed[1]);
+            parsed = cbor.decode(idAndData);
             if (parsed.length != 2) {
                 return;
             }
+            let [id, data] = parsed;
 
-            if (replyMap.has(parsed[0])) {
+            if (replyMap.has(id)) {
                 return;
             }
 
-            replyMap.set(parsed[0], replyQueue);
-            ret.push(parsed);
+            replyMap.set(id, replyQueue);
+            ret.push([id, data]);
         }
 
         subscriber.on('message_buffer', function(_channel : string, message : Buffer) {
@@ -773,7 +777,7 @@ export class MultiTransportFacilityServer {
             handleMessage(message);
         });
         return new Promise<Stream.Duplex>((resolve, reject) => {
-            subscriber.subscribe(locator.identifier, function(err, reply) {
+            subscriber.subscribe(locator.identifier, function(err, _reply) {
                 if (err) {
                     return reject(err);
                 }

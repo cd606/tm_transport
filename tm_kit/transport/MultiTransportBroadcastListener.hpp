@@ -17,6 +17,13 @@
 
 namespace dev { namespace cd606 { namespace tm { namespace transport {
 
+    struct AllNetworkTransportComponents :
+        public multicast::MulticastComponent
+        , public rabbitmq::RabbitMQComponent
+        , public redis::RedisComponent
+        , public zeromq::ZeroMQComponent
+    {};
+
     enum class MultiTransportBroadcastListenerConnectionType {
         Multicast
         , RabbitMQ
