@@ -223,8 +223,7 @@ export class MultiTransportListener {
                 locator.identifier
                 , "topic"
                 , {
-                    "internal" : ("passive" in locator.properties && locator.properties.passive === "true")
-                    , "durable" :  ("durable" in locator.properties && locator.properties.durable === "true")
+                    "durable" :  ("durable" in locator.properties && locator.properties.durable === "true")
                     , "autoDelete" : ("auto_delete" in locator.properties && locator.properties.auto_delete === "true")
                 }
             );
