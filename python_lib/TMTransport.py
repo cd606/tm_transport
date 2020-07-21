@@ -4,6 +4,12 @@ from enum import Enum
 
 import asyncio
 import aio_pika
+import cbor
+import socket
+import struct
+import aioredis
+import zmq
+import zmq.asyncio
 
 class ConnectionLocatorProperties(TypedDict):
     name : str
@@ -153,6 +159,55 @@ class TMTransportUtils:
 
 class MultiTransportListener:
     @staticmethod
+    def defaultTopic(transport : Transport) -> str:
+        if transport == Transport.Multicast:
+            return ""
+        elif transport == Transport.RabbitMQ:
+            return "#"
+        elif transport == Transport.Redis:
+            return "*"
+        elif transport == Transport.ZeroMQ:
+            return ""
+        else:
+            return ""
+
+    @staticmethod
+    def multicastInput(locator: ConnectionLocator, topic : TopicSpec, qouts : List[asyncio.Queue]) -> asyncio.Task:
+        filter : Callable[[bytes], bool] = lambda x : True
+        if topic.matchType == TopicMatchType.MatchAll:
+            filter = lambda x : True
+        elif topic.matchType == TopicMatchType.MatchExact:
+            filter = lambda x : x == topic.exactString
+        elif topic.matchType == TopicMatchType.MatchRE:
+            filter = lambda x : bool(topic.regex.fullmatch(x))
+
+        class MulticastListener:
+            def connection_made(self, transport):
+                pass
+            def datagram_received(self, data, addr):
+                decoded = cbor.loads(data)
+                if len(decoded) == 2:
+                    if filter(decoded[0]):
+                        for q in qouts:
+                            q.put_nowait((decoded[0], decoded[1]))
+
+        async def taskcr():
+            loop = asyncio.get_running_loop()
+            sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
+            sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            sock.bind(('', locator.port))
+            group = socket.inet_aton(locator.host)
+            mreq = struct.pack('4sL', group, socket.INADDR_ANY)
+            sock.setsockopt(socket.IPPROTO_IP, socket.IP_ADD_MEMBERSHIP, mreq)
+            
+            await loop.create_datagram_endpoint(
+                lambda: MulticastListener()
+                , sock=sock
+            )
+        return asyncio.create_task(taskcr())
+    
+    @staticmethod
     def rabbitmqInput(locator : ConnectionLocator, topic : TopicSpec, qouts : List[asyncio.Queue]) -> asyncio.Task :
         async def taskcr():
             connection = await TMTransportUtils.createAMQPConnection(locator)
@@ -172,18 +227,44 @@ class MultiTransportListener:
                         for q in qouts:
                             q.put_nowait((message.routing_key, message.body))
         return asyncio.create_task(taskcr())
+
     @staticmethod
-    def defaultTopic(transport : Transport) -> str:
-        if transport == Transport.Multicast:
-            return ""
-        elif transport == Transport.RabbitMQ:
-            return "#"
-        elif transport == Transport.Redis:
-            return "*"
-        elif transport == Transport.ZeroMQ:
-            return ""
-        else:
-            return ""
+    def redisInput(locator : ConnectionLocator, topic : TopicSpec, qouts : List[asyncio.Queue]) -> asyncio.Task :
+        async def taskcr():
+            redisURL = f"redis://{locator.host}"
+            if locator.port > 0:
+                redisURL = redisURL+f":{locator.port}"
+            connection = await aioredis.create_redis_pool(redisURL)
+            channel, = await connection.psubscribe(topic.exactString)
+            async for ch, message in channel.iter():
+                for q in qouts:
+                    q.put_nowait((ch.decode('utf-8'), message))
+        return asyncio.create_task(taskcr())
+
+    @staticmethod
+    def zeromqInput(locator : ConnectionLocator, topic : TopicSpec, qouts : List[asyncio.Queue]) -> asyncio.Task :
+        filter : Callable[[bytes], bool] = lambda x : True
+        if topic.matchType == TopicMatchType.MatchAll:
+            filter = lambda x : True
+        elif topic.matchType == TopicMatchType.MatchExact:
+            filter = lambda x : x == topic.exactString
+        elif topic.matchType == TopicMatchType.MatchRE:
+            filter = lambda x : bool(topic.regex.fullmatch(x))
+
+        async def taskcr():
+            ctx = zmq.asyncio.Context()
+            sock = ctx.socket(zmq.SUB)
+            sock.connect(f"tcp://{locator.host}:{locator.port}")
+            sock.subscribe("")
+            while True:
+                data = await sock.recv()
+                decoded = cbor.loads(data)
+                if len(decoded) == 2:
+                    if filter(decoded[0]):
+                        for q in qouts:
+                            q.put_nowait((decoded[0], decoded[1]))
+        return asyncio.create_task(taskcr())
+
     @staticmethod
     def input(address : str, qouts : List[asyncio.Queue], topic : str = None, wireToUserHook : Callable[[bytes],bytes] = None) -> asyncio.Task :
         parsedAddr = TMTransportUtils.parseAddress(address)
@@ -201,8 +282,14 @@ class MultiTransportListener:
             qin = asyncio.Queue()
             TMTransportUtils.bufferTransformer(wireToUserHook, qin, qouts)
             realQouts = [qin]
-        if transport == Transport.RabbitMQ:
+        if transport == Transport.Multicast:
+            return MultiTransportListener.multicastInput(locator, parsedTopic, realQouts)
+        elif transport == Transport.RabbitMQ:
             return MultiTransportListener.rabbitmqInput(locator, parsedTopic, realQouts)
+        elif transport == Transport.Redis:
+            return MultiTransportListener.redisInput(locator, parsedTopic, realQouts)
+        elif transport == Transport.ZeroMQ:
+            return MultiTransportListener.zeromqInput(locator, parsedTopic, realQouts)
         else:
             return None
 
