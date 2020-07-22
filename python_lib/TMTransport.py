@@ -458,7 +458,50 @@ class MultiTransportFacilityClient:
     
     @staticmethod
     def redisFacility(locator : ConnectionLocator, qin : asyncio.Queue, qouts : List[asyncio.Queue]) -> asyncio.Task:
-        pass
+        async def taskcr():
+            redisURL = f"redis://{locator.host}"
+            if locator.port > 0:
+                redisURL = redisURL+f":{locator.port}"
+            connection = await aioredis.create_redis_pool(redisURL)
+
+            inputMap : InputMap = {}
+
+            streamID = str(uuid.uuid4())
+
+            channel, = await connection.subscribe(streamID)
+
+            async def readQueue():
+                async for message in channel.iter():
+                    isFinal = False
+                    id, res = cbor.loads(message)
+                    if id not in inputMap:
+                        continue
+                    input = inputMap[id]
+                    if len(res) == 0:
+                        continue
+                    isFinal = (res[-1] != 0)
+                    res = res[:len(res)-1]
+
+                    output = FacilityOutput()
+                    output.id = id
+                    output.originalInput = input
+                    output.output = res
+                    output.isFinal = isFinal
+
+                    for q in qouts:
+                        q.put_nowait(output)
+
+                    if isFinal:
+                        del inputMap[id]
+
+            asyncio.create_task(readQueue())
+
+            while True:
+                id, data = await qin.get()
+                inputMap[id] = data  
+                await connection.publish(locator.identifier, cbor.dumps((streamID, cbor.dumps((id, data)))))
+
+        return asyncio.create_task(taskcr())
 
     @staticmethod
     def facility(address : str, qin : asyncio.Queue, qouts : List[asyncio.Queue], userToWireHook : Callable[[bytes],bytes] = None, wireToUserHook : Callable[[bytes],bytes] = None, identityAttacher : Callable[[bytes],bytes] = None) -> asyncio.Task:
