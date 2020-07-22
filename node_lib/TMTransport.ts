@@ -644,7 +644,18 @@ export class MultiTransportFacilityClient {
             input = attach;
         }
         if (param.wireToUserHook) {
-            let decode = TMTransportUtils.bufferTransformer(param.wireToUserHook);
+            let decode = new Stream.Transform({
+                transform : function(chunk : FacilityOutput, encoding : BufferEncoding, callback) {
+                    let newChunk = chunk;
+                    let processed = param.wireToUserHook(chunk.output);
+                    if (processed) {
+                        newChunk.output = processed;
+                        this.push(newChunk, encoding);
+                    }
+                    callback();
+                }
+                , objectMode : true
+            });
             output.pipe(decode);
             output = decode;
         }
@@ -804,7 +815,16 @@ export class MultiTransportFacilityServer {
         let input : Stream.Writable = s;
         let output : Stream.Readable = s;
         if (param.userToWireHook) {
-            let encode = TMTransportUtils.bufferTransformer(param.userToWireHook);
+            let encode = new Stream.Transform({
+                transform : function(chunk : [string, Buffer, boolean], encoding : BufferEncoding, callback) {
+                    let processed = param.userToWireHook(chunk[1]);
+                    if (processed) {
+                        this.push([chunk[0], processed, chunk[2]], encoding);
+                    }
+                    callback();
+                }
+                , objectMode : true
+            });
             encode.pipe(input);
             input = encode;
         }
