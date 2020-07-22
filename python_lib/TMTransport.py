@@ -10,6 +10,7 @@ import struct
 import aioredis
 import zmq
 import zmq.asyncio
+import uuid
 
 class ConnectionLocatorProperties(TypedDict):
     name : str
@@ -386,3 +387,106 @@ class MultiTransportPublisher:
             return MultiTransportPublisher.zeromqOutput(locator, realQin)
         else:
             return None
+
+class FacilityOutput:
+    id : str = ""
+    originalInput : bytes = b''
+    output : bytes = b''
+    isFinal : bool = False
+
+class InputMap(TypedDict):
+    id : str
+    input : bytes
+
+class MultiTransportFacilityClient:
+    @staticmethod
+    def rabbitMQFacility(locator : ConnectionLocator, qin : asyncio.Queue, qouts : List[asyncio.Queue]) -> asyncio.Task:
+        async def taskcr():
+            connection = await TMTransportUtils.createAMQPConnection(locator)
+            channel = await connection.channel()
+            queue = await channel.declare_queue(exclusive=True, auto_delete=True)
+
+            inputMap : InputMap = {}
+
+            async def readQueue():
+                async with queue.iterator() as queue_iter:
+                    async for message in queue_iter:
+                        async with message.process():
+                            isFinal = False
+                            res = message.body
+                            id = message.correlation_id
+                            if id not in inputMap:
+                                continue
+                            input = inputMap[id]
+
+                            if message.content_encoding == 'with_final':
+                                if len(res) == 0:
+                                    continue
+                                isFinal = (res[-1] != 0)
+                                res = res[:len(res)-1]
+
+                            output = FacilityOutput()
+                            output.id = id
+                            output.originalInput = input
+                            output.output = res
+                            output.isFinal = isFinal
+
+                            for q in qouts:
+                                q.put_nowait(output)
+
+                            if isFinal:
+                                del inputMap[id]
+
+            asyncio.create_task(readQueue())
+
+            while True:
+                id, data = await qin.get()
+                inputMap[id] = data  
+                await channel.default_exchange.publish(
+                    aio_pika.Message(
+                        data
+                        , correlation_id=id
+                        , reply_to=queue.name
+                        , delivery_mode=aio_pika.DeliveryMode.NOT_PERSISTENT
+                        , expiration=1000
+                        , content_encoding='with_final'
+                    )
+                    , routing_key = locator.identifier
+                )
+
+        return asyncio.create_task(taskcr())
+    
+    @staticmethod
+    def redisFacility(locator : ConnectionLocator, qin : asyncio.Queue, qouts : List[asyncio.Queue]) -> asyncio.Task:
+        pass
+
+    @staticmethod
+    def facility(address : str, qin : asyncio.Queue, qouts : List[asyncio.Queue], userToWireHook : Callable[[bytes],bytes] = None, wireToUserHook : Callable[[bytes],bytes] = None, identityAttacher : Callable[[bytes],bytes] = None) -> asyncio.Task:
+        parsedAddr = TMTransportUtils.parseAddress(address)
+        if not parsedAddr:
+            return None
+        transport, locator = parsedAddr
+        realQin = qin
+        if identityAttacher:
+            attacherQin = asyncio.Queue()
+            TMTransportUtils.bufferTransformer(identityAttacher, realQin, [attacherQin])
+            realQin = attacherQin
+        if userToWireHook:
+            userToWireHookQin = asyncio.Queue()
+            TMTransportUtils.bufferTransformer(userToWireHook, realQin, [userToWireHookQin])
+            realQin = userToWireHookQin
+        realQouts = qouts
+        if wireToUserHook:
+            wireToUserHookQin = asyncio.Queue()
+            TMTransportUtils.bufferTransformer(wireToUserHook, wireToUserHookQin, realQouts)
+            realQouts = [wireToUserHookQin]
+        if transport == Transport.RabbitMQ:
+            return MultiTransportFacilityClient.rabbitMQFacility(locator, realQin, realQouts)
+        elif transport == Transport.Redis:
+            return MultiTransportFacilityClient.redisFacility(locator, realQin, realQouts)
+        else:
+            return None
+    
+    @staticmethod
+    def keyify(x : bytes) -> Tuple[str,bytes]:
+        return (str(uuid.uuid4()), x)

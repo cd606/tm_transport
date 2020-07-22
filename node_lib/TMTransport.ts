@@ -476,7 +476,7 @@ export class MultiTransportFacilityClient {
     private static async rabbitmqFacilityStream(locator : ConnectionLocator) : Promise<Stream.Duplex> {
         let connection = await TMTransportUtils.createAMQPConnection(locator);
         let channel = await connection.createChannel();
-        let replyQueue = await channel.assertQueue('', {exclusive: true});
+        let replyQueue = await channel.assertQueue('', {exclusive: true, autoDelete: true});
 
         let inputMap = new Map<string, Buffer>();
 
