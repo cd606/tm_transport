@@ -296,7 +296,29 @@ class MultiTransportListener:
 class MultiTransportPublisher:
     @staticmethod
     def multicastOutput(locator : ConnectionLocator, qin : asyncio.Queue) -> asyncio.Task :
-        return None
+        class MulticastListener:
+            def connection_made(self, transport):
+                pass
+            def datagram_received(self, data, addr):
+                pass
+        async def taskcr():
+            loop = asyncio.get_running_loop()
+            sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            if 'ttl' in locator.properties:
+                ttl = struct.pack('b', int(locator.properties['ttl']))
+                sock.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_TTL, ttl)
+            group = socket.inet_aton(locator.host)
+            mreq = struct.pack('4sL', group, socket.INADDR_ANY)
+            sock.setsockopt(socket.IPPROTO_IP, socket.IP_ADD_MEMBERSHIP, mreq)
+            transport,protocol = await loop.create_datagram_endpoint(
+                lambda: MulticastListener()
+                , sock=sock
+            )
+            while True:
+                topic, data = await qin.get()
+                transport.sendto(cbor.dumps([topic, data]), (locator.host, locator.port))            
+        return asyncio.create_task(taskcr())
+
     @staticmethod
     def rabbitmqOutput(locator : ConnectionLocator, qin : asyncio.Queue) -> asyncio.Task :
         async def taskcr():
@@ -320,12 +342,30 @@ class MultiTransportPublisher:
                     , routing_key = topic
                 )
         return asyncio.create_task(taskcr())
+
     @staticmethod
     def redisOutput(locator : ConnectionLocator, qin : asyncio.Queue) -> asyncio.Task :
-        return None
+        async def taskcr():
+            redisURL = f"redis://{locator.host}"
+            if locator.port > 0:
+                redisURL = redisURL+f":{locator.port}"
+            connection = await aioredis.create_redis_pool(redisURL)
+            while True:
+                topic, data = await qin.get()
+                await connection.publish(topic, data)
+        return asyncio.create_task(taskcr())
+
     @staticmethod
     def zeromqOutput(locator : ConnectionLocator, qin : asyncio.Queue) -> asyncio.Task :
-        return None
+        async def taskcr():
+            ctx = zmq.asyncio.Context()
+            sock = ctx.socket(zmq.PUB)
+            sock.bind(f"tcp://{locator.host}:{locator.port}")
+            while True:
+                topic, data = await qin.get()
+                await sock.send(cbor.dumps([topic, data]))
+        return asyncio.create_task(taskcr())
+
     @staticmethod
     def output(address : str, qin : asyncio.Queue, userToWireHook : Callable[[bytes],bytes] = None) -> asyncio.Task:
         parsedAddr = TMTransportUtils.parseAddress(address)
