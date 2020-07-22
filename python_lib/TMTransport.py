@@ -274,7 +274,7 @@ class MultiTransportListener:
         if topic:
             parsedTopic = TMTransportUtils.parseTopic(transport, topic)
         else:
-            parsedTopic = MultiTransportListener.defaultTopic(transport)
+            parsedTopic = TMTransportUtils.parseTopic(transport, MultiTransportListener.defaultTopic(transport))
         if not parsedTopic:
             return None
         realQouts = qouts
@@ -293,18 +293,56 @@ class MultiTransportListener:
         else:
             return None
 
-async def test():
-    f = lambda x : x if len(x) > 2 else None
-    qin = asyncio.Queue()
-    qout = asyncio.Queue()
-    TMTransportUtils.bufferTransformer(
-        f, qin, [qout]
-    )
-    await qin.put(('abc', bytes([1,2,3])))
-    t = await qout.get()
-    print(t)
-
-if __name__ == "__main__":
-    x = ConnectionLocator("172.0.0.1:1234:a:b:aa[x=1,y=2]")
-    y = TMTransportUtils.parseTopic(Transport.Multicast, "r/abc/")
-    asyncio.run(test())
+class MultiTransportPublisher:
+    @staticmethod
+    def multicastOutput(locator : ConnectionLocator, qin : asyncio.Queue) -> asyncio.Task :
+        return None
+    @staticmethod
+    def rabbitmqOutput(locator : ConnectionLocator, qin : asyncio.Queue) -> asyncio.Task :
+        async def taskcr():
+            connection = await TMTransportUtils.createAMQPConnection(locator)
+            channel = await connection.channel()
+            exchange = await channel.declare_exchange(
+                name = locator.identifier
+                , type = aio_pika.ExchangeType.TOPIC
+                , passive = locator.checkBooleanProperty("passive")
+                , durable = locator.checkBooleanProperty("durable")
+                , auto_delete = locator.checkBooleanProperty("autoDelete")
+            )
+            while True:
+                topic, data = await qin.get()
+                await exchange.publish(
+                    aio_pika.Message(
+                        data
+                        , delivery_mode=aio_pika.DeliveryMode.NOT_PERSISTENT
+                        , expiration=1000
+                    )
+                    , routing_key = topic
+                )
+        return asyncio.create_task(taskcr())
+    @staticmethod
+    def redisOutput(locator : ConnectionLocator, qin : asyncio.Queue) -> asyncio.Task :
+        return None
+    @staticmethod
+    def zeromqOutput(locator : ConnectionLocator, qin : asyncio.Queue) -> asyncio.Task :
+        return None
+    @staticmethod
+    def output(address : str, qin : asyncio.Queue, userToWireHook : Callable[[bytes],bytes] = None) -> asyncio.Task:
+        parsedAddr = TMTransportUtils.parseAddress(address)
+        if not parsedAddr:
+            return None
+        transport, locator = parsedAddr
+        realQin = qin
+        if userToWireHook:
+            realQin = asyncio.Queue()
+            TMTransportUtils.bufferTransformer(userToWireHook, qin, [realQin])
+        if transport == Transport.Multicast:
+            return MultiTransportPublisher.multicastOutput(locator, realQin)
+        elif transport == Transport.RabbitMQ:
+            return MultiTransportPublisher.rabbitmqOutput(locator, realQin)
+        elif transport == Transport.Redis:
+            return MultiTransportPublisher.redisOutput(locator, realQin)
+        elif transport == Transport.ZeroMQ:
+            return MultiTransportPublisher.zeromqOutput(locator, realQin)
+        else:
+            return None
