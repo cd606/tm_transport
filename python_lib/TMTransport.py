@@ -619,11 +619,11 @@ class MultiTransportFacilityServer:
             asyncio.create_task(readQueue())
 
             while True:
-                id, data, isFinal = await toExternalQ.get()
+                id, data, isFinal = await qin.get()
                 if id not in replyMap:
                     continue
                 replyTo = replyMap[id]
-                outData = data+(b'\x00' if isFinal else b'\x11')
+                outData = data+(b'\x01' if isFinal else b'\x00')
                 if isFinal:
                     del replyMap[id]
                 await connection.publish(replyTo, cbor.dumps((id, outData)))
