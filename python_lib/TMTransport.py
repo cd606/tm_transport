@@ -267,32 +267,32 @@ class MultiTransportListener:
         return asyncio.create_task(taskcr())
 
     @staticmethod
-    def input(address : str, qouts : List[asyncio.Queue], topic : str = None, wireToUserHook : Callable[[bytes],bytes] = None) -> asyncio.Task :
+    def input(address : str, qouts : List[asyncio.Queue], topic : str = None, wireToUserHook : Callable[[bytes],bytes] = None) -> List[asyncio.Task] :
+        ret = []
         parsedAddr = TMTransportUtils.parseAddress(address)
         if not parsedAddr:
-            return None
+            return ret
         transport, locator = parsedAddr
         if topic:
             parsedTopic = TMTransportUtils.parseTopic(transport, topic)
         else:
             parsedTopic = TMTransportUtils.parseTopic(transport, MultiTransportListener.defaultTopic(transport))
         if not parsedTopic:
-            return None
+            return ret
         realQouts = qouts
         if wireToUserHook:
             qin = asyncio.Queue()
-            TMTransportUtils.bufferTransformer(wireToUserHook, qin, qouts)
+            ret.append(TMTransportUtils.bufferTransformer(wireToUserHook, qin, qouts))
             realQouts = [qin]
         if transport == Transport.Multicast:
-            return MultiTransportListener.multicastInput(locator, parsedTopic, realQouts)
+            ret.append(MultiTransportListener.multicastInput(locator, parsedTopic, realQouts))
         elif transport == Transport.RabbitMQ:
-            return MultiTransportListener.rabbitmqInput(locator, parsedTopic, realQouts)
+            ret.append(MultiTransportListener.rabbitmqInput(locator, parsedTopic, realQouts))
         elif transport == Transport.Redis:
-            return MultiTransportListener.redisInput(locator, parsedTopic, realQouts)
+            ret.append(MultiTransportListener.redisInput(locator, parsedTopic, realQouts))
         elif transport == Transport.ZeroMQ:
-            return MultiTransportListener.zeromqInput(locator, parsedTopic, realQouts)
-        else:
-            return None
+            ret.append(MultiTransportListener.zeromqInput(locator, parsedTopic, realQouts))
+        return ret
 
 class MultiTransportPublisher:
     @staticmethod
@@ -368,25 +368,25 @@ class MultiTransportPublisher:
         return asyncio.create_task(taskcr())
 
     @staticmethod
-    def output(address : str, qin : asyncio.Queue, userToWireHook : Callable[[bytes],bytes] = None) -> asyncio.Task:
+    def output(address : str, qin : asyncio.Queue, userToWireHook : Callable[[bytes],bytes] = None) -> List[asyncio.Task]:
+        ret = []
         parsedAddr = TMTransportUtils.parseAddress(address)
         if not parsedAddr:
-            return None
+            return ret
         transport, locator = parsedAddr
         realQin = qin
         if userToWireHook:
             realQin = asyncio.Queue()
-            TMTransportUtils.bufferTransformer(userToWireHook, qin, [realQin])
+            ret.append(TMTransportUtils.bufferTransformer(userToWireHook, qin, [realQin]))
         if transport == Transport.Multicast:
-            return MultiTransportPublisher.multicastOutput(locator, realQin)
+            ret.append(MultiTransportPublisher.multicastOutput(locator, realQin))
         elif transport == Transport.RabbitMQ:
-            return MultiTransportPublisher.rabbitmqOutput(locator, realQin)
+            ret.append(MultiTransportPublisher.rabbitmqOutput(locator, realQin))
         elif transport == Transport.Redis:
-            return MultiTransportPublisher.redisOutput(locator, realQin)
+            ret.append(MultiTransportPublisher.redisOutput(locator, realQin))
         elif transport == Transport.ZeroMQ:
-            return MultiTransportPublisher.zeromqOutput(locator, realQin)
-        else:
-            return None
+            ret.append(MultiTransportPublisher.zeromqOutput(locator, realQin))
+        return ret
 
 class FacilityOutput:
     id : str = ""
@@ -400,7 +400,8 @@ class InputMap(TypedDict):
 
 class MultiTransportFacilityClient:
     @staticmethod
-    def rabbitMQFacility(locator : ConnectionLocator, qin : asyncio.Queue, qout : asyncio.Queue) -> asyncio.Task:
+    def rabbitMQFacility(locator : ConnectionLocator, qin : asyncio.Queue, qout : asyncio.Queue) -> List[asyncio.Task]:
+        ret = []
         async def taskcr():
             connection = await TMTransportUtils.createAMQPConnection(locator)
             channel = await connection.channel()
@@ -436,7 +437,7 @@ class MultiTransportFacilityClient:
                             if isFinal:
                                 del inputMap[id]
 
-            asyncio.create_task(readQueue())
+            ret.append(asyncio.create_task(readQueue()))
 
             while True:
                 id, data = await qin.get()
@@ -453,10 +454,12 @@ class MultiTransportFacilityClient:
                     , routing_key = locator.identifier
                 )
 
-        return asyncio.create_task(taskcr())
+        ret.append(asyncio.create_task(taskcr()))
+        return ret
     
     @staticmethod
-    def redisFacility(locator : ConnectionLocator, qin : asyncio.Queue, qout : asyncio.Queue) -> asyncio.Task:
+    def redisFacility(locator : ConnectionLocator, qin : asyncio.Queue, qout : asyncio.Queue) -> List[asyncio.Task]:
+        ret = []
         async def taskcr():
             redisURL = f"redis://{locator.host}"
             if locator.port > 0:
@@ -492,29 +495,31 @@ class MultiTransportFacilityClient:
                     if isFinal:
                         del inputMap[id]
 
-            asyncio.create_task(readQueue())
+            ret.append(asyncio.create_task(readQueue()))
 
             while True:
                 id, data = await qin.get()
                 inputMap[id] = data  
                 await connection.publish(locator.identifier, cbor.dumps((streamID, cbor.dumps((id, data)))))
 
-        return asyncio.create_task(taskcr())
+        ret.append(asyncio.create_task(taskcr()))
+        return ret
 
     @staticmethod
-    def facility(address : str, qin : asyncio.Queue, qout : asyncio.Queue, userToWireHook : Callable[[bytes],bytes] = None, wireToUserHook : Callable[[bytes],bytes] = None, identityAttacher : Callable[[bytes],bytes] = None) -> asyncio.Task:
+    def facility(address : str, qin : asyncio.Queue, qout : asyncio.Queue, userToWireHook : Callable[[bytes],bytes] = None, wireToUserHook : Callable[[bytes],bytes] = None, identityAttacher : Callable[[bytes],bytes] = None) -> List[asyncio.Task]:
+        ret = []
         parsedAddr = TMTransportUtils.parseAddress(address)
         if not parsedAddr:
-            return None
+            return []
         transport, locator = parsedAddr
         realQin = qin
         if identityAttacher:
             attacherQin = asyncio.Queue()
-            TMTransportUtils.bufferTransformer(identityAttacher, realQin, [attacherQin])
+            ret.append(TMTransportUtils.bufferTransformer(identityAttacher, realQin, [attacherQin]))
             realQin = attacherQin
         if userToWireHook:
             userToWireHookQin = asyncio.Queue()
-            TMTransportUtils.bufferTransformer(userToWireHook, realQin, [userToWireHookQin])
+            ret.append(TMTransportUtils.bufferTransformer(userToWireHook, realQin, [userToWireHookQin]))
             realQin = userToWireHookQin
         realQout = qout
         if wireToUserHook:
@@ -527,14 +532,13 @@ class MultiTransportFacilityClient:
                     if newData:
                         item.output = newData
                         hookQout.put_nowait(item)
-            asyncio.create_task(hookcr())
+            ret.append(asyncio.create_task(hookcr()))
             realQout = hookQin
         if transport == Transport.RabbitMQ:
-            return MultiTransportFacilityClient.rabbitMQFacility(locator, realQin, realQout)
+            ret.extend(MultiTransportFacilityClient.rabbitMQFacility(locator, realQin, realQout))
         elif transport == Transport.Redis:
-            return MultiTransportFacilityClient.redisFacility(locator, realQin, realQout)
-        else:
-            return None
+            ret.extend(MultiTransportFacilityClient.redisFacility(locator, realQin, realQout))
+        return ret
     
     @staticmethod
     def keyify(x : bytes) -> Tuple[str,bytes]:
@@ -542,7 +546,8 @@ class MultiTransportFacilityClient:
 
 class MultiTransportFacilityServer:
     @staticmethod
-    def rabbitMQFacility(locator : ConnectionLocator, qin : asyncio.Queue, qout : asyncio.Queue) -> asyncio.Task:
+    def rabbitMQFacility(locator : ConnectionLocator, qin : asyncio.Queue, qout : asyncio.Queue) -> List[asyncio.Task]:
+        ret = []
         class ReplyMap(TypedDict):
             id : str
             info : Tuple[str, str]
@@ -565,7 +570,7 @@ class MultiTransportFacilityServer:
                             
                             qout.put_nowait((id,res))
 
-            asyncio.create_task(readQueue())
+            ret.append(asyncio.create_task(readQueue()))
 
             while True:
                 id, data, isFinal = await qin.get()
@@ -587,10 +592,12 @@ class MultiTransportFacilityServer:
                     , routing_key = replyTo
                 )
 
-        return asyncio.create_task(taskcr())
+        ret.append(asyncio.create_task(taskcr()))
+        return ret
     
     @staticmethod
-    def redisFacility(locator : ConnectionLocator, qin : asyncio.Queue, qout : asyncio.Queue) -> asyncio.Task:
+    def redisFacility(locator : ConnectionLocator, qin : asyncio.Queue, qout : asyncio.Queue) -> List[asyncio.Task]:
+        ret = []
         class ReplyMap(TypedDict):
             id : str
             info : str
@@ -616,7 +623,7 @@ class MultiTransportFacilityServer:
                     replyMap[id] = replyTo
                     qout.put_nowait((id, data))
 
-            asyncio.create_task(readQueue())
+            ret.append(asyncio.create_task(readQueue()))
 
             while True:
                 id, data, isFinal = await qin.get()
@@ -628,19 +635,21 @@ class MultiTransportFacilityServer:
                     del replyMap[id]
                 await connection.publish(replyTo, cbor.dumps((id, outData)))
 
-        return asyncio.create_task(taskcr())
+        ret.append(asyncio.create_task(taskcr()))
+        return ret
 
     @staticmethod
-    def facility(address : str, logicReadFrom : asyncio.Queue, logicWriteTo : asyncio.Queue, userToWireHook : Callable[[bytes],bytes] = None, wireToUserHook : Callable[[bytes],bytes] = None, identityResolver : Callable[[bytes],Tuple[bool,str,bytes]] = None) -> asyncio.Task:
+    def facility(address : str, logicReadFrom : asyncio.Queue, logicWriteTo : asyncio.Queue, userToWireHook : Callable[[bytes],bytes] = None, wireToUserHook : Callable[[bytes],bytes] = None, identityResolver : Callable[[bytes],Tuple[bool,str,bytes]] = None) -> List[asyncio.Task]:
+        ret = []
         parsedAddr = TMTransportUtils.parseAddress(address)
         if not parsedAddr:
-            return None
+            return ret
         transport, locator = parsedAddr
 
         fromExternalQ = logicReadFrom
         if wireToUserHook:
             wireToUserHookQin = asyncio.Queue()
-            TMTransportUtils.bufferTransformer(wireToUserHook, wireToUserHookQin, [fromExternalQ])
+            ret.append(TMTransportUtils.bufferTransformer(wireToUserHook, wireToUserHookQin, [fromExternalQ]))
             fromExternalQ = wireToUserHookQin
         if identityResolver:
             resolverQin = asyncio.Queue()
@@ -652,7 +661,7 @@ class MultiTransportFacilityServer:
                     good, identity, processedData = identityResolver(data)
                     if good:
                         resolverQout.put_nowait((strInfo, (identity, processedData)))
-            asyncio.create_task(resolvercr())
+            ret.append(asyncio.create_task(resolvercr()))
             fromExternalQ = resolverQin
 
         toExternalQ = logicWriteTo
@@ -665,12 +674,11 @@ class MultiTransportFacilityServer:
                     newData = userToWireHook(item[1])
                     if newData:
                         hookQout.put_nowait((item[0], newData, item[2]))
-            asyncio.create_task(hookcr())
+            ret.append(asyncio.create_task(hookcr()))
             toExternalQ = hookQout
           
         if transport == Transport.RabbitMQ:
-            return MultiTransportFacilityServer.rabbitMQFacility(locator, toExternalQ, fromExternalQ)
+            ret.extend(MultiTransportFacilityServer.rabbitMQFacility(locator, toExternalQ, fromExternalQ))
         elif transport == Transport.Redis:
-            return MultiTransportFacilityServer.redisFacility(locator, toExternalQ, fromExternalQ)
-        else:
-            return None
+            ret.extend(MultiTransportFacilityServer.redisFacility(locator, toExternalQ, fromExternalQ))
+        return ret
