@@ -154,6 +154,9 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 }
             }
             void publishOnExchange(std::string const &exchange, std::string const &contentEncoding, basic::ByteDataWithTopic &&data) {
+                if (!running_) {
+                    return;
+                }
                 {
                     std::lock_guard<std::mutex> _(mutex_);
                     auto msg = AmqpClient::BasicMessage::Create(data.content);
@@ -165,6 +168,9 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 cond_.notify_one();
             }
             void publishOnQueue(std::string const &queue, AmqpClient::BasicMessage::ptr_t message) {
+                if (!running_) {
+                    return;
+                }
                 {
                     std::lock_guard<std::mutex> _(mutex_);
                     incoming_.push_back(PublishingData {"", queue, message});
@@ -367,7 +373,13 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         }
     public:
         RabbitMQComponentImpl() = default;
-        ~RabbitMQComponentImpl() = default;
+        ~RabbitMQComponentImpl() {
+            std::lock_guard<std::mutex> _(mutex_);
+            exchangeSubscriptionConnections_.clear();
+            publishingConnections_.clear();
+            rpcQueueClientConnections_.clear();
+            rpcQueueServerConnections_.clear();
+        }
         uint32_t addExchangeSubscriptionClient(ConnectionLocator const &locator,
             std::string const &topic,
             std::function<void(std::string const &, basic::ByteDataWithTopic &&)> client,
@@ -454,7 +466,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
     };
 
     RabbitMQComponent::RabbitMQComponent() : impl_(std::make_unique<RabbitMQComponentImpl>()) {}
-    RabbitMQComponent::~RabbitMQComponent() {}
+    RabbitMQComponent::~RabbitMQComponent() = default;
 
     uint32_t RabbitMQComponent::rabbitmq_addExchangeSubscriptionClient(ConnectionLocator const &locator,
         std::string const &topic,

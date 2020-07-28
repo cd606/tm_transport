@@ -228,6 +228,9 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 }
             }
             void publish(basic::ByteDataWithTopic &&data) {
+                if (!running_) {
+                    return;
+                }
                 {
                     std::lock_guard<std::mutex> _(mutex_);
                     incoming_.push_back(std::move(data));
@@ -274,7 +277,11 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             , counter_(0), idToSubscriptionMap_(), idMutex_()
         {            
         }
-        ~ZeroMQComponentImpl() = default;
+        ~ZeroMQComponentImpl() {
+            std::lock_guard<std::mutex> _(mutex_);
+            subscriptions_.clear();
+            senders_.clear();
+        }
         uint32_t addSubscriptionClient(ConnectionLocator const &locator,
             std::variant<ZeroMQComponent::NoTopicSelection, std::string, std::regex> const &topic,
             std::function<void(basic::ByteDataWithTopic &&)> client,
@@ -321,7 +328,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
     };
 
     ZeroMQComponent::ZeroMQComponent() : impl_(std::make_unique<ZeroMQComponentImpl>()) {}
-    ZeroMQComponent::~ZeroMQComponent() {}
+    ZeroMQComponent::~ZeroMQComponent() = default;
     uint32_t ZeroMQComponent::zeroMQ_addSubscriptionClient(ConnectionLocator const &locator,
         std::variant<ZeroMQComponent::NoTopicSelection, std::string, std::regex> const &topic,
         std::function<void(basic::ByteDataWithTopic &&)> client,

@@ -454,7 +454,13 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             , counter_(0), idToSubscriptionMap_(), idMutex_()
         { 
         }
-        ~RedisComponentImpl() = default;
+        ~RedisComponentImpl() {
+            std::lock_guard<std::mutex> _(mutex_);
+            subscriptions_.clear();
+            senders_.clear();
+            rpcClientConnections_.clear();
+            rpcServerConnections_.clear();
+        }
         uint32_t addSubscriptionClient(ConnectionLocator const &locator,
             std::string const &topic,
             std::function<void(basic::ByteDataWithTopic &&)> client,
