@@ -275,6 +275,8 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             bool b;
             {
                 std::lock_guard<std::mutex> _(mutex_);
+                subscriptions_.clear();
+                senders_.clear();
                 b = senderThreadStarted_;
             }
             if (b) {

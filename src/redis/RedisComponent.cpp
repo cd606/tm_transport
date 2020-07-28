@@ -281,10 +281,14 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             std::thread th_;
             std::mutex mutex_;
             OneRedisSender *sender_;
+            std::atomic<bool> running_;
             void run() {
                 struct redisReply *reply = nullptr;
-                while (true) {
+                while (running_) {
                     int r = redisGetReply(ctx_, (void **) &reply);
+                    if (!running_) {
+                        break;
+                    }
                     if (r != REDIS_OK) {
                         if (ctx_->err == REDIS_ERR_EOF) {
                             break;
@@ -323,6 +327,9 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                     if (!innerParseRes || std::get<1>(*innerParseRes) != std::get<0>(*parseRes).content.length()) {
                         continue;
                     }
+                    if (!running_) {
+                        break;
+                    }
                     {
                         std::lock_guard<std::mutex> _(mutex_);
                         replyTopicMap_[std::get<0>(*innerParseRes).id] = std::get<0>(*parseRes).topic;
@@ -346,6 +353,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 , th_()
                 , mutex_()
                 , sender_(sender)
+                , running_(true)
             {
                 ctx_ = redisConnect(locator.host().c_str(), locator.port());
                 if (ctx_ != nullptr) {
@@ -356,6 +364,11 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 }
             }
             ~OneRedisRPCServerConnection() {
+                running_ = false;
+                try {
+                    th_.join();
+                } catch (std::system_error const &) {
+                }
             }
             void sendReply(bool isFinal, basic::ByteDataWithID &&data) {
                 std::string replyTopic;
