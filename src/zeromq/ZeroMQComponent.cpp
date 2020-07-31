@@ -175,67 +175,32 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         
         class OneZeroMQSender {
         private:
-            std::thread thread_;
-            std::list<basic::ByteDataWithTopic> incoming_, processing_;
             std::mutex mutex_;
-            std::condition_variable cond_;
-            std::atomic<bool> running_;
-            void run(int port, zmq::context_t *p_ctx) {
-                zmq::socket_t sock(*p_ctx, zmq::socket_type::pub);
-                std::ostringstream oss;
-                oss << "tcp://*:" << port;
-                sock.bind(oss.str());
-                while (running_) {
-                    {
-                        std::unique_lock<std::mutex> lock(mutex_);
-                        cond_.wait_for(lock, std::chrono::milliseconds(1));
-                        if (!running_) {
-                            lock.unlock();
-                            break;
-                        }
-                        if (incoming_.empty()) {
-                            lock.unlock();
-                            continue;
-                        }
-                        processing_.splice(processing_.end(), incoming_);
-                        lock.unlock();
-                    }
-                    while (!processing_.empty()) {
-                        auto const &item = processing_.front();
-                        auto v = basic::bytedata_utils::RunCBORSerializer<basic::ByteDataWithTopic>::apply(item);
-
-                        sock.send(
-                            zmq::const_buffer(reinterpret_cast<char const *>(v.data()), v.size())
-                            , zmq::send_flags::dontwait
-                        );   
-
-                        processing_.pop_front();
-                    }
-                }
-            }
+            zmq::socket_t sock_;
         public:
             OneZeroMQSender(int port, zmq::context_t *p_ctx)
-                : thread_(), incoming_(), processing_(), mutex_()
-                , cond_(), running_(true)
+                : mutex_(), sock_(*p_ctx, zmq::socket_type::pub)
             {
-                thread_ = std::thread(&OneZeroMQSender::run, this, port, p_ctx);
+                std::ostringstream oss;
+                oss << "tcp://*:" << port;
+                sock_.bind(oss.str());
             }
             ~OneZeroMQSender() {
-                running_ = false;
-                try {
-                    thread_.join();
-                } catch (std::system_error const &) {
-                }
-            }
-            void publish(basic::ByteDataWithTopic &&data) {
-                if (!running_) {
-                    return;
-                }
                 {
                     std::lock_guard<std::mutex> _(mutex_);
-                    incoming_.push_back(std::move(data));
+                    sock_.close();
                 }
-                cond_.notify_one();          
+            }
+            void publish(basic::ByteDataWithTopic &&data) {    
+                auto v = basic::bytedata_utils::RunCBORSerializer<basic::ByteDataWithTopic>::apply(data);
+
+                {
+                    std::lock_guard<std::mutex> _(mutex_);
+                    sock_.send(
+                        zmq::const_buffer(reinterpret_cast<char const *>(v.data()), v.size())
+                        , zmq::send_flags::dontwait
+                    );
+                } 
             }
         };
 
