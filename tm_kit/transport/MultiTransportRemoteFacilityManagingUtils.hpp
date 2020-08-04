@@ -8,14 +8,14 @@
 #include <tm_kit/basic/real_time_clock/ClockComponent.hpp>
 #include <tm_kit/basic/real_time_clock/ClockImporter.hpp>
 #include <tm_kit/basic/CommonFlowUtils.hpp>
-#include <tm_kit/basic/MonadRunnerUtils.hpp>
+#include <tm_kit/basic/AppRunnerUtils.hpp>
 
 namespace dev { namespace cd606 { namespace tm { namespace transport {
 
     template <class R>
     class MultiTransportRemoteFacilityManagingUtils {
     public:
-        using M = typename R::MonadType;
+        using M = typename R::AppType;
 
         template <class ... IdentitiesAndInputsAndOutputs>
         using NonDistinguishedRemoteFacilities =
@@ -269,7 +269,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                 >(hookPairFactory)
             );
 
-            auto facilityLoopOutput = basic::MonadRunnerUtilComponents<R>::setupVIEFacilitySelfLoopAndWait(
+            auto facilityLoopOutput = basic::AppRunnerUtilComponents<R>::setupVIEFacilitySelfLoopAndWait(
                 r
                 , actionSource.clone()
                 , std::move(vieInputInject)
@@ -445,7 +445,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                 );
                 r.registerAction(prefix+"/discardTopicFromHeartbeat", discardTopicFromHeartbeat);
 
-                auto heartbeatSource = basic::MonadRunnerUtilComponents<R>::importWithTrigger(
+                auto heartbeatSource = basic::AppRunnerUtilComponents<R>::importWithTrigger(
                     r
                     , r.importItem(createHeartbeatListenKey)
                     , M::onOrderFacilityWithExternalEffects(

@@ -4,7 +4,7 @@
 #include <tm_kit/transport/MultiTransportBroadcastListener.hpp>
 
 #include <tm_kit/basic/CommonFlowUtils.hpp>
-#include <tm_kit/basic/MonadRunnerUtils.hpp>
+#include <tm_kit/basic/AppRunnerUtils.hpp>
 
 namespace dev { namespace cd606 { namespace tm { namespace transport {
 
@@ -18,7 +18,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
     template <class R>
     class MultiTransportBroadcastListenerManagingUtils {
     public:
-        using M = typename R::MonadType;
+        using M = typename R::AppType;
         
         template <class ... InputTypes>
         using BroadcastListeners = 

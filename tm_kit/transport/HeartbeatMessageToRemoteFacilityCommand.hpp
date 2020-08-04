@@ -1,7 +1,7 @@
 #ifndef TM_KIT_TRANSPORT_MULTI_TRANSPORT_HEARBEAT_MESSAGE_TO_REMOTE_FACILITY_COMMAND_HPP_
 #define TM_KIT_TRANSPORT_MULTI_TRANSPORT_HEARBEAT_MESSAGE_TO_REMOTE_FACILITY_COMMAND_HPP_
 
-#include <tm_kit/infra/RealTimeMonad.hpp>
+#include <tm_kit/infra/RealTimeApp.hpp>
 
 #include <tm_kit/transport/MultiTransportRemoteFacility.hpp>
 #include <tm_kit/transport/HeartbeatMessage.hpp>

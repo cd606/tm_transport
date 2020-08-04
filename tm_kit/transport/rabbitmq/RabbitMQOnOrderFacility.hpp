@@ -6,7 +6,7 @@
 #include <unordered_map>
 #include <future>
 
-#include <tm_kit/infra/RealTimeMonad.hpp>
+#include <tm_kit/infra/RealTimeApp.hpp>
 #include <tm_kit/basic/ByteData.hpp>
 #include <tm_kit/transport/rabbitmq/RabbitMQComponent.hpp>
 #include <tm_kit/transport/AbstractIdentityCheckerComponent.hpp>
@@ -21,7 +21,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
     template <class Env, std::enable_if_t<std::is_base_of_v<RabbitMQComponent, Env>, int> = 0>
     class RabbitMQOnOrderFacility {
     public:
-        using M = infra::RealTimeMonad<Env>;
+        using M = infra::RealTimeApp<Env>;
     private:
         struct OnOrderFacilityCommunicationInfo {
             bool isFinal;
@@ -176,14 +176,14 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
 
         template <class A>
         static auto simplyDeserialize()
-            -> typename infra::MonadRunner<M>::template ActionPtr<basic::ByteDataWithID, typename M::template Key<A>>
+            -> typename infra::AppRunner<M>::template ActionPtr<basic::ByteDataWithID, typename M::template Key<A>>
         {
             return basic::SerializationActions<M>::template deserializeWithKey<A>();
         }
 
         template <class Identity, class A>
         static auto checkIdentityAndDeserialize()
-            -> typename infra::MonadRunner<M>::template ActionPtr<basic::ByteDataWithID, typename M::template Key<std::tuple<Identity,A>>>
+            -> typename infra::AppRunner<M>::template ActionPtr<basic::ByteDataWithID, typename M::template Key<std::tuple<Identity,A>>>
         {
             return M::template kleisli<basic::ByteDataWithID>(
                 [](typename M::template InnerData<basic::ByteDataWithID> &&input) -> typename M::template Data<typename M::template Key<std::tuple<Identity,A>>> {
@@ -210,7 +210,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             );
         }
 
-        static void addChannelRegistration(infra::MonadRunner<M> &runner, std::string const &name, ConnectionLocator const &locator) {
+        static void addChannelRegistration(infra::AppRunner<M> &runner, std::string const &name, ConnectionLocator const &locator) {
             if constexpr (std::is_convertible_v<
                 Env *
                 , HeartbeatAndAlertComponent *
@@ -229,7 +229,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             static std::shared_ptr<typename M::template OnOrderFacility<A, B>> createTypedRPCOnOrderFacility(
                 ConnectionLocator const &locator
                 , std::optional<ByteDataHookPair> hooks = std::nullopt) {
-                class LocalCore final : public virtual infra::RealTimeMonadComponents<Env>::IExternalComponent, public virtual infra::RealTimeMonadComponents<Env>::template AbstractOnOrderFacility<A,B> {
+                class LocalCore final : public virtual infra::RealTimeAppComponents<Env>::IExternalComponent, public virtual infra::RealTimeAppComponents<Env>::template AbstractOnOrderFacility<A,B> {
                 private:
                     Env *env_;
                     ConnectionLocator locator_;
@@ -265,7 +265,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
 
             template <class A, class B>
             static void wrapOnOrderFacility(
-                infra::MonadRunner<M> &runner
+                infra::AppRunner<M> &runner
                 , std::shared_ptr<typename M::template OnOrderFacility<A,B>> const &toBeWrapped
                 , ConnectionLocator const &rpcQueueLocator
                 , std::string const &wrapperItemsNamePrefix
@@ -287,7 +287,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             }
             template <class A, class B>
             static void wrapOnOrderFacilityWithoutReply(
-                infra::MonadRunner<M> &runner
+                infra::AppRunner<M> &runner
                 , std::shared_ptr<typename M::template OnOrderFacility<A,B>> const &toBeWrapped
                 , ConnectionLocator const &rpcQueueLocator
                 , std::string const &wrapperItemsNamePrefix
@@ -305,7 +305,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             }
             template <class A, class B, class C>
             static void wrapLocalOnOrderFacility(
-                infra::MonadRunner<M> &runner
+                infra::AppRunner<M> &runner
                 , std::shared_ptr<typename M::template LocalOnOrderFacility<A,B,C>> const &toBeWrapped
                 , ConnectionLocator const &rpcQueueLocator
                 , std::string const &wrapperItemsNamePrefix
@@ -327,7 +327,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             }
             template <class A, class B, class C>
             static void wrapLocalOnOrderFacilityWithoutReply(
-                infra::MonadRunner<M> &runner
+                infra::AppRunner<M> &runner
                 , std::shared_ptr<typename M::template LocalOnOrderFacility<A,B,C>> const &toBeWrapped
                 , ConnectionLocator const &rpcQueueLocator
                 , std::string const &wrapperItemsNamePrefix
@@ -345,7 +345,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             }
             template <class A, class B, class C>
             static void wrapOnOrderFacilityWithExternalEffects(
-                infra::MonadRunner<M> &runner
+                infra::AppRunner<M> &runner
                 , std::shared_ptr<typename M::template OnOrderFacilityWithExternalEffects<A,B,C>> const &toBeWrapped
                 , ConnectionLocator const &rpcQueueLocator
                 , std::string const &wrapperItemsNamePrefix
@@ -367,7 +367,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             }
             template <class A, class B, class C>
             static void wrapOnOrderFacilityWithExternalEffectsWithoutReply(
-                infra::MonadRunner<M> &runner
+                infra::AppRunner<M> &runner
                 , std::shared_ptr<typename M::template OnOrderFacilityWithExternalEffects<A,B,C>> const &toBeWrapped
                 , ConnectionLocator const &rpcQueueLocator
                 , std::string const &wrapperItemsNamePrefix
@@ -385,7 +385,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             }
             template <class A, class B, class C, class D>
             static void wrapVIEOnOrderFacility(
-                infra::MonadRunner<M> &runner
+                infra::AppRunner<M> &runner
                 , std::shared_ptr<typename M::template VIEOnOrderFacility<A,B,C,D>> const &toBeWrapped
                 , ConnectionLocator const &rpcQueueLocator
                 , std::string const &wrapperItemsNamePrefix
@@ -407,7 +407,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             }
             template <class A, class B, class C, class D>
             static void wrapVIEOnOrderFacilityWithoutReply(
-                infra::MonadRunner<M> &runner
+                infra::AppRunner<M> &runner
                 , std::shared_ptr<typename M::template VIEOnOrderFacility<A,B,C,D>> const &toBeWrapped
                 , ConnectionLocator const &rpcQueueLocator
                 , std::string const &wrapperItemsNamePrefix
@@ -428,7 +428,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 ConnectionLocator const &rpcQueueLocator
                 , std::string const &wrapperItemsNamePrefix
                 , std::optional<ByteDataHookPair> hooks = std::nullopt
-            ) -> typename infra::MonadRunner<M>::template FacilityWrapper<A,B> {
+            ) -> typename infra::AppRunner<M>::template FacilityWrapper<A,B> {
                 return { std::bind(wrapOnOrderFacility<A,B>, std::placeholders::_1, std::placeholders::_2, rpcQueueLocator, wrapperItemsNamePrefix, hooks) };
             }
             template <class A, class B>
@@ -436,7 +436,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 ConnectionLocator const &rpcQueueLocator
                 , std::string const &wrapperItemsNamePrefix
                 , std::optional<ByteDataHookPair> hooks = std::nullopt
-            ) -> typename infra::MonadRunner<M>::template FacilityWrapper<A,B> {
+            ) -> typename infra::AppRunner<M>::template FacilityWrapper<A,B> {
                 return { std::bind(wrapOnOrderFacilityWithoutReply<A,B>, std::placeholders::_1, std::placeholders::_2, rpcQueueLocator, wrapperItemsNamePrefix, hooks) };
             }
             template <class A, class B, class C>
@@ -444,7 +444,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 ConnectionLocator const &rpcQueueLocator
                 , std::string const &wrapperItemsNamePrefix
                 , std::optional<ByteDataHookPair> hooks = std::nullopt
-            ) -> typename infra::MonadRunner<M>::template LocalFacilityWrapper<A,B,C> {
+            ) -> typename infra::AppRunner<M>::template LocalFacilityWrapper<A,B,C> {
                 return { std::bind(wrapLocalOnOrderFacility<A,B,C>, std::placeholders::_1, std::placeholders::_2, rpcQueueLocator, wrapperItemsNamePrefix, hooks) };
             }
             template <class A, class B, class C>
@@ -452,7 +452,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 ConnectionLocator const &rpcQueueLocator
                 , std::string const &wrapperItemsNamePrefix
                 , std::optional<ByteDataHookPair> hooks = std::nullopt
-            ) -> typename infra::MonadRunner<M>::template LocalFacilityWrapper<A,B,C> {
+            ) -> typename infra::AppRunner<M>::template LocalFacilityWrapper<A,B,C> {
                 return { std::bind(wrapLocalOnOrderFacilityWithoutReply<A,B,C>, std::placeholders::_1, std::placeholders::_2, rpcQueueLocator, wrapperItemsNamePrefix, hooks) };
             }
             template <class A, class B, class C>
@@ -460,7 +460,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 ConnectionLocator const &rpcQueueLocator
                 , std::string const &wrapperItemsNamePrefix
                 , std::optional<ByteDataHookPair> hooks = std::nullopt
-            ) -> typename infra::MonadRunner<M>::template FacilityWithExternalEffectsWrapper<A,B,C> {
+            ) -> typename infra::AppRunner<M>::template FacilityWithExternalEffectsWrapper<A,B,C> {
                 return { std::bind(wrapOnOrderFacilityWithExternalEffects<A,B,C>, std::placeholders::_1, std::placeholders::_2, rpcQueueLocator, wrapperItemsNamePrefix, hooks) };
             }
             template <class A, class B, class C>
@@ -468,7 +468,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 ConnectionLocator const &rpcQueueLocator
                 , std::string const &wrapperItemsNamePrefix
                 , std::optional<ByteDataHookPair> hooks = std::nullopt
-            ) -> typename infra::MonadRunner<M>::template FacilityWithExternalEffectsWrapper<A,B,C> {
+            ) -> typename infra::AppRunner<M>::template FacilityWithExternalEffectsWrapper<A,B,C> {
                 return { std::bind(wrapOnOrderFacilityWithExternalEffectsWithoutReply<A,B,C>, std::placeholders::_1, std::placeholders::_2, rpcQueueLocator, wrapperItemsNamePrefix, hooks) };
             }
             template <class A, class B, class C, class D>
@@ -476,7 +476,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 ConnectionLocator const &rpcQueueLocator
                 , std::string const &wrapperItemsNamePrefix
                 , std::optional<ByteDataHookPair> hooks = std::nullopt
-            ) -> typename infra::MonadRunner<M>::template VIEFacilityWrapper<A,B,C,D> {
+            ) -> typename infra::AppRunner<M>::template VIEFacilityWrapper<A,B,C,D> {
                 return { std::bind(wrapVIEOnOrderFacility<A,B,C,D>, std::placeholders::_1, std::placeholders::_2, rpcQueueLocator, wrapperItemsNamePrefix, hooks) };
             }
             template <class A, class B, class C, class D>
@@ -484,7 +484,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 ConnectionLocator const &rpcQueueLocator
                 , std::string const &wrapperItemsNamePrefix
                 , std::optional<ByteDataHookPair> hooks = std::nullopt
-            ) -> typename infra::MonadRunner<M>::template VIEFacilityWrapper<A,B,C,D> {
+            ) -> typename infra::AppRunner<M>::template VIEFacilityWrapper<A,B,C,D> {
                 return { std::bind(wrapVIEOnOrderFacilityWithoutReply<A,B,C,D>, std::placeholders::_1, std::placeholders::_2, rpcQueueLocator, wrapperItemsNamePrefix, hooks) };
             }
 
@@ -530,7 +530,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             static std::shared_ptr<typename M::template OnOrderFacility<A, B>> createTypedRPCOnOrderFacility(
                 ConnectionLocator const &locator
                 , std::optional<ByteDataHookPair> hooks = std::nullopt) {
-                class LocalCore final : public virtual infra::RealTimeMonadComponents<Env>::IExternalComponent, public virtual infra::RealTimeMonadComponents<Env>::template AbstractOnOrderFacility<A,B> {
+                class LocalCore final : public virtual infra::RealTimeAppComponents<Env>::IExternalComponent, public virtual infra::RealTimeAppComponents<Env>::template AbstractOnOrderFacility<A,B> {
                 private:
                     Env *env_;
                     ConnectionLocator locator_;
@@ -566,7 +566,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
 
             template <class A, class B>
             static void wrapOnOrderFacility(
-                infra::MonadRunner<M> &runner
+                infra::AppRunner<M> &runner
                 , std::shared_ptr<typename M::template OnOrderFacility<std::tuple<Identity,A>,B>> const &toBeWrapped
                 , ConnectionLocator const &rpcQueueLocator
                 , std::string const &wrapperItemsNamePrefix
@@ -588,7 +588,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             }
             template <class A, class B>
             static void wrapOnOrderFacilityWithoutReply(
-                infra::MonadRunner<M> &runner
+                infra::AppRunner<M> &runner
                 , std::shared_ptr<typename M::template OnOrderFacility<std::tuple<Identity,A>,B>> const &toBeWrapped
                 , ConnectionLocator const &rpcQueueLocator
                 , std::string const &wrapperItemsNamePrefix
@@ -606,7 +606,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             }
             template <class A, class B, class C>
             static void wrapLocalOnOrderFacility(
-                infra::MonadRunner<M> &runner
+                infra::AppRunner<M> &runner
                 , std::shared_ptr<typename M::template LocalOnOrderFacility<std::tuple<Identity,A>,B,C>> const &toBeWrapped
                 , ConnectionLocator const &rpcQueueLocator
                 , std::string const &wrapperItemsNamePrefix
@@ -628,7 +628,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             }
             template <class A, class B, class C>
             static void wrapLocalOnOrderFacilityWithoutReply(
-                infra::MonadRunner<M> &runner
+                infra::AppRunner<M> &runner
                 , std::shared_ptr<typename M::template LocalOnOrderFacility<std::tuple<Identity,A>,B,C>> const &toBeWrapped
                 , ConnectionLocator const &rpcQueueLocator
                 , std::string const &wrapperItemsNamePrefix
@@ -646,7 +646,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             }
             template <class A, class B, class C>
             static void wrapOnOrderFacilityWithExternalEffects(
-                infra::MonadRunner<M> &runner
+                infra::AppRunner<M> &runner
                 , std::shared_ptr<typename M::template OnOrderFacilityWithExternalEffects<std::tuple<Identity,A>,B,C>> const &toBeWrapped
                 , ConnectionLocator const &rpcQueueLocator
                 , std::string const &wrapperItemsNamePrefix
@@ -668,7 +668,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             }
             template <class A, class B, class C>
             static void wrapOnOrderFacilityWithExternalEffectsWithoutReply(
-                infra::MonadRunner<M> &runner
+                infra::AppRunner<M> &runner
                 , std::shared_ptr<typename M::template OnOrderFacilityWithExternalEffects<std::tuple<Identity,A>,B,C>> const &toBeWrapped
                 , ConnectionLocator const &rpcQueueLocator
                 , std::string const &wrapperItemsNamePrefix
@@ -686,7 +686,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             }
             template <class A, class B, class C, class D>
             static void wrapVIEOnOrderFacility(
-                infra::MonadRunner<M> &runner
+                infra::AppRunner<M> &runner
                 , std::shared_ptr<typename M::template VIEOnOrderFacility<std::tuple<Identity,A>,B,C,D>> const &toBeWrapped
                 , ConnectionLocator const &rpcQueueLocator
                 , std::string const &wrapperItemsNamePrefix
@@ -708,7 +708,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             }
             template <class A, class B, class C, class D>
             static void wrapVIEOnOrderFacilityWithoutReply(
-                infra::MonadRunner<M> &runner
+                infra::AppRunner<M> &runner
                 , std::shared_ptr<typename M::template VIEOnOrderFacility<std::tuple<Identity,A>,B,C,D>> const &toBeWrapped
                 , ConnectionLocator const &rpcQueueLocator
                 , std::string const &wrapperItemsNamePrefix
@@ -730,7 +730,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 ConnectionLocator const &rpcQueueLocator
                 , std::string const &wrapperItemsNamePrefix
                 , std::optional<ByteDataHookPair> hooks = std::nullopt
-            ) -> typename infra::MonadRunner<M>::template FacilityWrapper<std::tuple<Identity,A>,B> {
+            ) -> typename infra::AppRunner<M>::template FacilityWrapper<std::tuple<Identity,A>,B> {
                 return { std::bind(wrapOnOrderFacility<A,B>, std::placeholders::_1, std::placeholders::_2, rpcQueueLocator, wrapperItemsNamePrefix, hooks) };
             }
             template <class A, class B>
@@ -738,7 +738,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 ConnectionLocator const &rpcQueueLocator
                 , std::string const &wrapperItemsNamePrefix
                 , std::optional<ByteDataHookPair> hooks = std::nullopt
-            ) -> typename infra::MonadRunner<M>::template FacilityWrapper<std::tuple<Identity,A>,B> {
+            ) -> typename infra::AppRunner<M>::template FacilityWrapper<std::tuple<Identity,A>,B> {
                 return { std::bind(wrapOnOrderFacilityWithoutReply<A,B>, std::placeholders::_1, std::placeholders::_2, rpcQueueLocator, wrapperItemsNamePrefix, hooks) };
             }
             template <class A, class B, class C>
@@ -746,7 +746,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 ConnectionLocator const &rpcQueueLocator
                 , std::string const &wrapperItemsNamePrefix
                 , std::optional<ByteDataHookPair> hooks = std::nullopt
-            ) -> typename infra::MonadRunner<M>::template LocalFacilityWrapper<std::tuple<Identity,A>,B,C> {
+            ) -> typename infra::AppRunner<M>::template LocalFacilityWrapper<std::tuple<Identity,A>,B,C> {
                 return { std::bind(wrapLocalOnOrderFacility<A,B,C>, std::placeholders::_1, std::placeholders::_2, rpcQueueLocator, wrapperItemsNamePrefix, hooks) };
             }
             template <class A, class B, class C>
@@ -754,7 +754,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 ConnectionLocator const &rpcQueueLocator
                 , std::string const &wrapperItemsNamePrefix
                 , std::optional<ByteDataHookPair> hooks = std::nullopt
-            ) -> typename infra::MonadRunner<M>::template LocalFacilityWrapper<std::tuple<Identity,A>,B,C> {
+            ) -> typename infra::AppRunner<M>::template LocalFacilityWrapper<std::tuple<Identity,A>,B,C> {
                 return { std::bind(wrapLocalOnOrderFacilityWithoutReply<A,B,C>, std::placeholders::_1, std::placeholders::_2, rpcQueueLocator, wrapperItemsNamePrefix, hooks) };
             }
             template <class A, class B, class C>
@@ -762,7 +762,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 ConnectionLocator const &rpcQueueLocator
                 , std::string const &wrapperItemsNamePrefix
                 , std::optional<ByteDataHookPair> hooks = std::nullopt
-            ) -> typename infra::MonadRunner<M>::template FacilityWithExternalEffectsWrapper<std::tuple<Identity,A>,B,C> {
+            ) -> typename infra::AppRunner<M>::template FacilityWithExternalEffectsWrapper<std::tuple<Identity,A>,B,C> {
                 return { std::bind(wrapOnOrderFacilityWithExternalEffects<A,B,C>, std::placeholders::_1, std::placeholders::_2, rpcQueueLocator, wrapperItemsNamePrefix, hooks) };
             }
             template <class A, class B, class C>
@@ -770,7 +770,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 ConnectionLocator const &rpcQueueLocator
                 , std::string const &wrapperItemsNamePrefix
                 , std::optional<ByteDataHookPair> hooks = std::nullopt
-            ) -> typename infra::MonadRunner<M>::template FacilityWithExternalEffectsWrapper<std::tuple<Identity,A>,B,C> {
+            ) -> typename infra::AppRunner<M>::template FacilityWithExternalEffectsWrapper<std::tuple<Identity,A>,B,C> {
                 return { std::bind(wrapOnOrderFacilityWithExternalEffectsWithoutReply<A,B,C>, std::placeholders::_1, std::placeholders::_2, rpcQueueLocator, wrapperItemsNamePrefix, hooks) };
             }
             template <class A, class B, class C, class D>
@@ -778,7 +778,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 ConnectionLocator const &rpcQueueLocator
                 , std::string const &wrapperItemsNamePrefix
                 , std::optional<ByteDataHookPair> hooks = std::nullopt
-            ) -> typename infra::MonadRunner<M>::template VIEFacilityWrapper<A,B,C,D> {
+            ) -> typename infra::AppRunner<M>::template VIEFacilityWrapper<A,B,C,D> {
                 return { std::bind(wrapVIEOnOrderFacility<A,B,C,D>, std::placeholders::_1, std::placeholders::_2, rpcQueueLocator, wrapperItemsNamePrefix, hooks) };
             }
             template <class A, class B, class C, class D>
@@ -786,7 +786,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 ConnectionLocator const &rpcQueueLocator
                 , std::string const &wrapperItemsNamePrefix
                 , std::optional<ByteDataHookPair> hooks = std::nullopt
-            ) -> typename infra::MonadRunner<M>::template VIEFacilityWrapper<A,B,C,D> {
+            ) -> typename infra::AppRunner<M>::template VIEFacilityWrapper<A,B,C,D> {
                 return { std::bind(wrapVIEOnOrderFacilityWithoutReply<A,B,C,D>, std::placeholders::_1, std::placeholders::_2, rpcQueueLocator, wrapperItemsNamePrefix, hooks) };
             }
 

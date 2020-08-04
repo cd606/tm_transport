@@ -5,7 +5,7 @@
 
 #include <boost/lexical_cast.hpp>
 
-#include <tm_kit/infra/RealTimeMonad.hpp>
+#include <tm_kit/infra/RealTimeApp.hpp>
 #include <tm_kit/basic/ByteData.hpp>
 #include <tm_kit/transport/redis/RedisComponent.hpp>
 #include <tm_kit/transport/HeartbeatAndAlertComponent.hpp>
@@ -15,7 +15,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
     template <class Env, std::enable_if_t<std::is_base_of_v<RedisComponent, Env>, int> = 0>
     class RedisImporterExporter {
     public:
-        using M = infra::RealTimeMonad<Env>;
+        using M = infra::RealTimeApp<Env>;
         static std::shared_ptr<typename M::template Importer<basic::ByteDataWithTopic>> createImporter(ConnectionLocator const &locator, std::string const &topic="*", std::optional<WireToUserHook> wireToUserHook=std::nullopt) {
             class LocalI final : public M::template AbstractImporter<basic::ByteDataWithTopic> {
             private:

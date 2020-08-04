@@ -129,8 +129,8 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
             , basic::VoidStruct {}
         );
         r.registerImporter("__heartbeat_clock_importer", importer);
-        auto runHeartbeat = R::MonadType::template simpleExporter<basic::VoidStruct>(
-            [heartbeatTopic](typename R::MonadType::template InnerData<basic::VoidStruct> &&d) {
+        auto runHeartbeat = R::AppType::template simpleExporter<basic::VoidStruct>(
+            [heartbeatTopic](typename R::AppType::template InnerData<basic::VoidStruct> &&d) {
                 static_cast<HeartbeatAndAlertComponent *>(d.environment)->publishHeartbeat(heartbeatTopic);
             }
         );

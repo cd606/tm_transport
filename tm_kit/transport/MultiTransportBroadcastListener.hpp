@@ -1,7 +1,7 @@
 #ifndef TM_KIT_TRANSPORT_MULTI_TRANSPORT_BROADCAST_LISTENER_HPP_
 #define TM_KIT_TRANSPORT_MULTI_TRANSPORT_BROADCAST_LISTENER_HPP_
 
-#include <tm_kit/infra/RealTimeMonad.hpp>
+#include <tm_kit/infra/RealTimeApp.hpp>
 
 #include <tm_kit/basic/ByteData.hpp>
 
@@ -85,14 +85,14 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
 
     template <class Env, class T>
     class MultiTransportBroadcastListener final :
-        public infra::RealTimeMonad<Env>::template AbstractIntegratedOnOrderFacilityWithExternalEffects<
+        public infra::RealTimeApp<Env>::template AbstractIntegratedOnOrderFacilityWithExternalEffects<
             MultiTransportBroadcastListenerInput
             , MultiTransportBroadcastListenerOutput
             , basic::TypedDataWithTopic<T>
         >
     {
     private:
-        using M = infra::RealTimeMonad<Env>;
+        using M = infra::RealTimeApp<Env>;
         using Parent = typename M::template AbstractIntegratedOnOrderFacilityWithExternalEffects<
             MultiTransportBroadcastListenerInput
             , MultiTransportBroadcastListenerOutput

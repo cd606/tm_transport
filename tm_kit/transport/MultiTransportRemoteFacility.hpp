@@ -1,7 +1,7 @@
 #ifndef TM_KIT_TRANSPORT_MULTI_TRANSPORT_REMOTE_FACILITY_HPP_
 #define TM_KIT_TRANSPORT_MULTI_TRANSPORT_REMOTE_FACILITY_HPP_
 
-#include <tm_kit/infra/RealTimeMonad.hpp>
+#include <tm_kit/infra/RealTimeApp.hpp>
 
 #include <tm_kit/basic/ByteData.hpp>
 
@@ -56,14 +56,14 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
     class MultiTransportRemoteFacility final :
         public std::conditional_t<
             DispatchStrategy == MultiTransportRemoteFacilityDispatchStrategy::Random
-            , typename infra::RealTimeMonad<Env>::template AbstractIntegratedLocalOnOrderFacility<
+            , typename infra::RealTimeApp<Env>::template AbstractIntegratedLocalOnOrderFacility<
                 A
                 , B 
                 , MultiTransportRemoteFacilityAction
             >
             , std::conditional_t<
                 DispatchStrategy == MultiTransportRemoteFacilityDispatchStrategy::Designated
-                , typename infra::RealTimeMonad<Env>::template AbstractIntegratedVIEOnOrderFacility<
+                , typename infra::RealTimeApp<Env>::template AbstractIntegratedVIEOnOrderFacility<
                     std::tuple<ConnectionLocator, A>
                     , B 
                     , MultiTransportRemoteFacilityAction
@@ -74,7 +74,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
         >
     {
     private:
-        using M = infra::RealTimeMonad<Env>;
+        using M = infra::RealTimeApp<Env>;
     public:
         using Input = std::conditional_t<
             DispatchStrategy == MultiTransportRemoteFacilityDispatchStrategy::Random
