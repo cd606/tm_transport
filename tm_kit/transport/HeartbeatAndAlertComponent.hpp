@@ -19,6 +19,7 @@
 #include <tm_kit/transport/multicast/MulticastComponent.hpp>
 #include <tm_kit/transport/zeromq/ZeroMQComponent.hpp>
 #include <tm_kit/transport/redis/RedisComponent.hpp>
+#include <tm_kit/transport/nng/NNGComponent.hpp>
 
 namespace dev { namespace cd606 { namespace tm { namespace transport {
 
@@ -109,6 +110,20 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                 , identity
                 , static_cast<redis::RedisComponent *>(env)
                     ->redis_getPublisher(locator, hook)
+            });
+        }
+    };
+    template <class Env>
+    class HeartbeatAndAlertComponentInitializer<Env, nng::NNGComponent> {
+    public:
+        //Please refer to warning at zeromq initializer too
+        void operator()(Env *env, std::string const &identity, ConnectionLocator const &locator, std::optional<UserToWireHook> hook=std::nullopt) {
+            env->log(infra::LogLevel::Warning, "[HeartbeatAndAlertComponentInitializer] You are trying to use NNG transport to send heartbeat and alert messages. Due to a known issue, the first few messages sent on this transport are likely to get lost.");
+            env->HeartbeatAndAlertComponent::assignIdentity(HeartbeatAndAlertComponent {
+                static_cast<basic::real_time_clock::ClockComponent *>(env)
+                , identity
+                , static_cast<nng::NNGComponent *>(env)
+                    ->nng_getPublisher(locator, hook)
             });
         }
     };

@@ -9,6 +9,7 @@
 #include <tm_kit/transport/rabbitmq/RabbitMQComponent.hpp>
 #include <tm_kit/transport/redis/RedisComponent.hpp>
 #include <tm_kit/transport/zeromq/ZeroMQComponent.hpp>
+#include <tm_kit/transport/nng/NNGComponent.hpp>
 
 #include <type_traits>
 #include <regex>
@@ -22,6 +23,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
         , public rabbitmq::RabbitMQComponent
         , public redis::RedisComponent
         , public zeromq::ZeroMQComponent
+        , public nng::NNGComponent
     {};
 
     enum class MultiTransportBroadcastListenerConnectionType {
@@ -29,12 +31,14 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
         , RabbitMQ
         , Redis 
         , ZeroMQ 
+        , NNG
     };
-    inline const std::array<std::string,4> MULTI_TRANSPORT_SUBSCRIBER_CONNECTION_TYPE_STR = {
+    inline const std::array<std::string,5> MULTI_TRANSPORT_SUBSCRIBER_CONNECTION_TYPE_STR = {
         "multicast"
         , "rabbitmq"
         , "redis"
         , "zeromq"
+        , "nng"
     };
     inline auto parseMultiTransportBroadcastChannel(std::string const &s) 
         -> std::optional<std::tuple<MultiTransportBroadcastListenerConnectionType, ConnectionLocator>>
@@ -245,6 +249,43 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                             auto res = component->zeroMQ_addSubscriptionClient(
                                 x.connectionLocator
                                 , parseTopic<zeromq::ZeroMQComponent>(x.topicDescription)
+                                , [this,env](basic::ByteDataWithTopic &&d) {
+                                    auto t = basic::bytedata_utils::RunDeserializer<T>::apply(d.content);
+                                    if (t) {
+                                        this->ImporterParent::publish(M::template pureInnerData<basic::TypedDataWithTopic<T>>(env, {std::move(d.topic), std::move(*t)}));
+                                    }
+                                }
+                                , wireToUserHook_
+                            );
+                            this->FacilityParent::publish(
+                                env
+                                , typename M::template Key<MultiTransportBroadcastListenerOutput> {
+                                    id
+                                    , MultiTransportBroadcastListenerOutput { {
+                                        MultiTransportBroadcastListenerAddSubscriptionResponse {res}
+                                    } }
+                                }
+                                , true
+                            );
+                        } else {
+                            this->FacilityParent::publish(
+                                env
+                                , typename M::template Key<MultiTransportBroadcastListenerOutput> {
+                                    id
+                                    , MultiTransportBroadcastListenerOutput { {
+                                        MultiTransportBroadcastListenerAddSubscriptionResponse {0}
+                                    } }
+                                }
+                                , true
+                            );
+                        }
+                        break;
+                    case MultiTransportBroadcastListenerConnectionType::NNG:
+                        if constexpr (std::is_convertible_v<Env *, nng::NNGComponent *>) {
+                            auto *component = static_cast<nng::NNGComponent *>(env);
+                            auto res = component->nng_addSubscriptionClient(
+                                x.connectionLocator
+                                , parseTopic<nng::NNGComponent>(x.topicDescription)
                                 , [this,env](basic::ByteDataWithTopic &&d) {
                                     auto t = basic::bytedata_utils::RunDeserializer<T>::apply(d.content);
                                     if (t) {
