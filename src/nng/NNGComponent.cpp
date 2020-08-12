@@ -18,7 +18,6 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         class OneNNGSubscription {
         private:
             ConnectionLocator locator_;
-            std::array<char, 16*1024*1024> buffer_;
             struct ClientCB {
                 uint32_t id;
                 std::function<void(basic::ByteDataWithTopic &&)> cb;
@@ -72,16 +71,25 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             
                     int missedCount = 0;
                     while (running_ && missedCount < 10) {
+                        char *data = nullptr;
                         std::size_t sz;
-                        int r = nng_recv(sock.get(), buffer_.data(), &sz, 0);
+                        int r = nng_recv(sock.get(), &data, &sz, NNG_FLAG_ALLOC);
                         if (r == NNG_ETIMEDOUT) {
                             ++missedCount;
+                            if (data) {
+                                nng_free(data, sz);
+                            }
                             continue;
                         } else if (r != 0) {
                             break;
                         } 
 
-                        auto parseRes = basic::bytedata_utils::RunCBORDeserializer<basic::ByteDataWithTopic>::apply(std::string_view {buffer_.data(), sz}, 0);
+                        if (!data) {
+                            continue;
+                        }
+
+                        auto parseRes = basic::bytedata_utils::RunCBORDeserializer<basic::ByteDataWithTopic>::apply(std::string_view {data, sz}, 0);
+                        nng_free(data, sz);
                         if (parseRes && std::get<1>(*parseRes) == sz) {
                             basic::ByteDataWithTopic data = std::move(std::get<0>(*parseRes));
 
@@ -107,7 +115,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             }
         public:
             OneNNGSubscription(ConnectionLocator const &locator) 
-                : locator_(locator), buffer_()
+                : locator_(locator)
                 , noFilterClients_(), stringMatchClients_(), regexMatchClients_()
                 , mutex_(), th_(), running_(true)
             {
