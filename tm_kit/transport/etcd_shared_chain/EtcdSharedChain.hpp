@@ -39,11 +39,13 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
     TM_BASIC_CBOR_CAPABLE_TEMPLATE_STRUCT(((typename, T)), ChainItem, ChainItemFields);
     TM_BASIC_CBOR_CAPABLE_TEMPLATE_STRUCT(((typename, T)), ChainStorage, ChainStorageFields);
     TM_BASIC_CBOR_CAPABLE_TEMPLATE_STRUCT(((typename, T)), ChainRedisStorage, ChainRedisStorageFields);
+    TM_BASIC_CBOR_CAPABLE_TEMPLATE_EMPTY_STRUCT(((typename, T)), ChainUpdateNotification);
 }}}}} 
 
 TM_BASIC_CBOR_CAPABLE_TEMPLATE_STRUCT_SERIALIZE_NO_FIELD_NAMES(((typename, T)), dev::cd606::tm::transport::etcd_shared_chain::ChainItem, ChainItemFields);
 TM_BASIC_CBOR_CAPABLE_TEMPLATE_STRUCT_SERIALIZE_NO_FIELD_NAMES(((typename, T)), dev::cd606::tm::transport::etcd_shared_chain::ChainStorage, ChainStorageFields);
 TM_BASIC_CBOR_CAPABLE_TEMPLATE_STRUCT_SERIALIZE_NO_FIELD_NAMES(((typename, T)), dev::cd606::tm::transport::etcd_shared_chain::ChainRedisStorage, ChainRedisStorageFields);
+TM_BASIC_CBOR_CAPABLE_TEMPLATE_EMPTY_STRUCT_SERIALIZE_NO_FIELD_NAMES(((typename, T)), dev::cd606::tm::transport::etcd_shared_chain::ChainUpdateNotification);
 
 namespace dev { namespace cd606 { namespace tm { namespace transport { namespace etcd_shared_chain {
     struct EtcdChainConfiguration {
@@ -53,6 +55,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
 
         std::string chainPrefix="shared_chain_test";
         std::string dataPrefix="shared_chain_test_data";
+        std::string extraDataPrefix="shared_chain_test_extra_data";
 
         std::string redisServerAddr="127.0.0.1:6379";
         bool duplicateFromRedis=false;
@@ -88,6 +91,10 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             dataPrefix = p;
             return *this;
         }
+        EtcdChainConfiguration &ExtraDataPrefix(std::string const &p) {
+            extraDataPrefix = p;
+            return *this;
+        }
         EtcdChainConfiguration &RedisServerAddr(std::string const &addr) {
             redisServerAddr = addr;
             return *this;
@@ -115,6 +122,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
     class EtcdChain {
     private:
         const EtcdChainConfiguration configuration_;
+        std::function<void()> updateTriggerFunc_;
         
         std::shared_ptr<grpc::ChannelInterface> channel_;
         std::unique_ptr<etcdserverpb::KV::Stub> stub_;
@@ -172,6 +180,9 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 case 3:
                     if (watchResponse.events_size() > 0) {
                         latestModRevision_.store(watchResponse.header().revision(), std::memory_order_release);
+                        if (updateTriggerFunc_) {
+                            updateTriggerFunc_();
+                        }
                     }
                     watchStream->Read(&watchResponse, (void *)3);  
                     break;
@@ -185,6 +196,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         using MapData = ChainStorage<T>;
         EtcdChain(EtcdChainConfiguration const &config) :
             configuration_(config) 
+            , updateTriggerFunc_()
             , channel_(config.etcdChannel?config.etcdChannel:(EtcdChainConfiguration().InsecureEtcdServerAddr().etcdChannel))
             , stub_(etcdserverpb::KV::NewStub(channel_))
             , latestModRevision_(0), watchThreadRunning_(true), watchThread_()
@@ -224,6 +236,15 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                     redisFree(redisCtx_);
                 }
             }   
+        }
+        void setUpdateTriggerFunc(std::function<void()> f) {
+            if (updateTriggerFunc_) {
+                throw EtcdChainException("Duplicate attempt to set update trigger function for EtcdChain");
+            }
+            updateTriggerFunc_ = f;
+            if (updateTriggerFunc_) {
+                updateTriggerFunc_();
+            }
         }
         ItemType head(void *) {
             static const std::string headKeyStr = configuration_.chainPrefix+":"+configuration_.headKey;
@@ -322,6 +343,98 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 }
             }
         }
+        ItemType loadUntil(void *env, std::string const &id) {
+            if (id == "") {
+                return head(env);
+            }
+            if (configuration_.duplicateFromRedis) {
+                std::string key = configuration_.chainPrefix+":"+id;
+                redisReply *r = nullptr;
+                {
+                    std::lock_guard<std::mutex> _(redisMutex_);
+                    r = (redisReply *) redisCommand(
+                        redisCtx_, "GET %s", key.c_str()
+                    );
+                }
+                if (r != nullptr) {
+                    if (r->type == REDIS_REPLY_STRING) {
+                        auto data = basic::bytedata_utils::RunCBORDeserializer<ChainRedisStorage<T>>::apply(
+                            std::string_view(r->str, r->len), 0
+                        );
+                        if (data && std::get<1>(*data) == r->len) {
+                            freeReplyObject((void *) r);
+                            auto &s = std::get<0>(*data);
+                            return ItemType {s.revision, id, std::move(s.data), s.nextID};
+                        }
+                    }
+                    freeReplyObject((void *) r);
+                }
+            }
+            if (configuration_.saveDataOnSeparateStorage) {  
+                etcdserverpb::TxnRequest txn;
+                auto *action = txn.add_success();
+                auto *get = action->mutable_request_range();
+                get->set_key(configuration_.chainPrefix+":"+id);
+                action = txn.add_success();
+                get = action->mutable_request_range();
+                get->set_key(configuration_.dataPrefix+":"+id);
+
+                etcdserverpb::TxnResponse txnResp;
+                grpc::ClientContext txnCtx;
+                txnCtx.set_deadline(std::chrono::system_clock::now()+std::chrono::hours(24));
+                stub_->Txn(&txnCtx, txn, &txnResp);
+
+                if (txnResp.succeeded()) {
+                    if (txnResp.responses_size() < 2) {
+                        throw EtcdChainException("LoadUntil Error! No record for "+configuration_.chainPrefix+":"+id+" or "+configuration_.dataPrefix+":"+id);
+                    } 
+                    if (txnResp.responses(0).response_range().kvs_size() == 0) {
+                        throw EtcdChainException("LoadUntil Error! No record for "+configuration_.chainPrefix+":"+id);
+                    }
+                    if (txnResp.responses(1).response_range().kvs_size() == 0) {
+                        throw EtcdChainException("LoadUntil Error! No record for "+configuration_.dataPrefix+":"+id);
+                    }
+                    auto const &dataKV = txnResp.responses(1).response_range().kvs(0);
+                    auto data = basic::bytedata_utils::RunDeserializer<basic::CBOR<T>>::apply(
+                        dataKV.value()
+                    );
+                    if (data) {
+                        return ItemType {
+                            dataKV.mod_revision()
+                            , id
+                            , std::move(data->value)
+                            , txnResp.responses(0).response_range().kvs(0).value()
+                        };
+                    } else {
+                        throw EtcdChainException("LoadUntil Error! Bad record for "+configuration_.dataPrefix+":"+id);
+                    }
+                } else {
+                    throw EtcdChainException("LoadUntil Error! No record for "+configuration_.chainPrefix+":"+id+" or "+configuration_.dataPrefix+":"+id);
+                }
+            } else {
+                etcdserverpb::RangeRequest range;
+                range.set_key(configuration_.chainPrefix+":"+id);
+
+                etcdserverpb::RangeResponse rangeResp;
+                grpc::ClientContext rangeCtx;
+                rangeCtx.set_deadline(std::chrono::system_clock::now()+std::chrono::hours(24));
+                stub_->Range(&rangeCtx, range, &rangeResp);
+
+                if (rangeResp.kvs_size() == 0) {
+                    throw EtcdChainException("LoadUntil Error! No record for "+configuration_.chainPrefix+":"+id);
+                }
+
+                auto &kv = rangeResp.kvs(0);
+                auto mapData = basic::bytedata_utils::RunDeserializer<basic::CBOR<MapData>>::apply(
+                    kv.value()
+                );
+                if (mapData) {
+                    return ItemType {kv.mod_revision(), id, mapData->value.data, mapData->value.nextID};
+                } else {
+                    throw EtcdChainException("LoadUntil Error! Bad record for "+configuration_.chainPrefix+":"+id);
+                }
+            }
+        }
         std::optional<ItemType> fetchNext(ItemType const &current) {
             if (current.nextID == "") {
                 auto latestRev = latestModRevision_.load(std::memory_order_acquire);
@@ -416,7 +529,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                     auto const &kv = rangeResp.kvs(0);
                     nextID = kv.value();
                 }
-
+                
                 if (nextID != "") {
                     etcdserverpb::TxnRequest txn;
                     auto *action = txn.add_success();
@@ -432,6 +545,15 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                     stub_->Txn(&txnCtx, txn, &txnResp);
 
                     if (txnResp.succeeded()) {
+                        if (txnResp.responses_size() < 2) {
+                            throw EtcdChainException("FetchNext Error! No record for "+configuration_.chainPrefix+":"+nextID+" or "+configuration_.dataPrefix+":"+nextID);
+                        } 
+                        if (txnResp.responses(0).response_range().kvs_size() == 0) {
+                            throw EtcdChainException("FetchNext Error! No record for "+configuration_.chainPrefix+":"+nextID);
+                        }
+                        if (txnResp.responses(1).response_range().kvs_size() == 0) {
+                            throw EtcdChainException("FetchNext Error! No record for "+configuration_.dataPrefix+":"+nextID);
+                        }
                         auto const &dataKV = txnResp.responses(1).response_range().kvs(0);
                         auto data = basic::bytedata_utils::RunDeserializer<basic::CBOR<T>>::apply(
                             dataKV.value()
@@ -444,7 +566,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                                 , txnResp.responses(0).response_range().kvs(0).value()
                             };
                         } else {
-                            throw EtcdChainException("FetchNext Error! Bad record for "+configuration_.chainPrefix+":"+nextID);
+                            throw EtcdChainException("FetchNext Error! Bad record for "+configuration_.dataPrefix+":"+nextID);
                         }
                     } else {
                         throw EtcdChainException("Fetch Error! No record for "+configuration_.chainPrefix+":"+nextID);
@@ -472,6 +594,8 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                     );
                     if (mapData) {
                         nextID = mapData->value.nextID;
+                    } else {
+                        throw EtcdChainException("FetchNext Error! Bad record for "+configuration_.chainPrefix+":"+current.id);
                     }
                 }
                 if (nextID != "") {
@@ -494,7 +618,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                     if (mapData) {
                         return ItemType {kv2.mod_revision(), nextID, mapData->value.data, mapData->value.nextID};
                     } else {
-                        return std::nullopt;
+                        throw EtcdChainException("FetchNext Error! Bad record for "+configuration_.chainPrefix+":"+nextID);
                     }
                 } else {
                     return std::nullopt;
@@ -506,7 +630,6 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 return false;
             } 
             std::string currentChainKey = configuration_.chainPrefix+":"+current.id;
-            
             if (configuration_.saveDataOnSeparateStorage) {
                 etcdserverpb::TxnRequest txn;
                 auto *cmp = txn.add_compare();
@@ -526,7 +649,6 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 put = action->mutable_request_put();
                 put->set_key(configuration_.chainPrefix+":"+toBeWritten.id);
                 put->set_value(""); 
-
                 etcdserverpb::TxnResponse txnResp;
                 grpc::ClientContext txnCtx;
                 txnCtx.set_deadline(std::chrono::system_clock::now()+std::chrono::hours(24));
@@ -536,24 +658,8 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 if (ret) {
                     auto rev = txnResp.responses(2).response_put().header().revision();
                     latestModRevision_.store(rev, std::memory_order_release);
-                    if (configuration_.duplicateFromRedis) {
-                        std::string redisS = basic::bytedata_utils::RunSerializer<basic::CBOR<ChainRedisStorage<T>>>::apply(
-                            basic::CBOR<ChainRedisStorage<T>> {
-                                ChainRedisStorage<T> {
-                                    rev, current.data, toBeWritten.id
-                                }
-                            }
-                        );
-                        redisReply *r = nullptr;
-                        {
-                            std::lock_guard<std::mutex> _(redisMutex_);
-                            r = (redisReply *) redisCommand(
-                                redisCtx_, "SET %s %b", currentChainKey.c_str(), redisS.c_str(), redisS.length()
-                            );
-                        }
-                        if (r != nullptr) {
-                            freeReplyObject((void *) r);
-                        }
+                    if (configuration_.automaticallyDuplicateToRedis) {
+                        duplicateToRedis(rev, current.id, current.data, toBeWritten.id);     
                     }
                 }
                 return ret;
@@ -577,7 +683,6 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 grpc::ClientContext txnCtx;
                 txnCtx.set_deadline(std::chrono::system_clock::now()+std::chrono::hours(24));
                 stub_->Txn(&txnCtx, txn, &txnResp);
-
                 bool ret = txnResp.succeeded();
                 if (ret) {
                     auto rev = txnResp.responses(1).response_put().header().revision();
@@ -629,6 +734,44 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 freeReplyObject((void *) r);
             }
         }
+        //These two are helper functions to store and load data under extraDataPrefix
+        //The extra data are not duplicated on Redis
+        template <class ExtraData>
+        void saveExtraData(std::string const &key, ExtraData const &data) {
+            etcdserverpb::PutRequest put;
+            put.set_key(configuration_.extraDataPrefix+":"+key);
+            put.set_value(
+                basic::bytedata_utils::RunSerializer<basic::CBOR<ExtraData>>::apply(
+                    basic::CBOR<ExtraData> {data}
+                )
+            );
+            etcdserverpb::PutResponse putResp;
+            grpc::ClientContext putCtx;
+            putCtx.set_deadline(std::chrono::system_clock::now()+std::chrono::hours(24));
+            stub_->Put(&putCtx, put, &putResp);
+        }
+        template <class ExtraData>
+        std::optional<ExtraData> loadExtraData(std::string const &key) {
+            etcdserverpb::RangeRequest range;
+            range.set_key(configuration_.extraDataPrefix+":"+key);
+
+            etcdserverpb::RangeResponse rangeResp;
+            grpc::ClientContext rangeCtx;
+            rangeCtx.set_deadline(std::chrono::system_clock::now()+std::chrono::hours(24));
+            stub_->Range(&rangeCtx, range, &rangeResp);
+
+            if (rangeResp.kvs_size() == 0) {
+                return std::nullopt;
+            }
+            auto d = basic::bytedata_utils::RunDeserializer<basic::CBOR<ExtraData>>::apply(
+                rangeResp.kvs(0).value()
+            );
+            if (d) {
+                return d->value;
+            } else {
+                return std::nullopt;
+            }
+        }
     };
     
     //InMemoryChain has the same basic interface as EtcdChain, it can be used
@@ -640,15 +783,31 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         using TheMap = std::unordered_map<std::string, MapData>;
         using ItemType = ChainItem<T>;
     private:
+        std::function<void()> updateTriggerFunc_;
         TheMap theMap_;
+        std::unordered_map<std::string, std::string> extraData_;
         std::mutex mutex_;
     public:
-        InMemoryChain() : theMap_({{"", MapData {}}}), mutex_() {
+        InMemoryChain() : updateTriggerFunc_(), theMap_({{"", MapData {}}}), extraData_(), mutex_() {
+        }
+        void setUpdateTriggerFunc(std::function<void()> f) {
+            if (updateTriggerFunc_) {
+                throw EtcdChainException("Duplicate attempt to set update trigger function for EtcdChain");
+            }
+            updateTriggerFunc_ = f;
+            if (updateTriggerFunc_) {
+                updateTriggerFunc_();
+            }
         }
         ItemType head(void *) {
             std::lock_guard<std::mutex> _(mutex_);
             auto &x = theMap_[""];
             return ItemType {0, "", x.data, x.nextID};
+        }
+        ItemType loadUntil(void *, std::string const &id) {
+            std::lock_guard<std::mutex> _(mutex_);
+            auto &x = theMap_[id];
+            return ItemType {0, id, x.data, x.nextID};
         }
         std::optional<ItemType> fetchNext(ItemType const &current) {
             std::lock_guard<std::mutex> _(mutex_);
@@ -679,9 +838,44 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             }
             iter->second.nextID = toBeWritten.id;
             theMap_.insert({iter->second.nextID, MapData {std::move(toBeWritten.data), ""}}).first;
+            if (updateTriggerFunc_) {
+                updateTriggerFunc_();
+            }
             return true;
         }
+        template <class ExtraData>
+        void saveExtraData(std::string const &key, ExtraData const &data) {
+            std::lock_guard<std::mutex> _(mutex_);
+            extraData_[key] = basic::bytedata_utils::RunSerializer<basic::CBOR<ExtraData>>::apply(
+                basic::CBOR<ExtraData> {data}
+            );
+        }
+        template <class ExtraData>
+        std::optional<ExtraData> loadExtraData(std::string const &key) {
+            std::lock_guard<std::mutex> _(mutex_);
+            auto iter = extraData_.find(key);
+            if (iter != extraData_.end()) {
+                auto d = basic::bytedata_utils::RunDeserializer<basic::CBOR<ExtraData>>::apply(
+                    iter->second
+                );
+                if (d) {
+                    return std::get<0>(*d);
+                } else {
+                    return std::nullopt;
+                }
+            } else {
+                return std::nullopt;
+            }
+        }
     };
+
+    template <class App, class T>
+    inline std::shared_ptr<typename App::template Importer<ChainUpdateNotification<T>>>
+    createEtcdChainUpdateNotificationImporter(EtcdChain<T> *chain) {
+        auto x = App::template constTriggerImporter<ChainUpdateNotification<T>>();
+        chain->setUpdateTriggerFunc(std::get<1>(x));
+        return std::get<0>(x);
+    }
 }}}}}
 
 #endif
