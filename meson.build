@@ -9,10 +9,11 @@ redis_dep = [dependency('hiredis')]
 simpleAmqpClient_dep = dependency('libSimpleAmqpClient')
 nng_dep = [dependency('nngpp')]
 crossguid_dep = dependency('crossguid')
+etcd_dep = dependency('libetcdcpp')
 tm_infra_dep = dependency('tm_kit_infra')
 tm_basic_dep = dependency('tm_kit_basic')
 
-common_deps = [thread_dep, boost_dep, rabbitmq_dep, simpleAmqpClient_dep, zmq_dep, redis_dep, nng_dep, crossguid_dep, tm_infra_dep, tm_basic_dep]
+common_deps = [thread_dep, boost_dep, rabbitmq_dep, simpleAmqpClient_dep, zmq_dep, redis_dep, nng_dep, crossguid_dep, etcd_dep, tm_infra_dep, tm_basic_dep]
 
 if build_machine.system() == 'windows'
     common_deps += declare_dependency(link_args: 'bcrypt.lib')
