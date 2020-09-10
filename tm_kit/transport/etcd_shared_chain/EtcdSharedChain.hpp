@@ -204,7 +204,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         {
             watchThread_ = std::thread(&EtcdChain::runWatchThread, this);
             watchThread_.detach();
-            if (configuration_.duplicateFromRedis) {
+            if (configuration_.duplicateFromRedis || configuration_.automaticallyDuplicateToRedis) {
                 auto idx = configuration_.redisServerAddr.find(':');
                 std::lock_guard<std::mutex> _(redisMutex_);
                 redisCtx_ = redisConnect(
