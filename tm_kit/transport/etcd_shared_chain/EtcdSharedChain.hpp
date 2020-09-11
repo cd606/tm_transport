@@ -645,29 +645,59 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 }
             }
         }
+        bool idIsAlreadyOnChain(std::string const &id) {
+            //this method is intended to be used as a check by the clients
+            //which should happen sparingly, therefore it directly goes to 
+            //the stored chain, bypassing the redis backup
+            etcdserverpb::TxnRequest txn;
+            auto *cmp = txn.add_compare();
+            cmp->set_result(etcdserverpb::Compare::GREATER);
+            cmp->set_target(etcdserverpb::Compare::VERSION);
+            cmp->set_key(configuration_.chainPrefix+":"+id);
+            cmp->set_version(0);
+            etcdserverpb::TxnResponse txnResp;
+            grpc::ClientContext txnCtx;
+            txnCtx.set_deadline(std::chrono::system_clock::now()+std::chrono::hours(24));
+            stub_->Txn(&txnCtx, txn, &txnResp);
+            return txnResp.succeeded();
+        }
         bool appendAfter(ItemType const &current, ItemType &&toBeWritten) {
+            //If the to be written item is already on the chain
+            //, this call will always return false
             if (current.nextID != "") {
                 return false;
             } 
             std::string currentChainKey = configuration_.chainPrefix+":"+current.id;
             if (configuration_.saveDataOnSeparateStorage) {
+                std::string newDataKey = configuration_.dataPrefix+":"+toBeWritten.id;
+                std::string newChainKey = configuration_.chainPrefix+":"+toBeWritten.id;
                 etcdserverpb::TxnRequest txn;
                 auto *cmp = txn.add_compare();
                 cmp->set_result(etcdserverpb::Compare::EQUAL);
                 cmp->set_target(etcdserverpb::Compare::VALUE);
                 cmp->set_key(currentChainKey);
                 cmp->set_value("");
+                cmp = txn.add_compare();
+                cmp->set_result(etcdserverpb::Compare::EQUAL);
+                cmp->set_target(etcdserverpb::Compare::VERSION);
+                cmp->set_key(newDataKey);
+                cmp->set_version(0);
+                cmp = txn.add_compare();
+                cmp->set_result(etcdserverpb::Compare::EQUAL);
+                cmp->set_target(etcdserverpb::Compare::VERSION);
+                cmp->set_key(newChainKey);
+                cmp->set_version(0);
                 auto *action = txn.add_success();
                 auto *put = action->mutable_request_put();
                 put->set_key(currentChainKey);
                 put->set_value(toBeWritten.id); 
                 action = txn.add_success();
                 put = action->mutable_request_put();
-                put->set_key(configuration_.dataPrefix+":"+toBeWritten.id);
+                put->set_key(newDataKey);
                 put->set_value(basic::bytedata_utils::RunSerializer<basic::CBOR<T>>::apply(basic::CBOR<T> {std::move(toBeWritten.data)})); 
                 action = txn.add_success();
                 put = action->mutable_request_put();
-                put->set_key(configuration_.chainPrefix+":"+toBeWritten.id);
+                put->set_key(newChainKey);
                 put->set_value(""); 
                 etcdserverpb::TxnResponse txnResp;
                 grpc::ClientContext txnCtx;
@@ -684,19 +714,25 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 }
                 return ret;
             } else {
+                std::string newChainKey = configuration_.chainPrefix+":"+toBeWritten.id;
                 etcdserverpb::TxnRequest txn;
                 auto *cmp = txn.add_compare();
                 cmp->set_result(etcdserverpb::Compare::EQUAL);
                 cmp->set_target(etcdserverpb::Compare::MOD);
                 cmp->set_key(currentChainKey);
                 cmp->set_mod_revision(current.revision);
+                cmp = txn.add_compare();
+                cmp->set_result(etcdserverpb::Compare::EQUAL);
+                cmp->set_target(etcdserverpb::Compare::VERSION);
+                cmp->set_key(newChainKey);
+                cmp->set_version(0);
                 auto *action = txn.add_success();
                 auto *put = action->mutable_request_put();
                 put->set_key(currentChainKey);
                 put->set_value(basic::bytedata_utils::RunSerializer<basic::CBOR<MapData>>::apply(basic::CBOR<MapData> {MapData {current.data, toBeWritten.id}})); 
                 action = txn.add_success();
                 put = action->mutable_request_put();
-                put->set_key(configuration_.chainPrefix+":"+toBeWritten.id);
+                put->set_key(newChainKey);
                 put->set_value(basic::bytedata_utils::RunSerializer<basic::CBOR<MapData>>::apply(basic::CBOR<MapData> {MapData {std::move(toBeWritten.data), ""}})); 
                 
                 etcdserverpb::TxnResponse txnResp;
@@ -843,6 +879,10 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 return std::nullopt;
             }
             return ItemType {0, iter->first, iter->second.data, iter->second.nextID};
+        }
+        bool idIsAlreadyOnChain(std::string const &id) {
+            std::lock_guard<std::mutex> _(mutex_);
+            return (theMap_.find(id) != theMap_.end());
         }
         bool appendAfter(ItemType const &current, ItemType &&toBeWritten) {
             std::lock_guard<std::mutex> _(mutex_);

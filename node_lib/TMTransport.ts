@@ -909,19 +909,21 @@ export class EtcdSharedChain {
         this.current = null;
     }
 
-    async start() {
+    async start(defaultData : any) {
         if (this.config.duplicateFromRedis) {
             try {
                 let redisReply = await this.redisClient.get(this.config.chainPrefix+":"+this.config.headKey);
-                let parsed = cbor.decode(redisReply);
-                if (parsed.length == 3) {
-                    this.current = {
-                        revision : BigInt(parsed[0])
-                        , id : this.config.headKey
-                        , data : parsed[1]
-                        , nextID : parsed[2]
-                    };
-                    return;
+                if (redisReply !== null) {
+                    let parsed = cbor.decode(redisReply);
+                    if (parsed.length == 3) {
+                        this.current = {
+                            revision : BigInt(parsed[0])
+                            , id : this.config.headKey
+                            , data : parsed[1]
+                            , nextID : parsed[2]
+                        };
+                        return;
+                    }
                 }
             } catch (err) {
             }
@@ -940,15 +942,15 @@ export class EtcdSharedChain {
                 this.current = {
                     revision : BigInt(etcdReply.responses[0].response_range.kvs[0].mod_revision)
                     , id : this.config.headKey
-                    , data : null
+                    , data : defaultData
                     , nextID : etcdReply.responses[0].response_range.kvs[0].value.toString()
                 }
             } else {
                 this.current = {
                     revision : BigInt(etcdReply.responses[1].response_range.kvs[0].mod_revision)
                     , id : this.config.headKey
-                    , data : null
-                    , nextID : etcdReply.responses[1].response_range.kvs[0].value.toString()
+                    , data : defaultData
+                    , nextID : ""
                 }
             }
         } else {
@@ -961,21 +963,95 @@ export class EtcdSharedChain {
                 )
                 .commit();
             if (etcdReply.succeeded) {
-                let v = cbor.decode(etcdReply.responses[0].response_range.kvs[0].value);
-                this.current = {
-                    revision : BigInt(etcdReply.responses[0].response_range.kvs[0].mod_revision)
-                    , id : this.config.headKey
-                    , data : null
-                    , nextID : v[1]
+                let x = etcdReply.responses[0].response_range.kvs[0].value;
+                if (x.byteLength > 0) {
+                    let v = cbor.decode(etcdReply.responses[0].response_range.kvs[0].value);
+                    //please notice that defaultData is always returned as the value of the
+                    //head, and we don't care what decoded v[0] is
+                    this.current = {
+                        revision : BigInt(etcdReply.responses[0].response_range.kvs[0].mod_revision)
+                        , id : this.config.headKey
+                        , data : defaultData
+                        , nextID : v[1]
+                    }
+                } else {
+                    this.current = {
+                        revision : BigInt(etcdReply.responses[0].response_range.kvs[0].mod_revision)
+                        , id : this.config.headKey
+                        , data : defaultData
+                        , nextID : ""
+                    }
                 }
             } else {
-                let v = cbor.decode(etcdReply.responses[1].response_range.kvs[0].value);
                 this.current = {
                     revision : BigInt(etcdReply.responses[1].response_range.kvs[0].mod_revision)
                     , id : this.config.headKey
-                    , data : null
-                    , nextID : v[1]
+                    , data : defaultData
+                    , nextID : ""
                 }
+            }
+        }
+    }
+
+    async tryLoadUntil(id : string) : Promise<boolean> {
+        //the behavior is a little different from the C++ version
+        //in that it will not throw an exception if the id is not
+        //there, therefore the method name and siganture are also different
+        if (this.config.duplicateFromRedis) {
+            try {
+                let redisReply = await this.redisClient.get(this.config.chainPrefix+":"+id);
+                if (redisReply !== null) {
+                    let parsed = cbor.decode(redisReply);
+                    if (parsed.length == 3) {
+                        this.current = {
+                            revision : BigInt(parsed[0])
+                            , id : id
+                            , data : parsed[1]
+                            , nextID : parsed[2]
+                        };
+                        return true;
+                    }
+                }
+            } catch (err) {
+            }
+        }
+        if (this.config.saveDataOnSeparateStorage) {
+            let etcdReply = await this.client
+                .if(this.config.chainPrefix+":"+id, "Version", ">", 0)
+                .then(
+                    this.client.get(this.config.chainPrefix+":"+id)
+                    , this.client.get(this.config.dataPrefix+":"+id)
+                )
+                .commit();
+            if (etcdReply.succeeded) {
+                this.current = {
+                    revision : BigInt(etcdReply.responses[0].response_range.kvs[0].mod_revision)
+                    , id : id
+                    , data : cbor.decode(etcdReply.responses[1].response_range.kvs[0].value)
+                    , nextID : etcdReply.responses[0].response_range.kvs[0].value.toString()
+                };
+                return true;
+            } else {
+                return false;
+            }
+        } else {
+            let etcdReply = await this.client
+                .if(this.config.chainPrefix+":"+id, "Version", ">", 0)
+                .then(
+                    this.client.get(this.config.chainPrefix+":"+id)
+                )
+                .commit();
+            if (etcdReply.succeeded) {
+                let parsed = cbor.decode(etcdReply.responses[0].response_range.kvs[0].value);
+                this.current = {
+                    revision : BigInt(etcdReply.responses[0].response_range.kvs[0].mod_revision)
+                    , id : id
+                    , data : parsed[0]
+                    , nextID : parsed[1]
+                };
+                return true;
+            } else {
+                return false;
             }
         }
     }
@@ -986,21 +1062,25 @@ export class EtcdSharedChain {
                 let thisID = this.current.id;
                 try {
                     let redisReply = await this.redisClient.get(this.config.chainPrefix+":"+thisID);
-                    let parsed = cbor.decode(redisReply);
-                    if (parsed.length == 3) {
-                        let nextID = parsed[2];
-                        if (nextID != '') {
-                            redisReply = await this.redisClient.get(this.config.chainPrefix+":"+nextID);
-                            parsed = cbor.decode(redisReply);
-                            if (parsed.length == 3) {
-                                this.current = {
-                                    revision : BigInt(parsed[0])
-                                    , id : nextID
-                                    , data : parsed[1]
-                                    , nextID : parsed[2]
-                                };
-                                return true;
-                            }  
+                    if (redisReply !== null) {
+                        let parsed = cbor.decode(redisReply);
+                        if (parsed.length == 3) {
+                            let nextID = parsed[2];
+                            if (nextID != '') {
+                                redisReply = await this.redisClient.get(this.config.chainPrefix+":"+nextID);
+                                if (redisReply !== null) {
+                                    parsed = cbor.decode(redisReply);
+                                    if (parsed.length == 3) {
+                                        this.current = {
+                                            revision : BigInt(parsed[0])
+                                            , id : nextID
+                                            , data : parsed[1]
+                                            , nextID : parsed[2]
+                                        };
+                                        return true;
+                                    }  
+                                }
+                            }
                         }
                     }
                 } catch (err) {
@@ -1009,15 +1089,17 @@ export class EtcdSharedChain {
                 let nextID = this.current.nextID;
                 try {
                     let redisReply = await this.redisClient.get(this.config.chainPrefix+":"+nextID);
-                    let parsed = cbor.decode(redisReply);
-                    if (parsed.length == 3) {
-                        this.current = {
-                            revision : BigInt(parsed[0])
-                            , id : nextID
-                            , data : parsed[1]
-                            , nextID : parsed[2]
-                        };
-                        return true;
+                    if (redisReply !== null) {
+                        let parsed = cbor.decode(redisReply);
+                        if (parsed.length == 3) {
+                            this.current = {
+                                revision : BigInt(parsed[0])
+                                , id : nextID
+                                , data : parsed[1]
+                                , nextID : parsed[2]
+                            };
+                            return true;
+                        }
                     }
                 } catch (err) {
                 }
@@ -1058,7 +1140,11 @@ export class EtcdSharedChain {
                 let etcdReply = await this.client
                     .get(this.config.chainPrefix+":"+this.current.id)
                     .exec();
-                let parsed = cbor.decode(etcdReply.kvs[0].value);
+                let x = etcdReply.kvs[0].value;
+                if (x.byteLength == 0) {
+                    return false;
+                }
+                let parsed = cbor.decode(x);
                 nextID = parsed[1];
                 if (nextID == '') {
                     return false;
@@ -1078,60 +1164,102 @@ export class EtcdSharedChain {
         }
     }
 
-    async append(newID : string, newData : any) {
+    async idIsAlreadyOnChain(id : string) : Promise<boolean> {
+        let etcdReply = await this.client
+            .if(this.config.chainPrefix+":"+id, "Version", ">", 0)
+            .commit();
+        return etcdReply.succeeded;
+    }
+
+    async tryAppend(newID : string, newData : any) {
         while (true) {
-            while (true) {
-                let x = await this.next();
-                if (!x) {
-                    break;
-                }
-            }
-            let thisID = this.current.id;
-            let succeeded = false;
-            let revision = BigInt(0);
-            if (this.config.saveDataOnSeparateStorage) {
-                let etcdReply = await this.client
-                    .if(this.config.chainPrefix+":"+thisID, "Mod", "==", Number(this.current.revision))
-                    .then(
-                        this.client.put(this.config.chainPrefix+":"+thisID).value(newID)
-                        , this.client.put(this.config.dataPrefix+":"+newID).value(cbor.encode(newData))
-                        , this.client.put(this.config.chainPrefix+":"+newID).value("")
-                    )
-                    .commit();
-                succeeded = etcdReply.succeeded;
-                if (succeeded) {
-                    revision = BigInt(etcdReply.responses[2].response_put.header.revision);
-                }
-            } else {
-                let etcdReply = await this.client
-                    .if(this.config.chainPrefix+":"+thisID, "Mod", "==", Number(this.current.revision))
-                    .then(
-                        this.client.put(this.config.chainPrefix+":"+thisID).value(
-                            cbor.encode([this.current.data, newID])
-                        )
-                        , this.client.put(this.config.chainPrefix+":"+newID).value("")
-                    )
-                    .commit();
-                succeeded = etcdReply.succeeded;
-                if (succeeded) {
-                    revision = BigInt(etcdReply.responses[1].response_put.header.revision);
-                }
-            }
-            if (succeeded) {
-                if (this.config.automaticallyDuplicateToRedis) {
-                    await this.redisClient.set(
-                        this.config.chainPrefix+":"+thisID
-                        , cbor.encode([this.current.revision, this.current.data, newID])
-                    );
-                }
-                this.current = {
-                    revision : revision
-                    , id : newID
-                    , data : newData
-                    , nextID : ""
-                };
+            let x = await this.next();
+            if (!x) {
                 break;
             }
+        }
+        let thisID = this.current.id;
+        let succeeded = false;
+        let revision = BigInt(0);
+        if (this.config.saveDataOnSeparateStorage) {
+            let etcdReply = await this.client
+                .if(this.config.chainPrefix+":"+thisID, "Mod", "==", Number(this.current.revision))
+                .and(this.config.dataPrefix+":"+newID, "Version", "==", 0)
+                .and(this.config.chainPrefix+":"+newID, "Version", "==", 0)
+                .then(
+                    this.client.put(this.config.chainPrefix+":"+thisID).value(newID)
+                    , this.client.put(this.config.dataPrefix+":"+newID).value(cbor.encode(newData))
+                    , this.client.put(this.config.chainPrefix+":"+newID).value("")
+                )
+                .commit();
+            succeeded = etcdReply.succeeded;
+            if (succeeded) {
+                revision = BigInt(etcdReply.responses[2].response_put.header.revision);
+            }
+        } else {
+            let etcdReply = await this.client
+                .if(this.config.chainPrefix+":"+thisID, "Mod", "==", Number(this.current.revision))
+                .and(this.config.chainPrefix+":"+newID, "Version", "==", 0)
+                .then(
+                    this.client.put(this.config.chainPrefix+":"+thisID).value(
+                        cbor.encode([this.current.data, newID])
+                    )
+                    , this.client.put(this.config.chainPrefix+":"+newID).value(
+                        cbor.encode([newData, ""])
+                    )
+                )
+                .commit();
+            succeeded = etcdReply.succeeded;
+            if (succeeded) {
+                revision = BigInt(etcdReply.responses[1].response_put.header.revision);
+            }
+        }
+        if (succeeded) {
+            if (this.config.automaticallyDuplicateToRedis) {
+                await this.redisClient.set(
+                    this.config.chainPrefix+":"+thisID
+                    , cbor.encode([this.current.revision, this.current.data, newID])
+                );
+            }
+            this.current = {
+                revision : revision
+                , id : newID
+                , data : newData
+                , nextID : ""
+            };
+        }
+        return succeeded;
+    }
+
+    async append(newID : string, newData : any) {
+        while (true) {
+            let res = await this.tryAppend(newID, newData);
+            if (res) {
+                break;
+            }
+        }
+    }
+
+    async saveExtraData(key : string, data : any) {
+        await this.client
+            .put(this.config.extraDataPrefix+":"+key)
+            .value(cbor.encode(data))
+            .exec();
+    }
+
+    async loadExtraData(key : string) : Promise<any> {
+        let etcdReply = await this.client
+            .get(this.config.extraDataPrefix+":"+key)
+            .exec();
+        if (etcdReply.kvs.length == 0) {
+            return null;
+        }
+        return cbor.decode(etcdReply.kvs[0].value);
+    }
+
+    async close() {
+        if (this.config.duplicateFromRedis || this.config.automaticallyDuplicateToRedis) {
+            await this.redisClient.quit();
         }
     }
 
