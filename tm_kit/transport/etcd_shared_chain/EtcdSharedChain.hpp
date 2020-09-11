@@ -293,7 +293,15 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 txnCtx.set_deadline(std::chrono::system_clock::now()+std::chrono::hours(24));
                 stub_->Txn(&txnCtx, txn, &txnResp);
 
-                auto const &kv = txnResp.responses(txnResp.succeeded()?0:1).response_range().kvs(0);
+                if (txnResp.responses_size() < (txnResp.succeeded()?1:2)) {
+                    throw EtcdChainException("head error for "+headKeyStr+", etcd service probably down");
+                }
+                auto &rsp = txnResp.responses(txnResp.succeeded()?0:1).response_range();
+                if (rsp.kvs_size() < 1) {
+                    throw EtcdChainException("head error for "+headKeyStr+", etcd service probably down");
+                }
+
+                auto const &kv = rsp.kvs(0);
                 return ItemType {kv.mod_revision(), configuration_.headKey, T{}, kv.value()};
             } else {
                 static const std::string emptyHeadDataStr = basic::bytedata_utils::RunSerializer<basic::CBOR<MapData>>::apply({MapData {}}); 
@@ -320,8 +328,16 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 txnCtx.set_deadline(std::chrono::system_clock::now()+std::chrono::hours(24));
                 stub_->Txn(&txnCtx, txn, &txnResp);
 
+                if (txnResp.responses_size() < (txnResp.succeeded()?1:2)) {
+                    throw EtcdChainException("head error for "+headKeyStr+", etcd service probably down");
+                }
+                
                 if (txnResp.succeeded()) {
-                    auto &kv = txnResp.responses(0).response_range().kvs(0);
+                    auto &rsp = txnResp.responses(0).response_range();
+                    if (rsp.kvs_size() < 1) {
+                        throw EtcdChainException("head error for "+headKeyStr+", etcd service probably down");
+                    }
+                    auto &kv = rsp.kvs(0);
                     auto mapData = basic::bytedata_utils::RunDeserializer<basic::CBOR<MapData>>::apply(
                         kv.value()
                     );
@@ -331,7 +347,11 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                         return ItemType {};
                     }
                 } else {
-                    auto &kv = txnResp.responses(1).response_range().kvs(0);
+                    auto &rsp = txnResp.responses(1).response_range(); 
+                    if (rsp.kvs_size() < 1) {
+                        throw EtcdChainException("head error for "+headKeyStr+", etcd service probably down");
+                    }
+                    auto &kv = rsp.kvs(0);
                     auto mapData = basic::bytedata_utils::RunDeserializer<basic::CBOR<MapData>>::apply(
                         kv.value()
                     );
