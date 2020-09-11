@@ -1216,10 +1216,19 @@ export class EtcdSharedChain {
         }
         if (succeeded) {
             if (this.config.automaticallyDuplicateToRedis) {
-                await this.redisClient.set(
-                    this.config.chainPrefix+":"+thisID
-                    , cbor.encode([this.current.revision, this.current.data, newID])
-                );
+                if (this.config.redisTTLSeconds > 0) {
+                    await this.redisClient.set(
+                        this.config.chainPrefix+":"+thisID
+                        , cbor.encode([this.current.revision, this.current.data, newID])
+                        , 'EX'
+                        , this.config.redisTTLSeconds
+                    );
+                } else {
+                    await this.redisClient.set(
+                        this.config.chainPrefix+":"+thisID
+                        , cbor.encode([this.current.revision, this.current.data, newID])
+                    );
+                }
             }
             this.current = {
                 revision : revision
