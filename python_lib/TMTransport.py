@@ -869,6 +869,88 @@ class EtcdSharedChain:
                 return True
             else:
                 return False
+    
+    def next(self) -> bool:
+        if self.config['duplicateFromRedis']:
+            if self.current['nextID'] == '':
+                thisID = self.current['id']
+                redisReply = self.redisClient.get(self.config['chainPrefix']+":"+thisID)
+                if not (redisReply is None):
+                    parsed = cbor.loads(redisReply)
+                    if len(parsed) == 3:
+                        nextID = parsed[2]
+                        if nextID != '':
+                            redisReply = self.redisClient.get(self.config['chainPrefix']+":"+nextID)
+                            if not (redisReply is None):
+                                parsed = cbor.loads(redisReply)
+                                if len(parsed) == 3:
+                                    self.current = {
+                                        'revision' : parsed[0]
+                                        , 'id' : nextID
+                                        , 'data' : parsed[1]
+                                        , 'nextID' : parsed[2]
+                                    }
+                                    return True
+            else:
+                nextID = self.current['nextID']
+                redisReply = self.redisClient.get(self.config['chainPrefix']+":"+nextID);
+                if not (redisReply is None):
+                    parsed = cbor.loads(redisReply);
+                    if len(parsed) == 3:
+                        self.current = {
+                            'revision' : parsed[0]
+                            , 'id' : nextID
+                            , 'data' : parsed[1]
+                            , 'nextID' : parsed[2]
+                        }
+                        return True
+        if self.config['saveDataOnSeparateStorage']:
+            nextID = self.current['nextID']
+            if nextID == '':
+                etcdReply = self.client.get(self.config['chainPrefix']+":"+self.current['id'])
+                nextID = etcdReply[0].decode('utf-8')
+                if nextID == '':
+                    return False
+            nextEtcdReplySucceeded, nextEtcdReply = self.client.transaction(
+                compare=[
+                    self.client.transactions.version(self.config['chainPrefix']+":"+nextID) > 0
+                ]
+                , success=[
+                    self.client.transactions.get(self.config['chainPrefix']+":"+nextID)
+                    , self.client.transactions.get(self.config['dataPrefix']+":"+nextID)
+                ]
+                , failure=[]
+            )
+            if nextEtcdReplySucceeded:
+                self.current = {
+                    'revision' : nextEtcdReply[0][0][1].mod_revision
+                    , 'id' : nextID
+                    , 'data' : cbor.loads(nextEtcdReply[1][0][0])
+                    , 'nextID' : nextEtcdReply[0][0][0].decode('utf-8')
+                }
+                return True
+            else:
+                return False
+        else:
+            nextID = self.current['nextID']
+            if nextID == '':
+                etcdReply = self.client.get(self.config['chainPrefix']+":"+self.current['id'])
+                x = etcdReply[0]
+                if len(x) == 0:
+                    return False
+                parsed = cbor.loads(x)
+                nextID = parsed[1]
+                if nextID == '':
+                    return False
+            nextEtcdReply = self.client.get(self.config['chainPrefix']+":"+nextID)
+            parsed = cbor.loads(nextEtcdReply[0]);
+            self.current = {
+                'revision' : nextEtcdReply[1].mod_revision
+                , 'id' : nextID
+                , 'data' : parsed[0]
+                , 'nextID' : parsed[1]
+            }
+            return True
 
     def close(self):
         if (self.config['duplicateFromRedis'] or self.config['automaticallyDuplicateToRedis']):
