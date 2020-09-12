@@ -1170,7 +1170,7 @@ export class EtcdSharedChain {
         return etcdReply.succeeded;
     }
 
-    async tryAppend(newID : string, newData : any) {
+    async tryAppend(newID : string, newData : any) : Promise<boolean> {
         while (true) {
             let x = await this.next();
             if (!x) {

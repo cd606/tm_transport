@@ -952,6 +952,96 @@ class EtcdSharedChain:
             }
             return True
 
+    def idIsAlreadyOnChain(self, id : str) -> bool:
+        etcdReply = self.client.transaction(
+            compare=[
+                self.client.transactions.version(self.config['chainPrefix']+":"+id) > 0
+            ]
+            , success=[]
+            , failure=[]
+        )
+        return etcdReply[0]
+
+    def tryAppend(self, newID : str, newData : Any) -> bool:
+        while True:
+            x = self.next()
+            if not x:
+                break
+        thisID = self.current['id']
+        succeeded = False
+        revision = 0
+        if self.config['saveDataOnSeparateStorage']:
+            etcdReplySucceeded, etcdReply = self.client.transaction(
+                compare=[
+                    self.client.transactions.mod(self.config['chainPrefix']+":"+thisID) == self.current['revision']
+                    , self.client.transactions.version(self.config['dataPrefix']+":"+newID) == 0
+                    , self.client.transactions.version(self.config['chainPrefix']+":"+newID) == 0
+                ]
+                , success=[
+                    self.client.transactions.put(self.config['chainPrefix']+":"+thisID, newID)
+                    , self.client.transactions.put(self.config['dataPrefix']+":"+newID, cbor.dumps(newData))
+                    , self.client.transactions.put(self.config['chainPrefix']+":"+newID, "")
+                ]
+                , failure=[]
+            )
+            succeeded = etcdReplySucceeded
+            if succeeded:
+                revision = etcdReply[2].response_put.header.revision
+        else:
+            etcdReplySucceeded, etcdReply = self.client.transaction(
+                compare=[
+                    self.client.transactions.mod(self.config['chainPrefix']+":"+thisID) == self.current['revision']
+                    , self.client.transactions.version(self.config['chainPrefix']+":"+newID) == 0
+                ]
+                , success=[
+                    self.client.transactions.put(self.config['chainPrefix']+":"+thisID, cbor.dumps([self.current['data'], newID]))
+                    , self.client.transactions.put(self.config['chainPrefix']+":"+newID, cbor.dumps([newData,""]))
+                ]
+                , failure=[]
+            )
+            succeeded = etcdReplySucceeded
+            if succeeded:
+                revision = etcdReply[1].response_put.header.revision
+        if succeeded:
+            if self.config['automaticallyDuplicateToRedis']:
+                if self.config['redisTTLSeconds'] > 0:
+                    self.redisClient.set(
+                        self.config['chainPrefix']+":"+thisID
+                        , cbor.dumps([self.current['revision'], self.current['data'], newID])
+                        , 'EX'
+                        , self.config['redisTTLSeconds']
+                    )
+                else:
+                    self.redisClient.set(
+                        self.config['chainPrefix']+":"+thisID
+                        , cbor.dumps([self.current['revision'], self.current['data'], newID])
+                    )
+            self.current = {
+                'revision' : revision
+                , 'id' : newID
+                , 'data' : newData
+                , 'nextID' : ""
+            }
+        return succeeded
+
+    def append(self, newID : str, newData : Any):
+        while True:
+            res = self.tryAppend(newID, newData);
+            if res:
+                break
+
+    def saveExtraData(self, key : str, data : Any):
+        self.client.put(self.config['extraDataPrefix']+":"+key, cbor.dumps(data))
+
+    def loadExtraData(self, key : str) -> Any:
+        etcdReply = self.client.get(self.config['extraDataPrefix']+":"+key)
+        if len(etcdReply) == 0:
+            return None
+        elif etcdReply[0] is None:
+            return None
+        else:
+            return cbor.loads(etcdReply[0])
+
     def close(self):
         if (self.config['duplicateFromRedis'] or self.config['automaticallyDuplicateToRedis']):
             self.redisClient.quit()
