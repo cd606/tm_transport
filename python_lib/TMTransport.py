@@ -812,6 +812,63 @@ class EtcdSharedChain:
                     , 'data' : defaultData
                     , 'nextID' : ''
                 }
+    
+    def tryLoadUntil(self, id : str) -> bool:
+        if self.config['duplicateFromRedis']:
+            redisReply = self.redisClient.get(self.config['chainPrefix']+":"+id)
+            if not (redisReply is None):
+                parsed = cbor.loads(redisReply)
+                if len(parsed) == 3:
+                    self.current = {
+                        'revision' : parsed[0]
+                        , 'id' : id
+                        , 'data' : parsed[1]
+                        , 'nextID' : parsed[2]
+                    }
+                    return True
+        if self.config['saveDataOnSeparateStorage']:
+            print(id)
+            etcdReplySucceeded, etcdReply = self.client.transaction(
+                compare=[
+                    self.client.transactions.version(self.config['chainPrefix']+":"+id) > 0
+                ]
+                , success=[
+                    self.client.transactions.get(self.config['chainPrefix']+":"+id)
+                    , self.client.transactions.get(self.config['dataPrefix']+":"+id)
+                ]
+                , failure=[]
+            )
+            if etcdReplySucceeded:
+                self.current = {
+                    'revision' : etcdReply[0][0][1].mod_revision
+                    , 'id' : id
+                    , 'data' : cbor.loads(etcdReply[1][0][0])
+                    , 'nextID' : etcdReply[0][0][0].decode('utf-8')
+                }
+                return True
+            else:
+                return False
+        else:
+            etcdReplySucceeded, etcdReply = self.client.transaction(
+                compare=[
+                    self.client.transactions.version(self.config['chainPrefix']+":"+id) > 0
+                ]
+                , success=[
+                    self.client.transactions.get(self.config['chainPrefix']+":"+id)
+                ]
+                , failure=[]
+            )
+            if etcdReplySucceeded:
+                parsed = cbor.loads(etcdReply[0][0][0])
+                self.current = {
+                    'revision' : etcdReply[0][0][1].mod_revision
+                    , 'id' : id
+                    , 'data' : parsed[0]
+                    , 'nextID' : parsed[1]
+                }
+                return True
+            else:
+                return False
 
     def close(self):
         if (self.config['duplicateFromRedis'] or self.config['automaticallyDuplicateToRedis']):
