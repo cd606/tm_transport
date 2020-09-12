@@ -1,6 +1,7 @@
 import re
-from typing import TypedDict,Callable,Optional,Tuple,List,Any
+from typing import TypedDict,Callable,Optional,Tuple,List,Any,Dict
 from enum import Enum
+from datetime import date
 
 import asyncio
 import aio_pika
@@ -11,6 +12,8 @@ import aioredis
 import zmq
 import zmq.asyncio
 import uuid
+import etcd3
+import redis
 
 class ConnectionLocatorProperties(TypedDict):
     name : str
@@ -682,3 +685,138 @@ class MultiTransportFacilityServer:
         elif transport == Transport.Redis:
             ret.extend(MultiTransportFacilityServer.redisFacility(locator, toExternalQ, fromExternalQ))
         return ret
+
+class EtcdSharedChainConfiguration(TypedDict):
+    etcd3Options : Dict[str,Any]
+    headKey : str
+    saveDataOnSeparateStorage : bool
+    chainPrefix : str
+    dataPrefix : str
+    extraDataPrefix : str
+    redisServerAddr : str
+    duplicateFromRedis : bool
+    redisTTLSeconds : int
+    automaticallyDuplicateToRedis : bool
+
+class EtcdSharedChainItem(TypedDict):
+    revision: int
+    id : str
+    data : Any
+    nextID : str
+
+class EtcdSharedChain:
+    config : EtcdSharedChainConfiguration
+    client : Any
+    redisClient : Any
+    current : EtcdSharedChainItem
+
+    @staticmethod
+    def defaultEtcdSharedChainConfiguration(commonPrefix : str = '', useDate : bool = True) -> EtcdSharedChainConfiguration:
+        today = date.today().strftime('%Y_%m_%d')
+        ret : EtcdSharedChainConfiguration = {
+            'etcd3Options' : {'host':'127.0.0.1', 'port':2379}
+            , 'headKey' : ''
+            , 'saveDataOnSeparateStorage' : False
+            , 'chainPrefix' : commonPrefix+'_'+(today if useDate else '')+'_chain'
+            , 'dataPrefix' : commonPrefix+'_'+(today if useDate else '')+'_data'
+            , 'extraDataPrefix' : commonPrefix+'_'+(today if useDate else '')+'_extra_data'
+            , 'redisServerAddr' : '127.0.0.1:6379'
+            , 'duplicateFromRedis' : False
+            , 'redisTTLSeconds' : 0
+            , 'automaticallyDuplicateToRedis' : False
+        }
+        return ret
+
+    def __init__(self, config : EtcdSharedChainConfiguration):
+        self.config = config
+        self.client = etcd3.Etcd3Client(**(config['etcd3Options']))
+        if (config['duplicateFromRedis'] or config['automaticallyDuplicateToRedis']):
+            [host, portStr] = config['redisServerAddr'].split(':')
+            self.redisClient = redis.Redis(host=host, port=int(portStr))
+        self.current = {}
+    
+    def start(self, defaultData : Any):
+        if self.config['duplicateFromRedis']:
+            redisReply = self.redisClient.get(self.config['chainPrefix']+":"+self.config['headKey'])
+            if not (redisReply is None):
+                parsed = cbor.loads(redisReply)
+                if len(parsed) == 3:
+                    self.current = {
+                        'revision' : parsed[0]
+                        , 'id' : self.config.headKey
+                        , 'data' : parsed[1]
+                        , 'nextID' : parsed[2]
+                    }
+                    return
+        if self.config['saveDataOnSeparateStorage']:
+            etcdReplySucceeded, etcdReply = self.client.transaction(
+                compare=[
+                    self.client.transactions.version(self.config['chainPrefix']+":"+self.config['headKey']) > 0
+                ]
+                , success=[
+                    self.client.transactions.get(self.config['chainPrefix']+":"+self.config['headKey'])
+                ]
+                , failure=[
+                    self.client.transactions.put(self.config['chainPrefix']+":"+self.config['headKey'], '')
+                    , self.client.transactions.get(self.config['chainPrefix']+":"+self.config['headKey'])
+                ]
+            )
+            if etcdReplySucceeded:
+                self.current = {
+                    'revision' : etcdReply[0][0][1].mod_revision
+                    , 'id' : self.config['headKey']
+                    , 'data' : defaultData
+                    , 'nextID' : etcdReply[0][0][0].decode('utf-8')
+                }
+            else:
+                self.current = {
+                    'revision' : etcdReply[1][0][1].mod_revision
+                    , 'id' : self.config['headKey']
+                    , 'data' : defaultData
+                    , 'nextID' : ''
+                }
+        else:
+            etcdReplySucceeded, etcdReply = self.client.transaction(
+                compare=[
+                    self.client.transactions.version(self.config['chainPrefix']+":"+self.config['headKey']) > 0
+                ]
+                , success=[
+                    self.client.transactions.get(self.config['chainPrefix']+":"+self.config['headKey'])
+                ]
+                , failure=[
+                    self.client.transactions.put(self.config['chainPrefix']+":"+self.config['headKey'], '')
+                    , self.client.transactions.get(self.config['chainPrefix']+":"+self.config['headKey'])
+                ]
+            )
+            if etcdReplySucceeded:
+                x = etcdReply[0][0][0]
+                if (len(x) > 0):
+                    v = cbor.loads(x)
+                    self.current = {
+                        'revision' : etcdReply[0][0][1].mod_revision
+                        , 'id' : self.config['headKey']
+                        , 'data' : defaultData
+                        , 'nextID' : v[1]
+                    }
+                else:
+                    self.current = {
+                        'revision' : etcdReply[0][0][1].mod_revision
+                        , 'id' : self.config['headKey']
+                        , 'data' : defaultData
+                        , 'nextID' : ''
+                    }
+            else:
+                self.current = {
+                    'revision' : etcdReply[1][0][1].mod_revision
+                    , 'id' : self.config['headKey']
+                    , 'data' : defaultData
+                    , 'nextID' : ''
+                }
+
+    def close(self):
+        if (self.config['duplicateFromRedis'] or self.config['automaticallyDuplicateToRedis']):
+            self.redisClient.quit()
+        self.client.close()
+
+    def currentValue(self) -> EtcdSharedChainItem:
+        return self.current

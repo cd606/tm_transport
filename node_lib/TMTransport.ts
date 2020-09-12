@@ -938,7 +938,6 @@ export class EtcdSharedChain {
                 )
                 .commit();
             if (etcdReply.succeeded) {
-                let x = etcdReply.responses[0].response_range;
                 this.current = {
                     revision : BigInt(etcdReply.responses[0].response_range.kvs[0].mod_revision)
                     , id : this.config.headKey
@@ -965,7 +964,7 @@ export class EtcdSharedChain {
             if (etcdReply.succeeded) {
                 let x = etcdReply.responses[0].response_range.kvs[0].value;
                 if (x.byteLength > 0) {
-                    let v = cbor.decode(etcdReply.responses[0].response_range.kvs[0].value);
+                    let v = cbor.decode(x);
                     //please notice that defaultData is always returned as the value of the
                     //head, and we don't care what decoded v[0] is
                     this.current = {
