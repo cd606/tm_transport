@@ -743,7 +743,7 @@ class EtcdSharedChain:
                 if len(parsed) == 3:
                     self.current = {
                         'revision' : parsed[0]
-                        , 'id' : self.config.headKey
+                        , 'id' : self.config['headKey']
                         , 'data' : parsed[1]
                         , 'nextID' : parsed[2]
                     }
@@ -1004,12 +1004,12 @@ class EtcdSharedChain:
                 revision = etcdReply[1].response_put.header.revision
         if succeeded:
             if self.config['automaticallyDuplicateToRedis']:
-                if self.config['redisTTLSeconds'] > 0:
+                ttl = self.config['redisTTLSeconds']
+                if ttl > 0:
                     self.redisClient.set(
                         self.config['chainPrefix']+":"+thisID
                         , cbor.dumps([self.current['revision'], self.current['data'], newID])
-                        , 'EX'
-                        , self.config['redisTTLSeconds']
+                        , ex = ttl
                     )
                 else:
                     self.redisClient.set(
@@ -1044,7 +1044,7 @@ class EtcdSharedChain:
 
     def close(self):
         if (self.config['duplicateFromRedis'] or self.config['automaticallyDuplicateToRedis']):
-            self.redisClient.quit()
+            self.redisClient.close()
         self.client.close()
 
     def currentValue(self) -> EtcdSharedChainItem:
