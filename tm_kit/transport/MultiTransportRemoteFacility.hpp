@@ -442,6 +442,11 @@ namespace dev { namespace cd606 { namespace tm { namespace basic { namespace byt
                 transport::MULTI_TRANSPORT_REMOTE_FACILITY_ACTION_TYPE_STR[static_cast<int>(x)]
                 , output
             );
+        }
+        static std::size_t calculateSize(transport::MultiTransportRemoteFacilityActionType const &x) {
+            return RunCBORSerializer<std::string>::calculateSize(
+                transport::MULTI_TRANSPORT_REMOTE_FACILITY_ACTION_TYPE_STR[static_cast<int>(x)]
+            );
         }   
     };
     template <>
@@ -476,6 +481,11 @@ namespace dev { namespace cd606 { namespace tm { namespace basic { namespace byt
             return RunCBORSerializer<std::string>::apply(
                 transport::MULTI_TRANSPORT_REMOTE_FACILITY_CONNECTION_TYPE_STR[static_cast<int>(x)]
                 , output
+            );
+        }
+        static std::size_t calculateSize(transport::MultiTransportRemoteFacilityConnectionType const &x) {
+            return RunCBORSerializer<std::string>::calculateSize(
+                transport::MULTI_TRANSPORT_REMOTE_FACILITY_CONNECTION_TYPE_STR[static_cast<int>(x)]
             );
         }   
     };
@@ -541,6 +551,26 @@ namespace dev { namespace cd606 { namespace tm { namespace basic { namespace byt
                     , "connection_locator"
                     , "description"
                 }, output);
+        }
+        static std::size_t calculateSize(transport::MultiTransportRemoteFacilityAction const &x) {
+            std::tuple<
+                transport::MultiTransportRemoteFacilityActionType const *
+                , transport::MultiTransportRemoteFacilityConnectionType const *
+                , transport::ConnectionLocator const *
+                , std::string const *
+            > t {&x.actionType, &x.connectionType, &x.connectionLocator, &x.description};
+            return RunCBORSerializerWithNameList<std::tuple<
+                transport::MultiTransportRemoteFacilityActionType const *
+                , transport::MultiTransportRemoteFacilityConnectionType const *
+                , transport::ConnectionLocator const *
+                , std::string const *
+            >, 4>
+                ::calculateSize(t, {
+                    "action_type"
+                    , "connection_type"
+                    , "connection_locator"
+                    , "description"
+                });
         }   
     };
     template <>

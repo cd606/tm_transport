@@ -101,6 +101,11 @@ namespace dev { namespace cd606 { namespace tm { namespace basic { namespace byt
                 x.toSerializationFormat(), output
             );
         }   
+        static std::size_t calculateSize(transport::ConnectionLocator const &x) {
+            return RunCBORSerializer<std::string>::calculateSize(
+                x.toSerializationFormat()
+            );
+        }
     };
     template <>
     struct RunCBORDeserializer<transport::ConnectionLocator, void> {

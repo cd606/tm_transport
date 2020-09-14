@@ -406,6 +406,11 @@ namespace dev { namespace cd606 { namespace tm { namespace basic { namespace byt
                 transport::MULTI_TRANSPORT_SUBSCRIBER_CONNECTION_TYPE_STR[static_cast<int>(x)]
                 , output
             );
+        }
+        static std::size_t calculateSize(transport::MultiTransportBroadcastListenerConnectionType const &x) {
+            return RunCBORSerializer<std::string>::calculateSize(
+                transport::MULTI_TRANSPORT_SUBSCRIBER_CONNECTION_TYPE_STR[static_cast<int>(x)]
+            );
         }   
     };
     template <>
@@ -464,6 +469,23 @@ namespace dev { namespace cd606 { namespace tm { namespace basic { namespace byt
                     , "connection_locator"
                     , "topic_description"
                 }, output);
+        }
+        static std::size_t calculateSize(transport::MultiTransportBroadcastListenerAddSubscription const &x) {
+            std::tuple<
+                transport::MultiTransportBroadcastListenerConnectionType const *
+                , transport::ConnectionLocator const *
+                , std::string const *
+            > t {&x.connectionType, &x.connectionLocator, &x.topicDescription};
+            return RunCBORSerializerWithNameList<std::tuple<
+                transport::MultiTransportBroadcastListenerConnectionType const *
+                , transport::ConnectionLocator const *
+                , std::string const *
+            >, 3>
+                ::calculateSize(t, {
+                    "connection_type"
+                    , "connection_locator"
+                    , "topic_description"
+                });
         }   
     };
     template <>
@@ -522,6 +544,20 @@ namespace dev { namespace cd606 { namespace tm { namespace basic { namespace byt
                     , "subscription_id"
                 }, output);
         }
+        static std::size_t calculateSize(transport::MultiTransportBroadcastListenerRemoveSubscription const &x) {
+            std::tuple<
+                transport::MultiTransportBroadcastListenerConnectionType const *
+                , uint32_t const *
+            > t {&x.connectionType, &x.subscriptionID};
+            return RunCBORSerializerWithNameList<std::tuple<
+                transport::MultiTransportBroadcastListenerConnectionType const *
+                , uint32_t const *
+            >, 2>
+                ::calculateSize(t, {
+                    "connection_type"
+                    , "subscription_id"
+                });
+        }
     };
     template <>
     struct RunCBORDeserializer<transport::MultiTransportBroadcastListenerRemoveSubscription, void> {
@@ -569,6 +605,17 @@ namespace dev { namespace cd606 { namespace tm { namespace basic { namespace byt
                 ::apply(t, {
                     "subscription_id"
                 }, output);
+        }
+        static std::size_t calculateSize(transport::MultiTransportBroadcastListenerAddSubscriptionResponse const &x) {
+            std::tuple<
+                uint32_t const *
+            > t {&x.subscriptionID};
+            return RunCBORSerializerWithNameList<std::tuple<
+                uint32_t const *
+            >, 1>
+                ::calculateSize(t, {
+                    "subscription_id"
+                });
         }   
     };
     template <>
@@ -598,6 +645,9 @@ namespace dev { namespace cd606 { namespace tm { namespace basic { namespace byt
         }
         static std::size_t apply(transport::MultiTransportBroadcastListenerRemoveSubscriptionResponse const &x, char *output) {
             return RunCBORSerializer<VoidStruct>::apply(VoidStruct {}, output);
+        }
+        static std::size_t calculateSize(transport::MultiTransportBroadcastListenerRemoveSubscriptionResponse const &x) {
+            return RunCBORSerializer<VoidStruct>::calculateSize(VoidStruct {});
         }   
     };
     template <>
