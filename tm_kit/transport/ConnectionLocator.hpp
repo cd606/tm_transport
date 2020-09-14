@@ -95,6 +95,11 @@ namespace dev { namespace cd606 { namespace tm { namespace basic { namespace byt
             return RunCBORSerializer<std::string>::apply(
                 x.toSerializationFormat()
             );
+        }
+        static std::size_t apply(transport::ConnectionLocator const &x, char *output) {
+            return RunCBORSerializer<std::string>::apply(
+                x.toSerializationFormat(), output
+            );
         }   
     };
     template <>

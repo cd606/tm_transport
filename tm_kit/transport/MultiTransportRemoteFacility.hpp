@@ -436,6 +436,12 @@ namespace dev { namespace cd606 { namespace tm { namespace basic { namespace byt
             return RunCBORSerializer<std::string>::apply(
                 transport::MULTI_TRANSPORT_REMOTE_FACILITY_ACTION_TYPE_STR[static_cast<int>(x)]
             );
+        }
+        static std::size_t apply(transport::MultiTransportRemoteFacilityActionType const &x, char *output) {
+            return RunCBORSerializer<std::string>::apply(
+                transport::MULTI_TRANSPORT_REMOTE_FACILITY_ACTION_TYPE_STR[static_cast<int>(x)]
+                , output
+            );
         }   
     };
     template <>
@@ -464,6 +470,12 @@ namespace dev { namespace cd606 { namespace tm { namespace basic { namespace byt
         static std::vector<uint8_t> apply(transport::MultiTransportRemoteFacilityConnectionType const &x) {
             return RunCBORSerializer<std::string>::apply(
                 transport::MULTI_TRANSPORT_REMOTE_FACILITY_CONNECTION_TYPE_STR[static_cast<int>(x)]
+            );
+        }
+        static std::size_t apply(transport::MultiTransportRemoteFacilityConnectionType const &x, char *output) {
+            return RunCBORSerializer<std::string>::apply(
+                transport::MULTI_TRANSPORT_REMOTE_FACILITY_CONNECTION_TYPE_STR[static_cast<int>(x)]
+                , output
             );
         }   
     };
@@ -509,6 +521,26 @@ namespace dev { namespace cd606 { namespace tm { namespace basic { namespace byt
                     , "connection_locator"
                     , "description"
                 });
+        }
+        static std::size_t apply(transport::MultiTransportRemoteFacilityAction const &x, char *output) {
+            std::tuple<
+                transport::MultiTransportRemoteFacilityActionType const *
+                , transport::MultiTransportRemoteFacilityConnectionType const *
+                , transport::ConnectionLocator const *
+                , std::string const *
+            > t {&x.actionType, &x.connectionType, &x.connectionLocator, &x.description};
+            return RunCBORSerializerWithNameList<std::tuple<
+                transport::MultiTransportRemoteFacilityActionType const *
+                , transport::MultiTransportRemoteFacilityConnectionType const *
+                , transport::ConnectionLocator const *
+                , std::string const *
+            >, 4>
+                ::apply(t, {
+                    "action_type"
+                    , "connection_type"
+                    , "connection_locator"
+                    , "description"
+                }, output);
         }   
     };
     template <>

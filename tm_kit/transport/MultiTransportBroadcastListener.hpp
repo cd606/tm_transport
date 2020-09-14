@@ -400,6 +400,12 @@ namespace dev { namespace cd606 { namespace tm { namespace basic { namespace byt
             return RunCBORSerializer<std::string>::apply(
                 transport::MULTI_TRANSPORT_SUBSCRIBER_CONNECTION_TYPE_STR[static_cast<int>(x)]
             );
+        }
+        static std::size_t apply(transport::MultiTransportBroadcastListenerConnectionType const &x, char *output) {
+            return RunCBORSerializer<std::string>::apply(
+                transport::MULTI_TRANSPORT_SUBSCRIBER_CONNECTION_TYPE_STR[static_cast<int>(x)]
+                , output
+            );
         }   
     };
     template <>
@@ -441,6 +447,23 @@ namespace dev { namespace cd606 { namespace tm { namespace basic { namespace byt
                     , "connection_locator"
                     , "topic_description"
                 });
+        }
+        static std::size_t apply(transport::MultiTransportBroadcastListenerAddSubscription const &x, char *output) {
+            std::tuple<
+                transport::MultiTransportBroadcastListenerConnectionType const *
+                , transport::ConnectionLocator const *
+                , std::string const *
+            > t {&x.connectionType, &x.connectionLocator, &x.topicDescription};
+            return RunCBORSerializerWithNameList<std::tuple<
+                transport::MultiTransportBroadcastListenerConnectionType const *
+                , transport::ConnectionLocator const *
+                , std::string const *
+            >, 3>
+                ::apply(t, {
+                    "connection_type"
+                    , "connection_locator"
+                    , "topic_description"
+                }, output);
         }   
     };
     template <>
@@ -484,7 +507,21 @@ namespace dev { namespace cd606 { namespace tm { namespace basic { namespace byt
                     "connection_type"
                     , "subscription_id"
                 });
-        }   
+        } 
+        static std::size_t apply(transport::MultiTransportBroadcastListenerRemoveSubscription const &x, char *output) {
+            std::tuple<
+                transport::MultiTransportBroadcastListenerConnectionType const *
+                , uint32_t const *
+            > t {&x.connectionType, &x.subscriptionID};
+            return RunCBORSerializerWithNameList<std::tuple<
+                transport::MultiTransportBroadcastListenerConnectionType const *
+                , uint32_t const *
+            >, 2>
+                ::apply(t, {
+                    "connection_type"
+                    , "subscription_id"
+                }, output);
+        }
     };
     template <>
     struct RunCBORDeserializer<transport::MultiTransportBroadcastListenerRemoveSubscription, void> {
@@ -521,6 +558,17 @@ namespace dev { namespace cd606 { namespace tm { namespace basic { namespace byt
                 ::apply(t, {
                     "subscription_id"
                 });
+        }
+        static std::size_t apply(transport::MultiTransportBroadcastListenerAddSubscriptionResponse const &x, char *output) {
+            std::tuple<
+                uint32_t const *
+            > t {&x.subscriptionID};
+            return RunCBORSerializerWithNameList<std::tuple<
+                uint32_t const *
+            >, 1>
+                ::apply(t, {
+                    "subscription_id"
+                }, output);
         }   
     };
     template <>
@@ -547,6 +595,9 @@ namespace dev { namespace cd606 { namespace tm { namespace basic { namespace byt
     struct RunCBORSerializer<transport::MultiTransportBroadcastListenerRemoveSubscriptionResponse, void> {
         static std::vector<uint8_t> apply(transport::MultiTransportBroadcastListenerRemoveSubscriptionResponse const &x) {
             return RunCBORSerializer<VoidStruct>::apply(VoidStruct {});
+        }
+        static std::size_t apply(transport::MultiTransportBroadcastListenerRemoveSubscriptionResponse const &x, char *output) {
+            return RunCBORSerializer<VoidStruct>::apply(VoidStruct {}, output);
         }   
     };
     template <>
