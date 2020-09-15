@@ -59,6 +59,12 @@ namespace dev { namespace cd606 { namespace tm { namespace basic { namespace byt
         static std::vector<std::uint8_t> apply(boost::uuids::uuid const &id) {
             return RunCBORSerializer<std::string>::apply(boost::lexical_cast<std::string>(id));
         }
+        static std::size_t apply(boost::uuids::uuid const &id, char *output) {
+            return RunCBORSerializer<std::string>::apply(boost::lexical_cast<std::string>(id), output);
+        }
+        static std::size_t calculateSize(boost::uuids::uuid const &id) {
+            return RunCBORSerializer<std::string>::calculateSize(boost::lexical_cast<std::string>(id));
+        }
     };
     template <>
     struct RunCBORDeserializer<boost::uuids::uuid, void> {
