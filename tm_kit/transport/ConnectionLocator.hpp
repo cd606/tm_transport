@@ -91,7 +91,7 @@ namespace dev { namespace cd606 { namespace tm { namespace basic { namespace byt
 
     template <>
     struct RunCBORSerializer<transport::ConnectionLocator, void> {
-        static std::vector<uint8_t> apply(transport::ConnectionLocator const &x) {
+        static std::string apply(transport::ConnectionLocator const &x) {
             return RunCBORSerializer<std::string>::apply(
                 x.toSerializationFormat()
             );

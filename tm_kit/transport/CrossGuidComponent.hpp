@@ -44,7 +44,7 @@ namespace dev { namespace cd606 { namespace tm { namespace basic { namespace byt
     };
     template <>
     struct RunCBORSerializer<xg::Guid, void> {
-        static std::vector<std::uint8_t> apply(xg::Guid const &id) {
+        static std::string apply(xg::Guid const &id) {
             return RunCBORSerializer<std::string>::apply((std::string) id);
         }
         static std::size_t apply(xg::Guid const &id, char *output) {

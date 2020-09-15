@@ -432,7 +432,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
 namespace dev { namespace cd606 { namespace tm { namespace basic { namespace bytedata_utils {
     template <>
     struct RunCBORSerializer<transport::MultiTransportRemoteFacilityActionType, void> {
-        static std::vector<uint8_t> apply(transport::MultiTransportRemoteFacilityActionType const &x) {
+        static std::string apply(transport::MultiTransportRemoteFacilityActionType const &x) {
             return RunCBORSerializer<std::string>::apply(
                 transport::MULTI_TRANSPORT_REMOTE_FACILITY_ACTION_TYPE_STR[static_cast<int>(x)]
             );
@@ -472,7 +472,7 @@ namespace dev { namespace cd606 { namespace tm { namespace basic { namespace byt
     };
     template <>
     struct RunCBORSerializer<transport::MultiTransportRemoteFacilityConnectionType, void> {
-        static std::vector<uint8_t> apply(transport::MultiTransportRemoteFacilityConnectionType const &x) {
+        static std::string apply(transport::MultiTransportRemoteFacilityConnectionType const &x) {
             return RunCBORSerializer<std::string>::apply(
                 transport::MULTI_TRANSPORT_REMOTE_FACILITY_CONNECTION_TYPE_STR[static_cast<int>(x)]
             );
@@ -512,7 +512,7 @@ namespace dev { namespace cd606 { namespace tm { namespace basic { namespace byt
     };
     template <>
     struct RunCBORSerializer<transport::MultiTransportRemoteFacilityAction, void> {
-        static std::vector<uint8_t> apply(transport::MultiTransportRemoteFacilityAction const &x) {
+        static std::string apply(transport::MultiTransportRemoteFacilityAction const &x) {
             std::tuple<
                 transport::MultiTransportRemoteFacilityActionType const *
                 , transport::MultiTransportRemoteFacilityConnectionType const *

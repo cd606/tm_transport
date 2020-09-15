@@ -56,7 +56,7 @@ namespace dev { namespace cd606 { namespace tm { namespace basic { namespace byt
     };
     template <>
     struct RunCBORSerializer<boost::uuids::uuid, void> {
-        static std::vector<std::uint8_t> apply(boost::uuids::uuid const &id) {
+        static std::string apply(boost::uuids::uuid const &id) {
             return RunCBORSerializer<std::string>::apply(boost::lexical_cast<std::string>(id));
         }
         static std::size_t apply(boost::uuids::uuid const &id, char *output) {

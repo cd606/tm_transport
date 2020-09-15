@@ -396,7 +396,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
 namespace dev { namespace cd606 { namespace tm { namespace basic { namespace bytedata_utils {
     template <>
     struct RunCBORSerializer<transport::MultiTransportBroadcastListenerConnectionType, void> {
-        static std::vector<uint8_t> apply(transport::MultiTransportBroadcastListenerConnectionType const &x) {
+        static std::string apply(transport::MultiTransportBroadcastListenerConnectionType const &x) {
             return RunCBORSerializer<std::string>::apply(
                 transport::MULTI_TRANSPORT_SUBSCRIBER_CONNECTION_TYPE_STR[static_cast<int>(x)]
             );
@@ -436,7 +436,7 @@ namespace dev { namespace cd606 { namespace tm { namespace basic { namespace byt
     };
     template <>
     struct RunCBORSerializer<transport::MultiTransportBroadcastListenerAddSubscription, void> {
-        static std::vector<uint8_t> apply(transport::MultiTransportBroadcastListenerAddSubscription const &x) {
+        static std::string apply(transport::MultiTransportBroadcastListenerAddSubscription const &x) {
             std::tuple<
                 transport::MultiTransportBroadcastListenerConnectionType const *
                 , transport::ConnectionLocator const *
@@ -516,7 +516,7 @@ namespace dev { namespace cd606 { namespace tm { namespace basic { namespace byt
     };
     template <>
     struct RunCBORSerializer<transport::MultiTransportBroadcastListenerRemoveSubscription, void> {
-        static std::vector<uint8_t> apply(transport::MultiTransportBroadcastListenerRemoveSubscription const &x) {
+        static std::string apply(transport::MultiTransportBroadcastListenerRemoveSubscription const &x) {
             std::tuple<
                 transport::MultiTransportBroadcastListenerConnectionType const *
                 , uint32_t const *
@@ -584,7 +584,7 @@ namespace dev { namespace cd606 { namespace tm { namespace basic { namespace byt
     };
     template <>
     struct RunCBORSerializer<transport::MultiTransportBroadcastListenerAddSubscriptionResponse, void> {
-        static std::vector<uint8_t> apply(transport::MultiTransportBroadcastListenerAddSubscriptionResponse const &x) {
+        static std::string apply(transport::MultiTransportBroadcastListenerAddSubscriptionResponse const &x) {
             std::tuple<
                 uint32_t const *
             > t {&x.subscriptionID};
@@ -640,7 +640,7 @@ namespace dev { namespace cd606 { namespace tm { namespace basic { namespace byt
     };
     template <>
     struct RunCBORSerializer<transport::MultiTransportBroadcastListenerRemoveSubscriptionResponse, void> {
-        static std::vector<uint8_t> apply(transport::MultiTransportBroadcastListenerRemoveSubscriptionResponse const &x) {
+        static std::string apply(transport::MultiTransportBroadcastListenerRemoveSubscriptionResponse const &x) {
             return RunCBORSerializer<VoidStruct>::apply(VoidStruct {});
         }
         static std::size_t apply(transport::MultiTransportBroadcastListenerRemoveSubscriptionResponse const &x, char *output) {

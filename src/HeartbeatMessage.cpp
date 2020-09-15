@@ -23,11 +23,21 @@ namespace dev { namespace cd606 { namespace tm { namespace basic { namespace byt
 
     template <>
     struct RunCBORSerializer<transport::HeartbeatMessage::Status, void> {
-        static std::vector<uint8_t> apply(transport::HeartbeatMessage::Status const &x) {
+        static std::string apply(transport::HeartbeatMessage::Status const &x) {
             return RunCBORSerializer<std::string>::apply(
                 STATUS_NAMES[static_cast<int>(x)]
             );
-        }   
+        } 
+        static std::size_t apply(transport::HeartbeatMessage::Status const &x, char *output) {
+            return RunCBORSerializer<std::string>::apply(
+                STATUS_NAMES[static_cast<int>(x)], output
+            );
+        }  
+        static std::size_t calculateSize(transport::HeartbeatMessage::Status const &x) {
+            return RunCBORSerializer<std::string>::calculateSize(
+                STATUS_NAMES[static_cast<int>(x)]
+            );
+        }
     };
     template <>
     struct RunCBORDeserializer<transport::HeartbeatMessage::Status, void> {
@@ -55,7 +65,13 @@ namespace dev { namespace cd606 { namespace tm { namespace basic { namespace byt
     };
     template <>
     struct RunCBORSerializer<transport::HeartbeatMessage::OneItemStatus, void> {
-        static std::vector<uint8_t> apply(transport::HeartbeatMessage::OneItemStatus const &x) {
+        static std::string apply(transport::HeartbeatMessage::OneItemStatus const &x) {
+            std::string s;
+            s.resize(calculateSize(x)); 
+            apply(x, const_cast<char *>(s.data()));
+            return s;
+        }  
+        static std::size_t apply(transport::HeartbeatMessage::OneItemStatus const &x, char *output) {
             std::tuple<transport::HeartbeatMessage::Status const *, std::string const *> t {
                 &(x.status), &(x.info)
             };
@@ -67,8 +83,23 @@ namespace dev { namespace cd606 { namespace tm { namespace basic { namespace byt
                 , {
                     "status", "info"
                 }
+                , output
             );
-        }   
+        }
+        static std::size_t calculateSize(transport::HeartbeatMessage::OneItemStatus const &x) {
+            std::tuple<transport::HeartbeatMessage::Status const *, std::string const *> t {
+                &(x.status), &(x.info)
+            };
+            return RunCBORSerializerWithNameList<
+                std::tuple<transport::HeartbeatMessage::Status const *, std::string const *>
+                , 2
+            >::calculateSize(
+                t
+                , {
+                    "status", "info"
+                }
+            );
+        } 
     };
     template <>
     struct RunCBORDeserializer<transport::HeartbeatMessage::OneItemStatus, void> {
