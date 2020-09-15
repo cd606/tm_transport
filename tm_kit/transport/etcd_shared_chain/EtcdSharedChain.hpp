@@ -52,6 +52,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         std::shared_ptr<grpc::ChannelInterface> etcdChannel {};
         std::string headKey="";
         bool saveDataOnSeparateStorage=false;
+        bool useWatchThread = false;
 
         std::string chainPrefix="shared_chain_test";
         std::string dataPrefix="shared_chain_test_data";
@@ -81,6 +82,10 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         }
         EtcdChainConfiguration &SaveDataOnSeparateStorage(bool b) {
             saveDataOnSeparateStorage = b;
+            return *this;
+        }
+        EtcdChainConfiguration &UseWatchThread(bool b) {
+            useWatchThread = b;
             return *this;
         }
         EtcdChainConfiguration &ChainPrefix(std::string const &p) {
@@ -134,6 +139,8 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         std::mutex redisMutex_;
 
         void runWatchThread() {
+            watchThreadRunning_ = true;
+
             etcdserverpb::WatchRequest req;
             auto *r = req.mutable_create_request();
             r->set_key(configuration_.chainPrefix+":");
@@ -199,11 +206,13 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             , updateTriggerFunc_()
             , channel_(config.etcdChannel?config.etcdChannel:(EtcdChainConfiguration().InsecureEtcdServerAddr().etcdChannel))
             , stub_(etcdserverpb::KV::NewStub(channel_))
-            , latestModRevision_(0), watchThreadRunning_(true), watchThread_()
+            , latestModRevision_(0), watchThreadRunning_(false), watchThread_()
             , redisCtx_(nullptr), redisMutex_()
         {
-            watchThread_ = std::thread(&EtcdChain::runWatchThread, this);
-            watchThread_.detach();
+            if (configuration_.useWatchThread) {
+                watchThread_ = std::thread(&EtcdChain::runWatchThread, this);
+                watchThread_.detach();
+            }
             if (configuration_.duplicateFromRedis || configuration_.automaticallyDuplicateToRedis) {
                 auto idx = configuration_.redisServerAddr.find(':');
                 std::lock_guard<std::mutex> _(redisMutex_);
@@ -456,10 +465,12 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             }
         }
         std::optional<ItemType> fetchNext(ItemType const &current) {
-            if (current.nextID == "") {
-                auto latestRev = latestModRevision_.load(std::memory_order_acquire);
-                if (latestRev > 0 && current.revision >= latestRev) {
-                    return std::nullopt;
+            if (configuration_.useWatchThread) {
+                if (current.nextID == "") {
+                    auto latestRev = latestModRevision_.load(std::memory_order_acquire);
+                    if (latestRev > 0 && current.revision >= latestRev) {
+                        return std::nullopt;
+                    }
                 }
             }
             if (configuration_.duplicateFromRedis) {
@@ -707,7 +718,9 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 bool ret = txnResp.succeeded();
                 if (ret) {
                     auto rev = txnResp.responses(2).response_put().header().revision();
-                    latestModRevision_.store(rev, std::memory_order_release);
+                    if (configuration_.useWatchThread) {
+                        latestModRevision_.store(rev, std::memory_order_release);
+                    }
                     if (configuration_.automaticallyDuplicateToRedis) {
                         duplicateToRedis(rev, current.id, current.data, toBeWritten.id);     
                     }
@@ -742,7 +755,9 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 bool ret = txnResp.succeeded();
                 if (ret) {
                     auto rev = txnResp.responses(1).response_put().header().revision();
-                    latestModRevision_.store(rev, std::memory_order_release);
+                    if (configuration_.useWatchThread) {
+                        latestModRevision_.store(rev, std::memory_order_release);
+                    }
                     if (configuration_.automaticallyDuplicateToRedis) {
                         duplicateToRedis(rev, current.id, current.data, toBeWritten.id);     
                     }
