@@ -18,8 +18,13 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
 
     template <class T>
     struct StorageItem {
+        std::string id;
         T data;
         std::atomic<StorageItem<T> *> next;
+
+        StorageItem() : id(""), data(), next(nullptr) {}
+        StorageItem(std::string const &s, T const &d, StorageItem<T> *p) : id(s), data(d), next(p) {}
+        StorageItem(std::string const &s, T &&d, StorageItem<T> *p) : id(s), data(std::move(d)), next(p) {}
     };
     
     template <class T>
@@ -31,7 +36,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         StorageItem<T> head_;
     public:
         using ItemType = ChainItem<T>;
-        LockFreeInMemoryChain() : head_ {T{}, nullptr} {
+        LockFreeInMemoryChain() : head_() {
         }
         ItemType head(void *) {
             return &head_;
