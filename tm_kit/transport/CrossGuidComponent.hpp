@@ -29,19 +29,6 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
 } } } }
 
 namespace dev { namespace cd606 { namespace tm { namespace basic { namespace bytedata_utils {
-
-    template <>
-    struct RunSerializer<xg::Guid, void> {
-        static std::string apply(xg::Guid const &id) {
-            return (std::string) id;
-        }
-    };
-    template <>
-    struct RunDeserializer<xg::Guid, void> {
-        static std::optional<xg::Guid> apply(std::string const &s) {
-            return xg::Guid(s);
-        }
-    };
     template <>
     struct RunCBORSerializer<xg::Guid, void> {
         static std::string apply(xg::Guid const &id) {

@@ -602,24 +602,6 @@ namespace dev { namespace cd606 { namespace tm { namespace basic { namespace byt
             }
         }
     };
-    template <>
-    struct RunSerializer<transport::MultiTransportRemoteFacilityAction, void> {
-        static std::string apply(transport::MultiTransportRemoteFacilityAction const &x) {
-            return RunSerializer<CBOR<transport::MultiTransportRemoteFacilityAction>>
-                    ::apply(CBOR<transport::MultiTransportRemoteFacilityAction> {x});
-        }   
-    };
-    template <>
-    struct RunDeserializer<transport::MultiTransportRemoteFacilityAction, void> {
-        static std::optional<transport::MultiTransportRemoteFacilityAction> apply(std::string const &data) {
-            auto t = RunDeserializer<CBOR<transport::MultiTransportRemoteFacilityAction>>
-                        ::apply(data);
-            if (!t) {
-                return std::nullopt;
-            }
-            return t->value;
-        }
-    };
                 
 } } } } }
 
