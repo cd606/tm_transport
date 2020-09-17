@@ -678,6 +678,9 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             if (current.nextID != "") {
                 return false;
             } 
+            if (toBeWritten.nextID != "") {
+                throw EtcdChainException("Cannot append a new item whose nextID is already non-empty");
+            }
             std::string currentChainKey = configuration_.chainPrefix+":"+current.id;
             if (configuration_.saveDataOnSeparateStorage) {
                 std::string newDataKey = configuration_.dataPrefix+":"+toBeWritten.id;
