@@ -7,6 +7,11 @@
 #include <atomic>
 
 #include <boost/interprocess/managed_shared_memory.hpp>
+#include <boost/interprocess/sync/named_mutex.hpp>
+#include <boost/lexical_cast.hpp>
+#include <boost/uuid/uuid.hpp>
+#include <boost/uuid/uuid_generators.hpp>
+#include <boost/uuid/uuid_io.hpp>
 
 namespace dev { namespace cd606 { namespace tm { namespace transport { namespace lock_free_in_memory_shared_chain {
     class LockFreeInBoostSharedMemoryChainException : public std::runtime_error {
@@ -26,16 +31,72 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
     
     template <class T>
     using BoostSharedMemoryChainItem = BoostSharedMemoryStorageItem<T> *;
-    
-    template <class T, class Enable=std::enable_if_t<std::is_standard_layout_v<T>, void>>
-    class LockFreeInBoostSharedMemoryChain {
+
+    enum class BoostSharedMemoryChainExtraDataProtectionStrategy {
+        DontSupportExtraData
+        , LockFreeAndWasteMemory
+        , MutexProtected
+        , Unsafe
+    };
+
+    template <BoostSharedMemoryChainExtraDataProtectionStrategy EDPS>
+    class IPCMutexWrapper {
+    public:
+        IPCMutexWrapper(std::string const &) noexcept {}
+        void lock() noexcept {}
+        void unlock() noexcept {}
+    };
+    template <>
+    struct IPCMutexWrapper<BoostSharedMemoryChainExtraDataProtectionStrategy::MutexProtected> {
     private:
+        boost::interprocess::named_mutex mutex_;
+    public:
+        IPCMutexWrapper(std::string const &name) :
+            mutex_(
+                boost::interprocess::open_or_create
+                , (name+"_mutex").c_str()
+            )
+        {}
+        void lock() {
+            mutex_.lock();
+        }
+        void unlock() {
+            mutex_.unlock();
+        }
+    };
+    template <BoostSharedMemoryChainExtraDataProtectionStrategy EDPS>
+    struct IPCMutexWrapperGuard {
+    private:
+        IPCMutexWrapper<EDPS> *wrapper_;
+    public:
+        IPCMutexWrapperGuard(IPCMutexWrapper<EDPS> *wrapper) : wrapper_(wrapper) {
+            wrapper_->lock();
+        }
+        ~IPCMutexWrapperGuard() {
+            wrapper_->unlock();
+        }
+    };
+
+    template <
+        class T
+        , class Enable=std::enable_if_t<std::is_standard_layout_v<T>, void>
+    > struct LockFreeInBoostSharedMemoryChainBase {};
+    
+    template <
+        class T
+        , BoostSharedMemoryChainExtraDataProtectionStrategy EDPS = BoostSharedMemoryChainExtraDataProtectionStrategy::DontSupportExtraData
+        , class Enable=std::enable_if_t<std::is_standard_layout_v<T>, void>
+    >
+    class LockFreeInBoostSharedMemoryChain : public LockFreeInBoostSharedMemoryChainBase<T,Enable> {
+    private:
+        IPCMutexWrapper<EDPS> mutex_;
         boost::interprocess::managed_shared_memory mem_;
         BoostSharedMemoryStorageItem<T> *head_;
     public:
         using ItemType = BoostSharedMemoryChainItem<T>;
-        LockFreeInBoostSharedMemoryChain(std::string const &name, std::size_t sharedMemorySize) : 
-            mem_(
+        LockFreeInBoostSharedMemoryChain(std::string const &name, std::size_t sharedMemorySize) :
+            mutex_(name) 
+            , mem_(
                 boost::interprocess::open_or_create
                 , name.c_str()
                 , sharedMemorySize
@@ -84,14 +145,48 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         template <class ExtraData>
         void saveExtraData(std::string const &key, ExtraData const &data) {
             static_assert(std::is_standard_layout_v<ExtraData>, "LockFreeInBoostSharedMemoryChain only supports storing standard layout extraData objects");
-            *(mem_.find_or_construct<ExtraData>(key.c_str())()) = data;
+            static_assert(EDPS != BoostSharedMemoryChainExtraDataProtectionStrategy::DontSupportExtraData, "LockFreeInBoostSharedMemoryChain supports storing extra data only if enabled in template signature");
+            if constexpr (EDPS == BoostSharedMemoryChainExtraDataProtectionStrategy::LockFreeAndWasteMemory) {
+                auto id = boost::lexical_cast<std::string>(boost::uuids::random_generator()());
+                auto *dataPtr = mem_.construct<ExtraData>(id.c_str())(data);
+                auto *loc = mem_.find_or_construct<std::atomic<std::ptrdiff_t>>(key.c_str())(0);
+                std::ptrdiff_t newVal = reinterpret_cast<char *>(dataPtr)-reinterpret_cast<char *>(loc);
+                loc->store(newVal, std::memory_order_release);
+            } else if constexpr (EDPS == BoostSharedMemoryChainExtraDataProtectionStrategy::MutexProtected) {
+                IPCMutexWrapperGuard<EDPS> _(&mutex_);
+                *(mem_.find_or_construct<ExtraData>(key.c_str())()) = data;
+            } else if constexpr (EDPS == BoostSharedMemoryChainExtraDataProtectionStrategy::Unsafe) {
+                *(mem_.find_or_construct<ExtraData>(key.c_str())()) = data;
+            }
         }
         template <class ExtraData>
         std::optional<ExtraData> loadExtraData(std::string const &key) {
             static_assert(std::is_standard_layout_v<ExtraData>, "LockFreeInBoostSharedMemoryChain only supports loading standard layout extraData objects");
-            auto *p = mem_.find<ExtraData>(key.c_str()).first;
-            if (p) {
-                return *p;
+            static_assert(EDPS != BoostSharedMemoryChainExtraDataProtectionStrategy::DontSupportExtraData, "LockFreeInBoostSharedMemoryChain supports loading extra data only if enabled in template signature");
+            if constexpr (EDPS == BoostSharedMemoryChainExtraDataProtectionStrategy::LockFreeAndWasteMemory) {
+                auto *loc = mem_.find<std::atomic<std::ptrdiff_t>>(key.c_str()).first;
+                if (loc) {
+                    auto diff = loc->load(std::memory_order_acquire);
+                    auto *dataPtr = reinterpret_cast<ExtraData *>(reinterpret_cast<char *>(loc)+diff);
+                    return *dataPtr;
+                } else {
+                    return std::nullopt;
+                }
+            } else if constexpr (EDPS == BoostSharedMemoryChainExtraDataProtectionStrategy::MutexProtected) {
+                IPCMutexWrapperGuard<EDPS> _(&mutex_);
+                auto *p = mem_.find<ExtraData>(key.c_str()).first;
+                if (p) {
+                    return *p;
+                } else {
+                    return std::nullopt;
+                }
+            } else if constexpr (EDPS == BoostSharedMemoryChainExtraDataProtectionStrategy::Unsafe) {
+                auto *p = mem_.find<ExtraData>(key.c_str()).first;
+                if (p) {
+                    return *p;
+                } else {
+                    return std::nullopt;
+                }
             } else {
                 return std::nullopt;
             }
