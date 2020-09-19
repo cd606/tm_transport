@@ -104,14 +104,12 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         }
         ItemType head(void *) {
             static const std::string headKeyStr = configuration_.chainPrefix+":"+configuration_.headKey;
+            static const std::string luaStr = "local x = redis.call('GET',KEYS[1]); if x then return x else redis.call('SET',KEYS[1],''); return '' end";
             redisReply *r = nullptr;
-            std::ostringstream luaOss;
-            luaOss << "local x = redis.call('GET',KEYS[1]); "
-                << "if x then return x else redis.call('SET',KEYS[1],''); return '' end";
             {
                 std::lock_guard<std::mutex> _(redisMutex_);
                 r = (redisReply *) redisCommand(
-                    redisCtx_, "EVAL %s 1 %s", luaOss.str().c_str(), headKeyStr.c_str()
+                    redisCtx_, "EVAL %s 1 %s", luaStr.c_str(), headKeyStr.c_str()
                 );
             }
             if (r == nullptr || r->type != REDIS_REPLY_STRING) {
@@ -245,6 +243,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             return ret;
         }
         bool appendAfter(ItemType const &current, ItemType &&toBeWritten) {
+            static const std::string luaStr = "local x = redis.call('GET',KEYS[1]); local y = redis.call('GET',KEYS[2]); local z = redis.call('GET',KEYS[3]); if x == '' and not y and not z then redis.call('SET',KEYS[1],ARGV[1]); redis.call('SET',KEYS[2],ARGV[2]); redis.call('SET',KEYS[3],''); return 1 else return 0 end";
             if (current.nextID != "") {
                 return false;
             }
@@ -255,14 +254,11 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             std::string newDataKey = configuration_.dataPrefix+":"+toBeWritten.id;
             std::string newChainKey = configuration_.chainPrefix+":"+toBeWritten.id;
             std::string newData = basic::bytedata_utils::RunSerializer<basic::CBOR<T>>::apply(basic::CBOR<T> {std::move(toBeWritten.data)});
-            std::ostringstream luaOss;
-            luaOss << "local x = redis.call('GET',KEYS[1]); local y = redis.call('GET',KEYS[2]); local z = redis.call('GET',KEYS[3]); "
-                << "if x == '' and not y and not z then redis.call('SET',KEYS[1],ARGV[1]); redis.call('SET',KEYS[2],ARGV[2]); redis.call('SET',KEYS[3],''); return 1 else return 0 end";
             redisReply *r = nullptr;
             {
                 std::lock_guard<std::mutex> _(redisMutex_);
                 r = (redisReply *) redisCommand(
-                    redisCtx_, "EVAL %s 3 %s %s %s %s %b", luaOss.str().c_str()
+                    redisCtx_, "EVAL %s 3 %s %s %s %s %b", luaStr.c_str()
                         , currentChainKey.c_str(), newDataKey.c_str(), newChainKey.c_str()
                         , toBeWritten.id.c_str(), newData.c_str(), newData.length()
                 );
