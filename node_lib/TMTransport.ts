@@ -904,7 +904,7 @@ export class EtcdSharedChain {
         this.config = config;
         this.client = new Etcd3(config.etcd3Options);
         if (config.duplicateFromRedis || config.automaticallyDuplicateToRedis) {
-            this.redisClient = asyncRedis.createClient();
+            this.redisClient = asyncRedis.createClient(`redis://${this.config.redisServerAddr}`, {'return_buffers': true});
         }
         this.current = null;
     }
@@ -1269,6 +1269,163 @@ export class EtcdSharedChain {
         if (this.config.duplicateFromRedis || this.config.automaticallyDuplicateToRedis) {
             await this.redisClient.quit();
         }
+    }
+
+    currentValue() {
+        return this.current;
+    }
+}
+
+export interface RedisSharedChainConfiguration {
+    redisServerAddr : string
+    , headKey : string
+    , chainPrefix : string
+    , dataPrefix : string
+    , extraDataPrefix : string
+}
+
+interface RedisSharedChainItem {
+    id : string
+    , data : any
+    , nextID : string
+}
+
+export class RedisSharedChain {
+    config : RedisSharedChainConfiguration;
+    client : any;
+    current : RedisSharedChainItem;
+
+    static defaultRedisSharedChainConfiguration(commonPrefix = "", useDate = true) : RedisSharedChainConfiguration {
+        var today = dateFormat(new Date(), "yyyy_mm_dd");
+        return {
+            redisServerAddr : "127.0.0.1:6379"
+            , headKey : ""
+            , chainPrefix : commonPrefix+"_"+(useDate?today:"")+"_chain"
+            , dataPrefix : commonPrefix+"_"+(useDate?today:"")+"_data"
+            , extraDataPrefix : commonPrefix+"_"+(useDate?today:"")+"_extra_data"
+        };
+    }
+
+    constructor(config : RedisSharedChainConfiguration) {
+        this.config = config;
+        this.client = asyncRedis.createClient(`redis://${this.config.redisServerAddr}`, {'return_buffers': true});
+        this.current = null;
+    }
+
+    async start(defaultData : any) {
+        const headKeyStr = this.config.chainPrefix+":"+this.config.headKey;
+        const luaStr = "local x = redis.call('GET',KEYS[1]); if x then return x else redis.call('SET',KEYS[1],''); return '' end";
+        let redisReply = await this.client.eval(luaStr, 1, headKeyStr);
+        if (redisReply != null) {
+            this.current = {
+                id : this.config.headKey
+                , data : defaultData
+                , nextID : redisReply.toString('utf-8')
+            };
+        }
+    }
+
+    async tryLoadUntil(id : string) : Promise<boolean> {
+        let chainKey = this.config.chainPrefix+":"+id;
+        let dataKey = this.config.dataPrefix+":"+id;
+        let dataReply = await this.client.get(dataKey);
+        if (dataReply == null) {
+            return false;
+        }
+        let chainReply = await this.client.get(chainKey);
+        if (chainReply == null) {
+            return false;
+        }
+        this.current = {
+            id : id
+            , data : cbor.decode(dataReply)
+            , nextID : chainReply.toString('utf-8')
+        };
+        return true;
+    }
+
+    async next() : Promise<boolean> {
+        let nextID = this.current.nextID;
+        if (nextID == '') {
+            let chainKey = this.config.chainPrefix+":"+this.current.id;
+            let redisReply = await this.client.get(chainKey);
+            if (redisReply != null) {
+                nextID = redisReply.toString('utf-8');
+            }
+            if (nextID == '') {
+                return false;
+            }
+        }
+        let chainKey = this.config.chainPrefix+":"+nextID;
+        let dataKey = this.config.dataPrefix+":"+nextID;
+        let dataReply = await this.client.get(dataKey);
+        if (dataReply == null) {
+            return false;
+        }        
+        let chainReply = await this.client.get(chainKey);
+        if (chainReply == null) {
+            return false;
+        }
+        this.current = {
+            id : nextID
+            , data : cbor.decode(dataReply)
+            , nextID : chainReply.toString('utf-8')
+        };
+        return true;
+    }
+
+    async idIsAlreadyOnChain(id : string) : Promise<boolean> {
+        let chainKey = this.config.chainPrefix+":"+id;
+        let chainReply = await this.client.get(chainKey);
+        return (chainReply != null);
+    }
+
+    async tryAppend(newID : string, newData : any) : Promise<boolean> {
+        if (this.current.nextID != '') {
+            return false;
+        }
+
+        let currentChainKey = this.config.chainPrefix+":"+this.current.id;
+        let newDataKey = this.config.dataPrefix+":"+newID;
+        let newChainKey = this.config.chainPrefix+":"+newID;
+        const luaStr = "local x = redis.call('GET',KEYS[1]); local y = redis.call('GET',KEYS[2]); local z = redis.call('GET',KEYS[3]); if x == '' and not y and not z then redis.call('SET',KEYS[1],ARGV[1]); redis.call('SET',KEYS[2],ARGV[2]); redis.call('SET',KEYS[3],''); return 1 else return 0 end";
+        let redisReply = await this.client.eval(luaStr, 3, currentChainKey, newDataKey, newChainKey, newID, cbor.encode(newData));
+        let succeeded = (redisReply != null && redisReply != 0);
+        if (succeeded) {
+            this.current = {
+                id : newID
+                , data : newData
+                , nextID : ""
+            };
+        }
+        return succeeded;
+    }
+
+    async append(newID : string, newData : any) {
+        while (true) {
+            let res = await this.tryAppend(newID, newData);
+            if (res) {
+                break;
+            }
+        }
+    }
+
+    async saveExtraData(key : string, data : any) {
+        let dataKey = this.config.extraDataPrefix+":"+key;
+        await this.client.set(dataKey, cbor.encode(data));
+    }
+
+    async loadExtraData(key : string) : Promise<any> {
+        let dataKey = this.config.extraDataPrefix+":"+key;
+        let dataReply = await this.client.get(dataKey);
+        if (dataReply == null) {
+            return null;
+        }
+        return cbor.decode(dataReply);
+    }
+
+    async close() {
+        await this.client.quit();
     }
 
     currentValue() {
