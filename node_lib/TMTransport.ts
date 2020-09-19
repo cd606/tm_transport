@@ -1381,8 +1381,11 @@ export class RedisSharedChain {
     }
 
     async tryAppend(newID : string, newData : any) : Promise<boolean> {
-        if (this.current.nextID != '') {
-            return false;
+        while (true) {
+            let x = await this.next();
+            if (!x) {
+                break;
+            }
         }
 
         let currentChainKey = this.config.chainPrefix+":"+this.current.id;

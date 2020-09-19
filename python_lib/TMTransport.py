@@ -1049,3 +1049,137 @@ class EtcdSharedChain:
 
     def currentValue(self) -> EtcdSharedChainItem:
         return self.current
+
+class RedisSharedChainConfiguration(TypedDict):
+    redisServerAddr : str
+    headKey : str
+    chainPrefix : str
+    dataPrefix : str
+    extraDataPrefix : str
+
+class RedisSharedChainItem(TypedDict):
+    id : str
+    data : Any
+    nextID : str
+
+class RedisSharedChain:
+    config : RedisSharedChainConfiguration
+    client : Any
+    current : RedisSharedChainItem
+
+    @staticmethod
+    def defaultRedisSharedChainConfiguration(commonPrefix : str = '', useDate : bool = True) -> EtcdSharedChainConfiguration:
+        today = date.today().strftime('%Y_%m_%d')
+        ret : RedisSharedChainConfiguration = {
+            'redisServerAddr' : '127.0.0.1:6379'
+            , 'headKey' : ''
+            , 'chainPrefix' : commonPrefix+'_'+(today if useDate else '')+'_chain'
+            , 'dataPrefix' : commonPrefix+'_'+(today if useDate else '')+'_data'
+            , 'extraDataPrefix' : commonPrefix+'_'+(today if useDate else '')+'_extra_data'
+        }
+        return ret
+
+    def __init__(self, config : RedisSharedChainConfiguration):
+        self.config = config
+        [host, portStr] = config['redisServerAddr'].split(':')
+        self.client = redis.Redis(host=host, port=int(portStr))
+        self.current = {}
+
+    def start(self, defaultData : Any):
+        headKeyStr : str = self.config['chainPrefix']+":"+self.config['headKey']
+        luaStr : str = "local x = redis.call('GET',KEYS[1]); if x then return x else redis.call('SET',KEYS[1],''); return '' end"
+        redisReply = self.client.eval(luaStr, 1, headKeyStr)
+        if not (redisReply is None):
+            self.current = {
+                'id' : self.config['headKey']
+                , 'data' : defaultData
+                , 'nextID' : redisReply.decode('utf-8')
+            }
+
+    def tryLoadUntil(self, id : str) -> bool:
+        chainKey : str = self.config['chainPrefix']+":"+id
+        dataKey : str = self.config['dataPrefix']+":"+id
+        dataReply = self.client.get(dataKey)
+        if dataReply is None:
+            return False
+        chainReply = self.client.get(chainKey)
+        if chainReply is None:
+            return False
+        self.current = {
+            'id' : id
+            , 'data' : cbor.loads(dataReply)
+            , 'nextID' : chainReply.decode('utf-8')
+        }
+        return True
+
+    def next(self) -> bool:
+        nextID : str = self.current['nextID']
+        if nextID == '':
+            chainKey : str = self.config['chainPrefix']+":"+self.current['id']
+            redisReply = self.client.get(chainKey)
+            if not (redisReply is None):
+                nextID = redisReply.decode('utf-8')
+            if nextID == '':
+                return False
+        chainKey = self.config['chainPrefix']+":"+nextID;
+        dataKey = self.config['dataPrefix']+":"+nextID;
+        dataReply = self.client.get(dataKey);
+        if dataReply is None:
+            return False      
+        chainReply = self.client.get(chainKey)
+        if chainReply is None:
+            return False
+        self.current = {
+            'id' : nextID
+            , 'data' : cbor.loads(dataReply)
+            , 'nextID' : chainReply.decode('utf-8')
+        }
+        return True
+
+    def idIsAlreadyOnChain(self, id : str) -> bool:
+        chainKey : str = self.config['chainPrefix']+":"+id
+        chainReply = self.client.get(chainKey)
+        return not (chainReply is None)
+
+    def tryAppend(self, newID : str, newData : Any) -> bool:
+        while True:
+            x = self.next()
+            if not x:
+                break
+
+        currentChainKey : str = self.config['chainPrefix']+":"+self.current['id']
+        newDataKey : str = self.config['dataPrefix']+":"+newID
+        newChainKey : str = self.config['chainPrefix']+":"+newID;
+        luaStr : str = "local x = redis.call('GET',KEYS[1]); local y = redis.call('GET',KEYS[2]); local z = redis.call('GET',KEYS[3]); if x == '' and not y and not z then redis.call('SET',KEYS[1],ARGV[1]); redis.call('SET',KEYS[2],ARGV[2]); redis.call('SET',KEYS[3],''); return 1 else return 0 end";
+        redisReply = self.client.eval(luaStr, 3, currentChainKey, newDataKey, newChainKey, newID, cbor.dumps(newData))
+        succeeded : bool = (not (redisReply is None)) and (redisReply != 0)
+        if succeeded:
+            self.current = {
+                'id' : newID
+                , 'data' : newData
+                , 'nextID' : ""
+            }
+        return succeeded
+
+    def append(self, newID : str, newData : Any):
+        while True:
+            res = self.tryAppend(newID, newData);
+            if res:
+                break
+
+    def saveExtraData(self, key : str, data : Any):
+        dataKey : str = self.config['extraDataPrefix']+":"+key
+        self.client.set(dataKey, cbor.dumps(data))
+    
+    def loadExtraData(self, key : str) -> Any:
+        dataKey : str = self.config['extraDataPrefix']+":"+key
+        dataReply = self.client.get(dataKey);
+        if dataReply is None:
+            return None
+        return cbor.loads(dataReply)
+
+    def close(self):
+        self.client.close()
+
+    def currentValue(self) -> RedisSharedChainItem:
+        return self.current
