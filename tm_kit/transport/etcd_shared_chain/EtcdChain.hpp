@@ -21,30 +21,30 @@
 #include <libetcd/kv.pb.h>
 
 namespace dev { namespace cd606 { namespace tm { namespace transport { namespace etcd_shared_chain {
-    #define ChainItemFields \
+    #define EtcdChainItemFields \
         ((int64_t, revision)) \
         ((std::string, id)) \
         ((T, data)) \
         ((std::string, nextID)) 
     
-    #define ChainStorageFields \
+    #define EtcdChainStorageFields \
         ((T, data)) \
         ((std::string, nextID)) 
     
-    #define ChainRedisStorageFields \
+    #define EtcdChainRedisStorageFields \
         ((int64_t, revision)) \
         ((T, data)) \
         ((std::string, nextID)) 
 
-    TM_BASIC_CBOR_CAPABLE_TEMPLATE_STRUCT(((typename, T)), ChainItem, ChainItemFields);
-    TM_BASIC_CBOR_CAPABLE_TEMPLATE_STRUCT(((typename, T)), ChainStorage, ChainStorageFields);
-    TM_BASIC_CBOR_CAPABLE_TEMPLATE_STRUCT(((typename, T)), ChainRedisStorage, ChainRedisStorageFields);
+    TM_BASIC_CBOR_CAPABLE_TEMPLATE_STRUCT(((typename, T)), ChainItem, EtcdChainItemFields);
+    TM_BASIC_CBOR_CAPABLE_TEMPLATE_STRUCT(((typename, T)), ChainStorage, EtcdChainStorageFields);
+    TM_BASIC_CBOR_CAPABLE_TEMPLATE_STRUCT(((typename, T)), ChainRedisStorage, EtcdChainRedisStorageFields);
     TM_BASIC_CBOR_CAPABLE_TEMPLATE_EMPTY_STRUCT(((typename, T)), ChainUpdateNotification);
 }}}}} 
 
-TM_BASIC_CBOR_CAPABLE_TEMPLATE_STRUCT_SERIALIZE_NO_FIELD_NAMES(((typename, T)), dev::cd606::tm::transport::etcd_shared_chain::ChainItem, ChainItemFields);
-TM_BASIC_CBOR_CAPABLE_TEMPLATE_STRUCT_SERIALIZE_NO_FIELD_NAMES(((typename, T)), dev::cd606::tm::transport::etcd_shared_chain::ChainStorage, ChainStorageFields);
-TM_BASIC_CBOR_CAPABLE_TEMPLATE_STRUCT_SERIALIZE_NO_FIELD_NAMES(((typename, T)), dev::cd606::tm::transport::etcd_shared_chain::ChainRedisStorage, ChainRedisStorageFields);
+TM_BASIC_CBOR_CAPABLE_TEMPLATE_STRUCT_SERIALIZE_NO_FIELD_NAMES(((typename, T)), dev::cd606::tm::transport::etcd_shared_chain::ChainItem, EtcdChainItemFields);
+TM_BASIC_CBOR_CAPABLE_TEMPLATE_STRUCT_SERIALIZE_NO_FIELD_NAMES(((typename, T)), dev::cd606::tm::transport::etcd_shared_chain::ChainStorage, EtcdChainStorageFields);
+TM_BASIC_CBOR_CAPABLE_TEMPLATE_STRUCT_SERIALIZE_NO_FIELD_NAMES(((typename, T)), dev::cd606::tm::transport::etcd_shared_chain::ChainRedisStorage, EtcdChainRedisStorageFields);
 TM_BASIC_CBOR_CAPABLE_TEMPLATE_EMPTY_STRUCT_SERIALIZE_NO_FIELD_NAMES(((typename, T)), dev::cd606::tm::transport::etcd_shared_chain::ChainUpdateNotification);
 
 namespace dev { namespace cd606 { namespace tm { namespace transport { namespace etcd_shared_chain {

@@ -14,15 +14,15 @@
 #include <hiredis/hiredis.h>
 
 namespace dev { namespace cd606 { namespace tm { namespace transport { namespace redis_shared_chain {
-    #define ChainItemFields \
+    #define RedisChainItemFields \
         ((std::string, id)) \
         ((T, data)) \
         ((std::string, nextID)) 
 
-    TM_BASIC_CBOR_CAPABLE_TEMPLATE_STRUCT(((typename, T)), ChainItem, ChainItemFields);
+    TM_BASIC_CBOR_CAPABLE_TEMPLATE_STRUCT(((typename, T)), ChainItem, RedisChainItemFields);
 }}}}} 
 
-TM_BASIC_CBOR_CAPABLE_TEMPLATE_STRUCT_SERIALIZE_NO_FIELD_NAMES(((typename, T)), dev::cd606::tm::transport::redis_shared_chain::ChainItem, ChainItemFields);
+TM_BASIC_CBOR_CAPABLE_TEMPLATE_STRUCT_SERIALIZE_NO_FIELD_NAMES(((typename, T)), dev::cd606::tm::transport::redis_shared_chain::ChainItem, RedisChainItemFields);
 
 namespace dev { namespace cd606 { namespace tm { namespace transport { namespace redis_shared_chain {
     struct RedisChainConfiguration {

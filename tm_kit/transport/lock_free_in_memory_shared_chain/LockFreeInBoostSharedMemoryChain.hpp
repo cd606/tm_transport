@@ -6,7 +6,11 @@
 #include <tm_kit/basic/ByteData.hpp>
 #include <atomic>
 
+#ifdef _MSC_VER
+#include <boost/interprocess/managed_windows_shared_memory.hpp>
+#else
 #include <boost/interprocess/managed_shared_memory.hpp>
+#endif
 #include <boost/interprocess/sync/named_mutex.hpp>
 
 namespace dev { namespace cd606 { namespace tm { namespace transport { namespace lock_free_in_memory_shared_chain {
@@ -116,7 +120,11 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
     > : public LockFreeInBoostSharedMemoryChainBase<T,BoostSharedMemoryChainFastRecoverSupport::Enabled,void> {
     private:
         IPCMutexWrapper<EDPS> mutex_;
+#ifdef _MSC_VER
+        boost::interprocess::managed_windows_shared_memory mem_;
+#else
         boost::interprocess::managed_shared_memory mem_;
+#endif
         BoostSharedMemoryStorageItem<T,BoostSharedMemoryChainFastRecoverSupport::Enabled> *head_;
     public:
         using ItemType = BoostSharedMemoryChainItem<T,BoostSharedMemoryChainFastRecoverSupport::Enabled>;
@@ -233,7 +241,11 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
     > : public LockFreeInBoostSharedMemoryChainBase<T,BoostSharedMemoryChainFastRecoverSupport::Disabled,void> {
     private:
         IPCMutexWrapper<EDPS> mutex_;
+#ifdef _MSC_VER
+        boost::interprocess::managed_windows_shared_memory mem_;
+#else
         boost::interprocess::managed_shared_memory mem_;
+#endif
         BoostSharedMemoryStorageItem<T,BoostSharedMemoryChainFastRecoverSupport::Disabled> *head_;
     public:
         using ItemType = BoostSharedMemoryChainItem<T,BoostSharedMemoryChainFastRecoverSupport::Disabled>;
