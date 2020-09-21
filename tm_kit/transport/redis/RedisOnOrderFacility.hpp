@@ -475,7 +475,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 );
                 sendRequest(env, requester, basic::ByteDataWithID {
                     Env::id_to_string(keyInput.id())
-                    , std::move(keyInput.key())
+                    , std::move(keyInput.key().content)
                 });
                 return ret->get_future();
             }
@@ -496,7 +496,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 );
                 sendRequest(env, requester, basic::ByteDataWithID {
                     Env::id_to_string(keyInput.id())
-                    , std::move(keyInput.key())
+                    , std::move(keyInput.key().content)
                 });
             }
         };
@@ -798,7 +798,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 );
                 sendRequestWithIdentity<Identity,A>(env, requester, basic::ByteDataWithID {
                     Env::id_to_string(keyInput.id())
-                    , std::move(keyInput.key())
+                    , std::move(keyInput.key().content)
                 });
                 return ret->get_future();
             }
@@ -818,7 +818,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 );
                 sendRequestWithIdentity<Identity,A>(env, requester, basic::ByteDataWithID {
                     Env::id_to_string(keyInput.id())
-                    , std::move(keyInput.key())
+                    , std::move(keyInput.key().content)
                 });
             }
         };
