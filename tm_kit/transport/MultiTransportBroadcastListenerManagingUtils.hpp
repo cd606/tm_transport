@@ -125,6 +125,97 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
             >(r, specs, prefix, hookFactory, result);
             return result;
         }
+
+        //we assume that all the broadcasts under one source lookup name are
+        //the same, with the same hook
+        template <class InputType>
+        static auto setupBroadcastListenerWithTopicThroughHeartbeat(
+            R &r
+            , typename R::template Sourceoid<HeartbeatMessage> heartbeatSource
+            , std::string const &broadcastSourceLookupName
+            , std::string const &broadcastTopic
+            , std::string const &prefix
+            , std::optional<WireToUserHook> const &hook = std::nullopt
+        ) 
+            ->  typename R::template Source<basic::TypedDataWithTopic<InputType>>
+        {
+            class AddSubscriptionCreator {
+            private:
+                std::unordered_set<std::string> seenLocators_;
+                std::mutex mutex_;
+                std::string lookupName_;
+                std::string topic_;
+            public:
+                AddSubscriptionCreator(std::string const &lookupName, std::string const &topic) : seenLocators_(), mutex_(), lookupName_(lookupName), topic_(topic) {}
+                std::vector<MultiTransportBroadcastListenerInput> operator()(HeartbeatMessage &&msg) {
+                    std::vector<MultiTransportBroadcastListenerInput> ret;
+                    std::lock_guard<std::mutex> _(mutex_);
+                    auto iter = msg.broadcastChannels().find(lookupName_);
+                    if (iter != msg.broadcastChannels().end() && !iter->second.empty()) {
+                        for (auto const &c : iter->second) {
+                            if (seenLocators_.find(c) == seenLocators_.end()) {
+                                seenLocators_.insert(c);
+                                auto parsed = parseMultiTransportBroadcastChannel(c);
+                                if (parsed) {
+                                    ret.push_back(MultiTransportBroadcastListenerInput {
+                                        MultiTransportBroadcastListenerAddSubscription {
+                                            std::get<0>(*parsed)
+                                            , std::get<1>(*parsed)
+                                            , topic_
+                                        }
+                                    });
+                                }
+                            }
+                        }
+                    }
+                    return ret;
+                }
+            };
+            auto addSubscriptionCreator = M::template liftMulti<HeartbeatMessage>(
+                AddSubscriptionCreator(broadcastSourceLookupName, broadcastTopic)
+            );
+            r.registerAction(prefix+"/addSubscriptionCreator", addSubscriptionCreator);
+            heartbeatSource(r, r.actionAsSink(addSubscriptionCreator));
+
+            auto keyify = M::template kleisli<MultiTransportBroadcastListenerInput>(
+                basic::CommonFlowUtilComponents<M>::template keyify<MultiTransportBroadcastListenerInput>()
+            );
+            r.registerAction(prefix+"/keyify", keyify);
+            r.execute(keyify, r.actionAsSource(addSubscriptionCreator));
+
+            auto listener = M::onOrderFacilityWithExternalEffects(
+                new MultiTransportBroadcastListener<
+                    typename M::EnvironmentType
+                    , InputType
+                >(hook)
+            );
+            r.registerOnOrderFacilityWithExternalEffects(prefix+"/listener", listener);
+            r.placeOrderWithFacilityWithExternalEffectsAndForget(r.actionAsSource(keyify), listener);
+            return r.facilityWithExternalEffectsAsSource(listener);
+        }
+
+        template <class InputType>
+        static auto setupBroadcastListenerThroughHeartbeat(
+            R &r
+            , typename R::template Sourceoid<HeartbeatMessage> heartbeatSource
+            , std::string const &broadcastSourceLookupName
+            , std::string const &broadcastTopic
+            , std::string const &prefix
+            , std::optional<WireToUserHook> const &hook = std::nullopt
+        ) 
+            ->  typename R::template Source<InputType>
+        {
+            auto s = setupBroadcastListenerWithTopicThroughHeartbeat<InputType>(
+                r, heartbeatSource, broadcastSourceLookupName, broadcastTopic, prefix, hook
+            );
+            auto removeTopic = M::template liftPure<basic::TypedDataWithTopic<InputType>>(
+                [](basic::TypedDataWithTopic<InputType> &&d) -> InputType {
+                    return std::move(d.content);
+                }
+            );
+            r.registerAction(prefix+"/removeTopic", removeTopic);
+            return r.execute(removeTopic, std::move(s));
+        }
     };
 
 } } } }

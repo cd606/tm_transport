@@ -22,7 +22,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
         std::string identity_;
         std::optional<std::function<void(basic::ByteDataWithTopic &&)>> publisher_;
         std::mutex mutex_;
-        std::unordered_set<std::string> broadcastChannels_;
+        std::unordered_map<std::string, std::vector<std::string>> broadcastChannels_;
         std::unordered_map<std::string, std::string> facilityChannels_;
         std::map<std::string, HeartbeatMessage::OneItemStatus> status_;
         static std::string getHost() {
@@ -55,10 +55,11 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
             std::lock_guard<std::mutex> _(mutex_);
             status_[itemDescription] = {status, info};
         }
-        void addBroadcastChannel(std::string const &c) {
+        void addBroadcastChannel(std::string const &name, std::string const &c) {
             std::lock_guard<std::mutex> _(mutex_);
-            if (broadcastChannels_.find(c) == broadcastChannels_.end()) {
-                broadcastChannels_.insert(c);
+            auto &channelVec = broadcastChannels_[name];
+            if (std::find(channelVec.begin(), channelVec.end(), c) == channelVec.end()) {
+                channelVec.push_back(c);
             }
         }
         void addFacilityChannel(std::string const &name, std::string const &c) {
@@ -86,7 +87,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                         , host_
                         , pid_
                         , identity_
-                        , std::vector<std::string> {broadcastChannels_.begin(), broadcastChannels_.end()}
+                        , std::map<std::string, std::vector<std::string>> {broadcastChannels_.begin(), broadcastChannels_.end()}
                         , std::map<std::string, std::string> {facilityChannels_.begin(), facilityChannels_.end()}
                         , status_
                     };
@@ -112,8 +113,8 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
     void HeartbeatAndAlertComponent::assignIdentity(HeartbeatAndAlertComponent &&another) {
         impl_->assignIdentity(std::move(*(another.impl_)));
     }
-    void HeartbeatAndAlertComponent::addBroadcastChannel(std::string const &channel) {
-        impl_->addBroadcastChannel(channel);
+    void HeartbeatAndAlertComponent::addBroadcastChannel(std::string const &name, std::string const &channel) {
+        impl_->addBroadcastChannel(name, channel);
     }
     void HeartbeatAndAlertComponent::addFacilityChannel(std::string const &name, std::string const &channel) {
         impl_->addFacilityChannel(name, channel);

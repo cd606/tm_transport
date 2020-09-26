@@ -28,21 +28,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
         std::string host_;
         int64_t pid_;
         std::string senderDescription_;
-        //In the current implementation, facility channels must
-        //have names (i.e. the registered name in the node graph)
-        //but broadcast channels don't. There are two reasons for
-        //this. First, facility channels info will be used by clients
-        //to do auto subscription-desubscription, and the clients need
-        //to have a way to know which channel is which type. The clients
-        //can supply the types, but the mapping can only be done by matching
-        //on the name, since the channel spec is usually not very informational.
-        //Second, facility channels are registered during the wrapping
-        //of facilities, where we have registered names for nodes, but broadcast
-        //channels, in the current implementation, are registered in start() call
-        //where we don't have registered names for nodes. It is of course possible
-        //to add names to broadcast channels if needed, but for now there does
-        //not seem to be the need.
-        std::vector<std::string> broadcastChannels_;
+        std::map<std::string,std::vector<std::string>> broadcastChannels_;
         std::map<std::string,std::string> facilityChannels_;
         std::map<std::string, OneItemStatus> details_;
     public:
@@ -53,14 +39,14 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
             , std::string const &host
             , int64_t pid
             , std::string const &senderDescription
-            , std::vector<std::string> const &broadcastChannels 
-            , std::map<std::string,std::string> const &facilityChannels
+            , std::map<std::string,std::vector<std::string>> &&broadcastChannels 
+            , std::map<std::string,std::string> &&facilityChannels
             , std::map<std::string,OneItemStatus> const &details=std::map<std::string,OneItemStatus>()
         ) 
             : uuidStr_(uuidStr), heartbeatTime_(heartbeatTime), host_(host), pid_(pid)
             , senderDescription_(senderDescription) 
-            , broadcastChannels_(broadcastChannels)
-            , facilityChannels_(facilityChannels)
+            , broadcastChannels_(std::move(broadcastChannels))
+            , facilityChannels_(std::move(facilityChannels))
             , details_(details)
         {
         }
@@ -83,7 +69,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
         std::string const &senderDescription() const {
             return senderDescription_;
         }
-        std::vector<std::string> const &broadcastChannels() const {
+        std::map<std::string, std::vector<std::string>> const &broadcastChannels() const {
             return broadcastChannels_;
         }
         std::map<std::string,std::string> const &facilityChannels() const {

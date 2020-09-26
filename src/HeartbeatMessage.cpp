@@ -162,7 +162,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
             , std::string const *
             , int64_t const *
             , std::string const *
-            , std::vector<std::string> const *
+            , std::map<std::string, std::vector<std::string>> const *
             , std::map<std::string, std::string> const *
             , std::map<std::string, OneItemStatus> const *
         > x {
@@ -182,7 +182,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                 , std::string const *
                 , int64_t const *
                 , std::string const *
-                , std::vector<std::string> const *
+                , std::map<std::string, std::vector<std::string>> const *
                 , std::map<std::string, std::string> const *
                 , std::map<std::string, OneItemStatus> const *
             >
@@ -206,7 +206,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                 , std::string
                 , int64_t
                 , std::string
-                , std::vector<std::string>
+                , std::map<std::string, std::vector<std::string>>
                 , std::map<std::string, std::string>
                 , std::map<std::string, OneItemStatus>
             >

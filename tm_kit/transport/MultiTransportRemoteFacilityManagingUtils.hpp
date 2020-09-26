@@ -396,7 +396,10 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
         public:
             static auto run(
                 R &r
-                , MultiTransportBroadcastListenerAddSubscription const &heartbeatSpec
+                , std::variant<
+                    MultiTransportBroadcastListenerAddSubscription
+                    , typename R::template Sourceoid<HeartbeatMessage>
+                > const &heartbeatSource
                 , std::regex const &serverNameRE
                 , std::array<std::string, sizeof...(DistinguishedRemoteFacilitiesSpec)+sizeof...(NonDistinguishedRemoteFacilitiesSpec)> const &channelNames
                 , std::chrono::system_clock::duration ttl
@@ -431,29 +434,42 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                     nonDistinguishedRegNames[ii] = facilityRegistrationNames[ii+sizeof...(DistinguishedRemoteFacilitiesSpec)];
                 }
 
-                auto createHeartbeatListenKey = M::constFirstPushKeyImporter(
-                    transport::MultiTransportBroadcastListenerInput { {
-                        heartbeatSpec
-                    } }
-                );
-                r.registerImporter(prefix+"/createHeartbeatListenKey", createHeartbeatListenKey);
+                typename R::template Sourceoid<HeartbeatMessage> hsMsgSource = std::visit([&r,&prefix,wireToUserHookForHeartbeat](auto const &hs) -> typename R::template Sourceoid<HeartbeatMessage> {
+                    using T = std::decay_t<decltype(hs)>;
+                    if constexpr (std::is_same_v<T, MultiTransportBroadcastListenerAddSubscription>) {
+                        auto createHeartbeatListenKey = M::constFirstPushKeyImporter(
+                            transport::MultiTransportBroadcastListenerInput { {
+                                hs
+                            } }
+                        );
+                        r.registerImporter(prefix+"/createHeartbeatListenKey", createHeartbeatListenKey);
 
-                auto discardTopicFromHeartbeat = M::template liftPure<basic::TypedDataWithTopic<HeartbeatMessage>>(
-                    [](basic::TypedDataWithTopic<HeartbeatMessage> &&d) {
-                        return std::move(d.content);
+                        auto discardTopicFromHeartbeat = M::template liftPure<basic::TypedDataWithTopic<HeartbeatMessage>>(
+                            [](basic::TypedDataWithTopic<HeartbeatMessage> &&d) {
+                                return std::move(d.content);
+                            }
+                        );
+                        r.registerAction(prefix+"/discardTopicFromHeartbeat", discardTopicFromHeartbeat);
+
+                        auto realHeartbeatSource = basic::AppRunnerUtilComponents<R>::importWithTrigger(
+                            r
+                            , r.importItem(createHeartbeatListenKey)
+                            , M::onOrderFacilityWithExternalEffects(
+                                new transport::MultiTransportBroadcastListener<typename M::EnvironmentType, HeartbeatMessage>(wireToUserHookForHeartbeat)
+                            )
+                            , std::nullopt //the trigger response is not needed
+                            , prefix+"/heartbeatListener"
+                        );
+                        return R::sourceAsSourceoid(r.execute(
+                            discardTopicFromHeartbeat
+                            , std::move(realHeartbeatSource)
+                        ));
+                    } else if constexpr (std::is_same_v<T, typename R::template Sourceoid<HeartbeatMessage>>) {
+                        return hs;
+                    } else {
+                        return typename R::template Sourceoid<HeartbeatMessage> {};
                     }
-                );
-                r.registerAction(prefix+"/discardTopicFromHeartbeat", discardTopicFromHeartbeat);
-
-                auto heartbeatSource = basic::AppRunnerUtilComponents<R>::importWithTrigger(
-                    r
-                    , r.importItem(createHeartbeatListenKey)
-                    , M::onOrderFacilityWithExternalEffects(
-                        new transport::MultiTransportBroadcastListener<typename M::EnvironmentType, HeartbeatMessage>(wireToUserHookForHeartbeat)
-                    )
-                    , std::nullopt //the trigger response is not needed
-                    , prefix+"/heartbeatListener"
-                );
+                }, heartbeatSource);
 
                 auto facilityCheckTimer = basic::real_time_clock::ClockImporter<typename M::EnvironmentType>
                     ::template createRecurringClockImporter<basic::VoidStruct>(
@@ -503,14 +519,8 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
 
                 r.registerAction(prefix+"/distinguishedBranch", distinguishedSpecInputBrancher);
                 
-                auto commands 
-                    = r.execute(
-                        heartbeatParser
-                        , r.execute(
-                            discardTopicFromHeartbeat
-                            , std::move(heartbeatSource)
-                        )
-                    );
+                hsMsgSource(r, r.actionAsSink_2_0(heartbeatParser));
+                auto commands = r.actionAsSource(heartbeatParser);
                 r.execute(heartbeatParser, std::move(timerInput));
                 auto distinguishedCommands
                     = r.execute(

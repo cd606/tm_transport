@@ -36,7 +36,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
         HeartbeatAndAlertComponent(HeartbeatAndAlertComponent &&);
         HeartbeatAndAlertComponent &operator=(HeartbeatAndAlertComponent &&);
         void assignIdentity(HeartbeatAndAlertComponent &&);
-        void addBroadcastChannel(std::string const &channel);
+        void addBroadcastChannel(std::string const &name, std::string const &channel);
         void addFacilityChannel(std::string const &name, std::string const &channel);
         void setStatus(std::string const &itemDescription, HeartbeatMessage::Status status, std::string const &info="");
         void sendAlert(std::string const &alertTopic, infra::LogLevel level, std::string const &message);

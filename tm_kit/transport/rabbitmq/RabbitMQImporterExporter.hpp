@@ -66,16 +66,17 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             };
             return M::importer(new LocalI(exchangeLocator, topic, wireToUserHook));
         }
-        static std::shared_ptr<typename M::template Exporter<basic::ByteDataWithTopic>> createExporter(ConnectionLocator const &exchangeLocator, std::optional<UserToWireHook> userToWireHook=std::nullopt) {
+        static std::shared_ptr<typename M::template Exporter<basic::ByteDataWithTopic>> createExporter(ConnectionLocator const &exchangeLocator, std::optional<UserToWireHook> userToWireHook=std::nullopt, std::string const &heartbeatName="") {
             class LocalE final : public M::template AbstractExporter<basic::ByteDataWithTopic> {
             private:
                 ConnectionLocator exchangeLocator_;
                 Env *env_;
                 std::function<void(std::string const &, basic::ByteDataWithTopic &&)> publisher_;
                 std::optional<UserToWireHook> userToWireHook_;
+                std::string heartbeatName_;
             public:
-                LocalE(ConnectionLocator const &exchangeLocator, std::optional<UserToWireHook> userToWireHook)
-                    : exchangeLocator_(exchangeLocator), env_(nullptr), publisher_(), userToWireHook_(userToWireHook)
+                LocalE(ConnectionLocator const &exchangeLocator, std::optional<UserToWireHook> userToWireHook, std::string const &heartbeatName)
+                    : exchangeLocator_(exchangeLocator), env_(nullptr), publisher_(), userToWireHook_(userToWireHook), heartbeatName_(heartbeatName)
                 {
                 }
                 virtual void start(Env *env) override final {
@@ -86,7 +87,8 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                         , HeartbeatAndAlertComponent *
                     >) {
                         static_cast<HeartbeatAndAlertComponent *>(env)->addBroadcastChannel(
-                            std::string("rabbitmq://")+exchangeLocator_.toSerializationFormat()
+                            heartbeatName_
+                            , std::string("rabbitmq://")+exchangeLocator_.toSerializationFormat()
                         );
                     }
                 }
@@ -96,18 +98,19 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                     }
                 }
             };
-            return M::exporter(new LocalE(exchangeLocator, userToWireHook));
+            return M::exporter(new LocalE(exchangeLocator, userToWireHook, heartbeatName));
         }
         template <class T>
-        static std::shared_ptr<typename M::template Exporter<basic::TypedDataWithTopic<T>>> createTypedExporter(ConnectionLocator const &exchangeLocator, std::optional<UserToWireHook> userToWireHook=std::nullopt) {
+        static std::shared_ptr<typename M::template Exporter<basic::TypedDataWithTopic<T>>> createTypedExporter(ConnectionLocator const &exchangeLocator, std::optional<UserToWireHook> userToWireHook=std::nullopt, std::string const &heartbeatName = "") {
             class LocalE final : public M::template AbstractExporter<basic::TypedDataWithTopic<T>> {
             private:
                 ConnectionLocator exchangeLocator_;
                 Env *env_;
                 std::function<void(std::string const &, basic::ByteDataWithTopic &&)> publisher_;
                 std::optional<UserToWireHook> userToWireHook_;
+                std::string heartbeatName_;
             public:
-                LocalE(ConnectionLocator const &exchangeLocator, std::optional<UserToWireHook> userToWireHook)
+                LocalE(ConnectionLocator const &exchangeLocator, std::optional<UserToWireHook> userToWireHook, std::string const &heartbeatName)
                     : exchangeLocator_(exchangeLocator), env_(nullptr), publisher_(), userToWireHook_(userToWireHook)
                 {
                 }
@@ -119,7 +122,8 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                         , HeartbeatAndAlertComponent *
                     >) {
                         static_cast<HeartbeatAndAlertComponent *>(env)->addBroadcastChannel(
-                            std::string("rabbitmq://")+exchangeLocator_.toSerializationFormat()
+                            heartbeatName_
+                            , std::string("rabbitmq://")+exchangeLocator_.toSerializationFormat()
                         );
                     }
                 }
@@ -130,7 +134,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                     }
                 }
             };
-            return M::exporter(new LocalE(exchangeLocator, userToWireHook));
+            return M::exporter(new LocalE(exchangeLocator, userToWireHook, heartbeatName));
         }
     };
 
