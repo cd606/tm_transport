@@ -55,3 +55,7 @@ The requirements of tm_transport are, in addition to requirements of tm_infra an
 Most of these can be installed through vcpkg. SimpleAmqpClient does not seem to have a vcpkg package as of the date of this writing, but can be installed from source by following the instructions of the package site. After installing the packages through vcpkg, sometimes a hand-written pkg-config file might be needed for meson to find the package, especially on Windows.
 
 The vcpkg-compiled offscale Etcd C++ library on Linux might not be compatible with clang, therefore it is not advised to use clang to compile projects using tm_transport.
+
+The Typescript code included in this package has been tested with Nodejs 14.12.0 and Typescript 3.9.3. (For possible issues with etcd3 package, please refer to the comment at the beginning of TMTransport.ts)
+
+The Python code included in this package has been tested with Python 3.9.0rc1.
