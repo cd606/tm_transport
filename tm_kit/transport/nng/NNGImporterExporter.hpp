@@ -36,14 +36,6 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                         }
                         , wireToUserHook_
                     );
-                    if constexpr (std::is_convertible_v<
-                        Env *
-                        , HeartbeatAndAlertComponent *
-                    >) {
-                        static_cast<HeartbeatAndAlertComponent *>(env)->addBroadcastChannel(
-                            std::string("nng://")+locator_.toSerializationFormat()
-                        );
-                    }
                 }
             };
             return M::importer(new LocalI(locator, topic, wireToUserHook));
@@ -72,14 +64,6 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                         }
                         , wireToUserHook_
                     );
-                    if constexpr (std::is_convertible_v<
-                        Env *
-                        , HeartbeatAndAlertComponent *
-                    >) {
-                        static_cast<HeartbeatAndAlertComponent *>(env)->addBroadcastChannel(
-                            std::string("nng://")+locator_.toSerializationFormat()
-                        );
-                    }
                 }
             };
             return M::importer(new LocalI(locator, topic, wireToUserHook));
@@ -99,6 +83,14 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 virtual void start(Env *env) override final {
                     env_ = env;
                     publisher_ = env->nng_getPublisher(locator_, userToWireHook_);
+                    if constexpr (std::is_convertible_v<
+                        Env *
+                        , HeartbeatAndAlertComponent *
+                    >) {
+                        static_cast<HeartbeatAndAlertComponent *>(env)->addBroadcastChannel(
+                            std::string("nng://")+locator_.toSerializationFormat()
+                        );
+                    }
                 }
                 virtual void handle(typename M::template InnerData<basic::ByteDataWithTopic> &&data) override final {
                     if (env_) {
@@ -124,6 +116,14 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 virtual void start(Env *env) override final {
                     env_ = env;
                     publisher_ = env->nng_getPublisher(locator_, userToWireHook_);
+                    if constexpr (std::is_convertible_v<
+                        Env *
+                        , HeartbeatAndAlertComponent *
+                    >) {
+                        static_cast<HeartbeatAndAlertComponent *>(env)->addBroadcastChannel(
+                            std::string("nng://")+locator_.toSerializationFormat()
+                        );
+                    }
                 }
                 virtual void handle(typename M::template InnerData<basic::TypedDataWithTopic<T>> &&data) override final {
                     if (env_) {
