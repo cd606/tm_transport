@@ -2,6 +2,7 @@
 #define TM_KIT_TRANSPORT_MULTI_TRANSPORT_BROADCAST_LISTENER_MANAGING_UTILS_HPP_
 
 #include <tm_kit/transport/MultiTransportBroadcastListener.hpp>
+#include <tm_kit/transport/HeartbeatMessage.hpp>
 
 #include <tm_kit/basic/CommonFlowUtils.hpp>
 #include <tm_kit/basic/AppRunnerUtils.hpp>
