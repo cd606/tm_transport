@@ -65,15 +65,40 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
         ConnectionLocator connectionLocator;
         std::string topicDescription; 
     };
+    inline std::ostream &operator<<(std::ostream &os, MultiTransportBroadcastListenerAddSubscription const &x) {
+        os << "MultiTransportBroadcastListenerAddSubscription{"
+            << "connectionType=" << MULTI_TRANSPORT_SUBSCRIBER_CONNECTION_TYPE_STR[static_cast<int>(x.connectionType)]
+            << ",connectionLocator=" << x.connectionLocator
+            << ",topicDescription='" << x.topicDescription << "'"
+            << '}';
+        return os;
+    }
     struct MultiTransportBroadcastListenerRemoveSubscription {
         MultiTransportBroadcastListenerConnectionType connectionType;
         uint32_t subscriptionID;
     };
+    inline std::ostream &operator<<(std::ostream &os, MultiTransportBroadcastListenerRemoveSubscription const &x) {
+        os << "MultiTransportBroadcastListenerRemoveSubscription{"
+            << "connectionType=" << MULTI_TRANSPORT_SUBSCRIBER_CONNECTION_TYPE_STR[static_cast<int>(x.connectionType)]
+            << ",subscriptionID=" << x.subscriptionID
+            << '}';
+        return os;
+    }
     struct MultiTransportBroadcastListenerAddSubscriptionResponse {
         uint32_t subscriptionID;
     };
+    inline std::ostream &operator<<(std::ostream &os, MultiTransportBroadcastListenerAddSubscriptionResponse const &x) {
+        os << "MultiTransportBroadcastListenerAddSubscriptionResponse{"
+            << "subscriptionID=" << x.subscriptionID
+            << '}';
+        return os;
+    }
     struct MultiTransportBroadcastListenerRemoveSubscriptionResponse {
     };
+    inline std::ostream &operator<<(std::ostream &os, MultiTransportBroadcastListenerRemoveSubscriptionResponse const &x) {
+        os << "MultiTransportBroadcastListenerRemoveSubscriptionResponse{}";
+        return os;
+    }
     using MultiTransportBroadcastListenerInput = basic::CBOR<
         std::variant<
             MultiTransportBroadcastListenerAddSubscription
@@ -130,6 +155,9 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
             typename Env::IDType id = std::move(input.timedData.value.id());
             std::visit([this,env,&id](auto &&x) {
                 using X = std::decay_t<decltype(x)>;
+                std::ostringstream oss;
+                oss << "[MultiTransportBroadcastListner::actuallyHandle] handling input " << x;
+                env->log(infra::LogLevel::Info, oss.str());
                 if constexpr (std::is_same_v<X, MultiTransportBroadcastListenerAddSubscription>) {
                     switch (x.connectionType) {
                     case MultiTransportBroadcastListenerConnectionType::Multicast:

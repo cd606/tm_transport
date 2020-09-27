@@ -132,6 +132,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
         static auto setupBroadcastListenerWithTopicThroughHeartbeat(
             R &r
             , typename R::template Sourceoid<HeartbeatMessage> heartbeatSource
+            , std::regex const &serverNameRE
             , std::string const &broadcastSourceLookupName
             , std::string const &broadcastTopic
             , std::string const &prefix
@@ -143,12 +144,18 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
             private:
                 std::unordered_set<std::string> seenLocators_;
                 std::mutex mutex_;
+                std::regex serverNameRE_;
                 std::string lookupName_;
                 std::string topic_;
             public:
-                AddSubscriptionCreator(std::string const &lookupName, std::string const &topic) : seenLocators_(), mutex_(), lookupName_(lookupName), topic_(topic) {}
+                AddSubscriptionCreator(std::regex const &serverNameRE, std::string const &lookupName, std::string const &topic) : seenLocators_(), mutex_(), serverNameRE_(serverNameRE), lookupName_(lookupName), topic_(topic) {}
+                AddSubscriptionCreator(AddSubscriptionCreator &&c)
+                    : seenLocators_(std::move(c.seenLocators_)), mutex_(), serverNameRE_(std::move(c.serverNameRE_)), lookupName_(std::move(c.lookupName_)), topic_(std::move(c.topic_)) {}
                 std::vector<MultiTransportBroadcastListenerInput> operator()(HeartbeatMessage &&msg) {
                     std::vector<MultiTransportBroadcastListenerInput> ret;
+                    if (!std::regex_match(msg.senderDescription(), serverNameRE_)) {
+                        return ret;
+                    }
                     std::lock_guard<std::mutex> _(mutex_);
                     auto iter = msg.broadcastChannels().find(lookupName_);
                     if (iter != msg.broadcastChannels().end() && !iter->second.empty()) {
@@ -172,7 +179,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                 }
             };
             auto addSubscriptionCreator = M::template liftMulti<HeartbeatMessage>(
-                AddSubscriptionCreator(broadcastSourceLookupName, broadcastTopic)
+                AddSubscriptionCreator(serverNameRE, broadcastSourceLookupName, broadcastTopic)
             );
             r.registerAction(prefix+"/addSubscriptionCreator", addSubscriptionCreator);
             heartbeatSource(r, r.actionAsSink(addSubscriptionCreator));
@@ -198,6 +205,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
         static auto setupBroadcastListenerThroughHeartbeat(
             R &r
             , typename R::template Sourceoid<HeartbeatMessage> heartbeatSource
+            , std::regex const &serverNameRE
             , std::string const &broadcastSourceLookupName
             , std::string const &broadcastTopic
             , std::string const &prefix
@@ -206,7 +214,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
             ->  typename R::template Source<InputType>
         {
             auto s = setupBroadcastListenerWithTopicThroughHeartbeat<InputType>(
-                r, heartbeatSource, broadcastSourceLookupName, broadcastTopic, prefix, hook
+                r, heartbeatSource, serverNameRE, broadcastSourceLookupName, broadcastTopic, prefix, hook
             );
             auto removeTopic = M::template liftPure<basic::TypedDataWithTopic<InputType>>(
                 [](basic::TypedDataWithTopic<InputType> &&d) -> InputType {
