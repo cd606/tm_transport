@@ -75,7 +75,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
         std::map<std::string,std::string> const &facilityChannels() const {
             return facilityChannels_;
         }
-        HeartbeatMessage::OneItemStatus const &status(std::string const &entry) const;
+        std::optional<HeartbeatMessage::OneItemStatus> status(std::string const &entry) const;
         std::unordered_set<std::string> allEntries() const;
         std::unordered_set<std::string> allEntriesRE(std::regex const &re) const;
     };

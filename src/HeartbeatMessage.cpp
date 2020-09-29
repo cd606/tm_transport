@@ -227,11 +227,10 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
         details_ = std::get<7>(x);
         return true; 
     }
-    HeartbeatMessage::OneItemStatus const &HeartbeatMessage::status(std::string const &entry) const {
-        static const HeartbeatMessage::OneItemStatus EMPTY_STATUS {Status::Unknown, ""};
+    std::optional<HeartbeatMessage::OneItemStatus> HeartbeatMessage::status(std::string const &entry) const {
         auto iter = details_.find(entry);
         if (iter == details_.end()) {
-            return EMPTY_STATUS;
+            return std::nullopt;
         } 
         return iter->second;
     }
