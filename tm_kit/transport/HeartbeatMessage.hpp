@@ -6,6 +6,7 @@
 #include <map>
 #include <unordered_set>
 #include <regex>
+#include <optional>
 
 namespace dev { namespace cd606 { namespace tm { namespace transport {
     class HeartbeatMessage {
