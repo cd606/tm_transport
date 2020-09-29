@@ -6,13 +6,6 @@
 #include <cstring>
 #include <sstream>
 
-#include <boost/property_tree/ptree.hpp>
-#include <boost/property_tree/json_parser.hpp>
-
-using boost::property_tree::ptree;
-using boost::property_tree::read_json;
-using boost::property_tree::write_json;
-
 namespace dev { namespace cd606 { namespace tm { namespace basic { namespace bytedata_utils {
     
     namespace {
@@ -175,7 +168,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
             , &facilityChannels_
             , &details_
         };
-        auto res = basic::bytedata_utils::RunCBORSerializerWithNameList<
+        *s = basic::bytedata_utils::RunCBORSerializerWithNameList<
             std::tuple<
                 std::string const *
                 , int64_t const *
@@ -195,8 +188,6 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                 , "details"
             }
         );
-        const char *p = reinterpret_cast<const char *>(res.data());
-        *s = std::string(p, p+res.size());
     }
     bool HeartbeatMessage::ParseFromString(std::string const &s) {
         auto t = basic::bytedata_utils::RunCBORDeserializerWithNameList<
