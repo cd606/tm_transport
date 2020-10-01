@@ -20,6 +20,7 @@
 #include <tm_kit/transport/zeromq/ZeroMQComponent.hpp>
 #include <tm_kit/transport/redis/RedisComponent.hpp>
 #include <tm_kit/transport/nng/NNGComponent.hpp>
+#include <tm_kit/transport/AbstractBroadcastHookFactoryComponent.hpp>
 
 namespace dev { namespace cd606 { namespace tm { namespace transport {
 
@@ -43,6 +44,10 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
         void publishHeartbeat(std::string const &heartbeatTopic);
     };
 
+    //Please note that the hook passed to the initializer will be used for
+    //both heartbeat and alert, and if no hook is passed, the default hook 
+    //for HeartbeatMessage, if any, will be used. (So default hook for AlertMessage
+    //will NOT take any effect)
     template <class Env, class TransportComponent>
     class HeartbeatAndAlertComponentInitializer {
     public:
@@ -57,12 +62,16 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
     class HeartbeatAndAlertComponentInitializer<Env, rabbitmq::RabbitMQComponent> {
     public:
         void operator()(Env *env, std::string const &identity, ConnectionLocator const &locator, std::optional<UserToWireHook> hook=std::nullopt) {
+            auto realHook = hook;
+            if (!realHook) {
+                realHook = DefaultHookFactory<Env>::template outgoingHook<HeartbeatMessage>(env);
+            }
             env->HeartbeatAndAlertComponent::assignIdentity(HeartbeatAndAlertComponent {
                 static_cast<basic::real_time_clock::ClockComponent *>(env)
                 , identity
                 , std::bind(
                     static_cast<rabbitmq::RabbitMQComponent *>(env)
-                        ->rabbitmq_getExchangePublisher(locator, hook)
+                        ->rabbitmq_getExchangePublisher(locator, realHook)
                     , std::string("")
                     , std::placeholders::_1
                 )
@@ -73,12 +82,16 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
     class HeartbeatAndAlertComponentInitializer<Env, multicast::MulticastComponent> {
     public:
         void operator()(Env *env, std::string const &identity, ConnectionLocator const &locator, std::optional<UserToWireHook> hook=std::nullopt) {
+            auto realHook = hook;
+            if (!realHook) {
+                realHook = DefaultHookFactory<Env>::template outgoingHook<HeartbeatMessage>(env);
+            }
             env->HeartbeatAndAlertComponent::assignIdentity(HeartbeatAndAlertComponent {
                 static_cast<basic::real_time_clock::ClockComponent *>(env)
                 , identity
                 , std::bind(
                     static_cast<multicast::MulticastComponent *>(env)
-                        ->multicast_getPublisher(locator, hook)
+                        ->multicast_getPublisher(locator, realHook)
                     , std::placeholders::_1
                     , 1
                 )
@@ -93,11 +106,15 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
         //from the PUB server. See e.g. https://stackoverflow.com/questions/45740168/zeromq-cppzmq-subscriber-skips-first-message
         void operator()(Env *env, std::string const &identity, ConnectionLocator const &locator, std::optional<UserToWireHook> hook=std::nullopt) {
             env->log(infra::LogLevel::Warning, "[HeartbeatAndAlertComponentInitializer] You are trying to use ZeroMQ transport to send heartbeat and alert messages. Due to a known issue, the first few messages sent on this transport are likely to get lost.");
+            auto realHook = hook;
+            if (!realHook) {
+                realHook = DefaultHookFactory<Env>::template outgoingHook<HeartbeatMessage>(env);
+            }
             env->HeartbeatAndAlertComponent::assignIdentity(HeartbeatAndAlertComponent {
                 static_cast<basic::real_time_clock::ClockComponent *>(env)
                 , identity
                 , static_cast<zeromq::ZeroMQComponent *>(env)
-                    ->zeroMQ_getPublisher(locator, hook)
+                    ->zeroMQ_getPublisher(locator, realHook)
             });
         }
     };
@@ -105,11 +122,15 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
     class HeartbeatAndAlertComponentInitializer<Env, redis::RedisComponent> {
     public:
         void operator()(Env *env, std::string const &identity, ConnectionLocator const &locator, std::optional<UserToWireHook> hook=std::nullopt) {
+            auto realHook = hook;
+            if (!realHook) {
+                realHook = DefaultHookFactory<Env>::template outgoingHook<HeartbeatMessage>(env);
+            }
             env->HeartbeatAndAlertComponent::assignIdentity(HeartbeatAndAlertComponent {
                 static_cast<basic::real_time_clock::ClockComponent *>(env)
                 , identity
                 , static_cast<redis::RedisComponent *>(env)
-                    ->redis_getPublisher(locator, hook)
+                    ->redis_getPublisher(locator, realHook)
             });
         }
     };
@@ -119,11 +140,15 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
         //Please refer to warning at zeromq initializer too
         void operator()(Env *env, std::string const &identity, ConnectionLocator const &locator, std::optional<UserToWireHook> hook=std::nullopt) {
             env->log(infra::LogLevel::Warning, "[HeartbeatAndAlertComponentInitializer] You are trying to use NNG transport to send heartbeat and alert messages. Due to a known issue, the first few messages sent on this transport are likely to get lost.");
+            auto realHook = hook;
+            if (!realHook) {
+                realHook = DefaultHookFactory<Env>::template outgoingHook<HeartbeatMessage>(env);
+            }
             env->HeartbeatAndAlertComponent::assignIdentity(HeartbeatAndAlertComponent {
                 static_cast<basic::real_time_clock::ClockComponent *>(env)
                 , identity
                 , static_cast<nng::NNGComponent *>(env)
-                    ->nng_getPublisher(locator, hook)
+                    ->nng_getPublisher(locator, realHook)
             });
         }
     };
