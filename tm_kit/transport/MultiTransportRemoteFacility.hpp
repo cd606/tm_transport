@@ -7,8 +7,9 @@
 
 #include <tm_kit/transport/multicast/MulticastComponent.hpp>
 #include <tm_kit/transport/rabbitmq/RabbitMQComponent.hpp>
+#include <tm_kit/transport/rabbitmq/RabbitMQOnOrderFacility.hpp>
 #include <tm_kit/transport/redis/RedisComponent.hpp>
-#include <tm_kit/transport/zeromq/ZeroMQComponent.hpp>
+#include <tm_kit/transport/redis/RedisOnOrderFacility.hpp>
 #include <tm_kit/transport/AbstractIdentityCheckerComponent.hpp>
 
 #include <type_traits>
@@ -33,6 +34,27 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
         "rabbitmq"
         , "redis"
     };
+
+    inline auto parseMultiTransportRemoteFacilityChannel(std::string const &s) 
+        -> std::optional<std::tuple<MultiTransportRemoteFacilityConnectionType, ConnectionLocator>>
+    {
+        size_t ii = 0;
+        for (auto const &item : MULTI_TRANSPORT_REMOTE_FACILITY_CONNECTION_TYPE_STR) {
+            if (boost::starts_with(s, item+"://")) {
+                try {
+                    auto locator = ConnectionLocator::parse(s.substr(item.length()+3));
+                    return std::tuple<MultiTransportRemoteFacilityConnectionType, ConnectionLocator> {
+                        static_cast<MultiTransportRemoteFacilityConnectionType>(ii)
+                        , locator
+                    };
+                } catch (ConnectionLocatorParseError const &) {
+                    return std::nullopt;
+                }
+            }
+            ++ii;
+        }
+        return std::nullopt;
+    }
     
     struct MultiTransportRemoteFacilityAction {
         MultiTransportRemoteFacilityActionType actionType;
@@ -424,6 +446,87 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                 , this
                 , std::move(input)
             ).detach();
+        }
+    };
+
+    template <class Env>
+    class OneShotMultiTransportRemoteFacilityCall {
+    public:
+        template <class A, class B>
+        static std::future<B> call(
+            Env *env
+            , MultiTransportRemoteFacilityConnectionType connType
+            , ConnectionLocator const &locator
+            , A &&request
+            , std::optional<ByteDataHookPair> hooks = std::nullopt
+        ) {
+            if (connType == MultiTransportRemoteFacilityConnectionType::RabbitMQ) {
+                if constexpr (std::is_convertible_v<Env *, rabbitmq::RabbitMQComponent *>) {
+                    return rabbitmq::RabbitMQOnOrderFacility<Env>::template typedOneShotRemoteCall<A,B>(
+                        env, locator, std::move(request), hooks
+                    );
+                } else {
+                    return std::async(std::launch::deferred, [] {return B{};});
+                }
+            } else if (connType == MultiTransportRemoteFacilityConnectionType::Redis) {
+                if constexpr (std::is_convertible_v<Env *, redis::RedisComponent *>) {
+                    return redis::RedisOnOrderFacility<Env>::template typedOneShotRemoteCall<A,B>(
+                        env, locator, std::move(request), hooks
+                    );
+                } else {
+                    return std::async(std::launch::deferred, [] {return B{};});
+                }
+            } else {
+                return std::async(std::launch::deferred, [] {return B{};});
+            }
+        }
+        template <class A, class B>
+        static std::future<B> call(
+            Env *env
+            , std::string const &facilityDescriptor
+            , A &&request
+            , std::optional<ByteDataHookPair> hooks = std::nullopt
+        ) {
+            auto parseRes = parseMultiTransportRemoteFacilityChannel(facilityDescriptor);
+            if (parseRes) {
+                return call<A,B>(env, std::get<0>(*parseRes), std::get<1>(*parseRes), std::move(request), hooks);
+            } else {
+                return std::async(std::launch::deferred, [] {return B{};});
+            }
+        }
+        template <class A, class B>
+        static void callNoReply(
+            Env *env
+            , MultiTransportRemoteFacilityConnectionType connType
+            , ConnectionLocator const &locator
+            , A &&request
+            , std::optional<ByteDataHookPair> hooks = std::nullopt
+        ) {
+            if (connType == MultiTransportRemoteFacilityConnectionType::RabbitMQ) {
+                if constexpr (std::is_convertible_v<Env *, rabbitmq::RabbitMQComponent *>) {
+                    rabbitmq::RabbitMQOnOrderFacility<Env>::template typedOneShotRemoteCallNoReply<A,B>(
+                        env, locator, std::move(request), hooks
+                    );
+                }
+            } else if (connType == MultiTransportRemoteFacilityConnectionType::Redis) {
+                if constexpr (std::is_convertible_v<Env *, redis::RedisComponent *>) {
+                    return redis::RedisOnOrderFacility<Env>::template typedOneShotRemoteCallNoReply<A,B>(
+                        env, locator, std::move(request), hooks
+                    );
+                }
+            }
+        }
+        template <class A, class B>
+        static void callNoReply(
+            Env *env
+            , std::string const &facilityDescriptor
+            , A &&request
+            , std::optional<ByteDataHookPair> hooks = std::nullopt
+        ) {
+            auto parseRes = parseMultiTransportRemoteFacilityChannel(facilityDescriptor);
+            if (parseRes) {
+                callNoReply<A,B>(env, std::get<0>(*parseRes), std::get<1>(*parseRes), std::move(request), hooks);
+            }
         }
     };
 
