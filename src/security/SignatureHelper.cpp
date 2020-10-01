@@ -71,7 +71,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             auto const &dataWithSignature = std::get<0>(*res);
             auto const &signature = std::get<0>(dataWithSignature);
             auto const &signedData = std::get<1>(dataWithSignature);
-            if (signature.content.length() != 64) {
+            if (signature.content.length() != crypto_sign_BYTES) {
                 return std::nullopt;
             }
 
