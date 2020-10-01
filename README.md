@@ -26,6 +26,8 @@ This package builds upon tm_infra and tm_basic, and provides the following pre-p
 
 * Certain pre-defined node combinations
 
+* Digital signature based identity attaching in facility calls
+
 INSTALLATION NOTES:
 
 The requirements of tm_transport are, in addition to requirements of tm_infra and tm_basic:
@@ -51,6 +53,8 @@ The requirements of tm_transport are, in addition to requirements of tm_infra an
 * CrossGuid (https://github.com/graeme-hill/crossguid)
 
 * Offscale Etcd C++ client library (https://github.com/offscale/libetcd-cpp)
+
+* libsodium
 
 Most of these can be installed through vcpkg. SimpleAmqpClient does not seem to have a vcpkg package as of the date of this writing, but can be installed from source by following the instructions of the package site. After installing the packages through vcpkg, sometimes a hand-written pkg-config file might be needed for meson to find the package, especially on Windows.
 
