@@ -179,7 +179,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             }
         }
 
-    public:
+    private:
         class WithoutIdentity {
         public:
             template <class A, class B>
@@ -763,7 +763,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 ConnectionLocator const &rpcQueueLocator
                 , std::string const &wrapperItemsNamePrefix
                 , std::optional<ByteDataHookPair> hooks = std::nullopt
-            ) -> typename infra::AppRunner<M>::template VIEFacilityWrapper<A,B,C,D> {
+            ) -> typename infra::AppRunner<M>::template VIEFacilityWrapper<std::tuple<Identity,A>,B,C,D> {
                 return { std::bind(wrapVIEOnOrderFacility<A,B,C,D>, std::placeholders::_1, std::placeholders::_2, rpcQueueLocator, wrapperItemsNamePrefix, hooks) };
             }
             template <class A, class B, class C, class D>
@@ -771,7 +771,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 ConnectionLocator const &rpcQueueLocator
                 , std::string const &wrapperItemsNamePrefix
                 , std::optional<ByteDataHookPair> hooks = std::nullopt
-            ) -> typename infra::AppRunner<M>::template VIEFacilityWrapper<A,B,C,D> {
+            ) -> typename infra::AppRunner<M>::template VIEFacilityWrapper<std::tuple<Identity,A>,B,C,D> {
                 return { std::bind(wrapVIEOnOrderFacilityWithoutReply<A,B,C,D>, std::placeholders::_1, std::placeholders::_2, rpcQueueLocator, wrapperItemsNamePrefix, hooks) };
             }
 
@@ -822,6 +822,259 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 });
             }
         };
+    public:
+        template <class A, class B>
+        static std::shared_ptr<typename M::template OnOrderFacility<A, B>> createTypedRPCOnOrderFacility(
+            ConnectionLocator const &locator
+            , std::optional<ByteDataHookPair> hooks = std::nullopt) {
+            if constexpr(DetermineClientSideIdentityForRequest<Env, A>::HasIdentity) {
+                return WithIdentity<typename DetermineClientSideIdentityForRequest<Env, A>::IdentityType>
+                    ::template createTypedRPCOnOrderFacility<A,B>(locator, hooks);
+            } else {
+                return WithoutIdentity
+                    ::template createTypedRPCOnOrderFacility<A,B>(locator, hooks);
+            }
+        }
+
+        template <class A, class B>
+        static void wrapOnOrderFacility(
+            infra::AppRunner<M> &runner
+            , std::shared_ptr<typename M::template OnOrderFacility<
+                typename DetermineServerSideIdentityForRequest<Env, A>::FullRequestType
+                , B
+            >> const &toBeWrapped
+            , ConnectionLocator const &rpcQueueLocator
+            , std::string const &wrapperItemsNamePrefix
+            , std::optional<ByteDataHookPair> hooks = std::nullopt
+        ) {
+            if constexpr(DetermineServerSideIdentityForRequest<Env, A>::HasIdentity) {
+                WithIdentity<typename DetermineServerSideIdentityForRequest<Env, A>::IdentityType>
+                    ::template wrapOnOrderFacility<A,B>(runner, toBeWrapped, rpcQueueLocator, wrapperItemsNamePrefix, hooks);
+            } else {
+                WithoutIdentity
+                    ::template wrapOnOrderFacility<A,B>(runner, toBeWrapped, rpcQueueLocator, wrapperItemsNamePrefix, hooks);
+            }
+        }
+        template <class A, class B>
+        static void wrapOnOrderFacilityWithoutReply(
+            infra::AppRunner<M> &runner
+            , std::shared_ptr<typename M::template OnOrderFacility<
+                typename DetermineServerSideIdentityForRequest<Env, A>::FullRequestType
+                , B
+            >> const &toBeWrapped
+            , ConnectionLocator const &rpcQueueLocator
+            , std::string const &wrapperItemsNamePrefix
+            , std::optional<ByteDataHookPair> hooks = std::nullopt
+        ) {
+            if constexpr(DetermineServerSideIdentityForRequest<Env, A>::HasIdentity) {
+                WithIdentity<typename DetermineServerSideIdentityForRequest<Env, A>::IdentityType>
+                    ::template wrapOnOrderFacilityWithoutReply<A,B>(runner, toBeWrapped, rpcQueueLocator, wrapperItemsNamePrefix, hooks);
+            } else {
+                WithoutIdentity
+                    ::template wrapOnOrderFacilityWithoutReply<A,B>(runner, toBeWrapped, rpcQueueLocator, wrapperItemsNamePrefix, hooks);
+            }
+        }
+        template <class A, class B, class C>
+        static void wrapLocalOnOrderFacility(
+            infra::AppRunner<M> &runner
+            , std::shared_ptr<typename M::template LocalOnOrderFacility<
+                typename DetermineServerSideIdentityForRequest<Env, A>::FullRequestType
+                , B, C
+            >> const &toBeWrapped
+            , ConnectionLocator const &rpcQueueLocator
+            , std::string const &wrapperItemsNamePrefix
+            , std::optional<ByteDataHookPair> hooks = std::nullopt
+        ) {
+            if constexpr(DetermineServerSideIdentityForRequest<Env, A>::HasIdentity) {
+                WithIdentity<typename DetermineServerSideIdentityForRequest<Env, A>::IdentityType>
+                    ::template wrapLocalOnOrderFacility<A,B,C>(runner, toBeWrapped, rpcQueueLocator, wrapperItemsNamePrefix, hooks);
+            } else {
+                WithoutIdentity
+                    ::template wrapLocalOnOrderFacility<A,B,C>(runner, toBeWrapped, rpcQueueLocator, wrapperItemsNamePrefix, hooks);
+            }
+        }
+        template <class A, class B, class C>
+        static void wrapLocalOnOrderFacilityWithoutReply(
+            infra::AppRunner<M> &runner
+            , std::shared_ptr<typename M::template LocalOnOrderFacility<
+                typename DetermineServerSideIdentityForRequest<Env, A>::FullRequestType
+                , B, C
+            >> const &toBeWrapped
+            , ConnectionLocator const &rpcQueueLocator
+            , std::string const &wrapperItemsNamePrefix
+            , std::optional<ByteDataHookPair> hooks = std::nullopt
+        ) {
+            if constexpr(DetermineServerSideIdentityForRequest<Env, A>::HasIdentity) {
+                WithIdentity<typename DetermineServerSideIdentityForRequest<Env, A>::IdentityType>
+                    ::template wrapLocalOnOrderFacilityWithoutReply<A,B,C>(runner, toBeWrapped, rpcQueueLocator, wrapperItemsNamePrefix, hooks);
+            } else {
+                WithoutIdentity
+                    ::template wrapLocalOnOrderFacilityWithoutReply<A,B,C>(runner, toBeWrapped, rpcQueueLocator, wrapperItemsNamePrefix, hooks);
+            }
+        }
+        template <class A, class B, class C>
+        static void wrapOnOrderFacilityWithExternalEffects(
+            infra::AppRunner<M> &runner
+            , std::shared_ptr<typename M::template OnOrderFacilityWithExternalEffects<
+                typename DetermineServerSideIdentityForRequest<Env, A>::FullRequestType
+                , B, C
+            >> const &toBeWrapped
+            , ConnectionLocator const &rpcQueueLocator
+            , std::string const &wrapperItemsNamePrefix
+            , std::optional<ByteDataHookPair> hooks = std::nullopt
+        ) {
+            if constexpr(DetermineServerSideIdentityForRequest<Env, A>::HasIdentity) {
+                WithIdentity<typename DetermineServerSideIdentityForRequest<Env, A>::IdentityType>
+                    ::template wrapOnOrderFacilityWithExternalEffects<A,B,C>(runner, toBeWrapped, rpcQueueLocator, wrapperItemsNamePrefix, hooks);
+            } else {
+                WithoutIdentity
+                    ::template wrapOnOrderFacilityWithExternalEffects<A,B,C>(runner, toBeWrapped, rpcQueueLocator, wrapperItemsNamePrefix, hooks);
+            }
+        }
+        template <class A, class B, class C>
+        static void wrapOnOrderFacilityWithExternalEffectsWithoutReply(
+            infra::AppRunner<M> &runner
+            , std::shared_ptr<typename M::template OnOrderFacilityWithExternalEffects<
+                typename DetermineServerSideIdentityForRequest<Env, A>::FullRequestType
+                , B, C
+            >> const &toBeWrapped
+            , ConnectionLocator const &rpcQueueLocator
+            , std::string const &wrapperItemsNamePrefix
+            , std::optional<ByteDataHookPair> hooks = std::nullopt
+        ) {
+            if constexpr(DetermineServerSideIdentityForRequest<Env, A>::HasIdentity) {
+                WithIdentity<typename DetermineServerSideIdentityForRequest<Env, A>::IdentityType>
+                    ::template wrapOnOrderFacilityWithExternalEffectsWithoutReply<A,B,C>(runner, toBeWrapped, rpcQueueLocator, wrapperItemsNamePrefix, hooks);
+            } else {
+                WithoutIdentity
+                    ::template wrapOnOrderFacilityWithExternalEffectsWithoutReply<A,B,C>(runner, toBeWrapped, rpcQueueLocator, wrapperItemsNamePrefix, hooks);
+            }
+        }
+        template <class A, class B, class C, class D>
+        static void wrapVIEOnOrderFacility(
+            infra::AppRunner<M> &runner
+            , std::shared_ptr<typename M::template VIEOnOrderFacility<
+                typename DetermineServerSideIdentityForRequest<Env, A>::FullRequestType
+                , B, C, D
+            >> const &toBeWrapped
+            , ConnectionLocator const &rpcQueueLocator
+            , std::string const &wrapperItemsNamePrefix
+            , std::optional<ByteDataHookPair> hooks = std::nullopt
+        ) {
+            if constexpr(DetermineServerSideIdentityForRequest<Env, A>::HasIdentity) {
+                WithIdentity<typename DetermineServerSideIdentityForRequest<Env, A>::IdentityType>
+                    ::template wrapVIEOnOrderFacility<A,B,C,D>(runner, toBeWrapped, rpcQueueLocator, wrapperItemsNamePrefix, hooks);
+            } else {
+                WithoutIdentity
+                    ::template wrapVIEOnOrderFacility<A,B,C,D>(runner, toBeWrapped, rpcQueueLocator, wrapperItemsNamePrefix, hooks);
+            }
+        }
+        template <class A, class B, class C, class D>
+        static void wrapVIEOnOrderFacilityWithoutReply(
+            infra::AppRunner<M> &runner
+            , std::shared_ptr<typename M::template VIEOnOrderFacility<
+                typename DetermineServerSideIdentityForRequest<Env, A>::FullRequestType
+                , B, C, D
+            >> const &toBeWrapped
+            , ConnectionLocator const &rpcQueueLocator
+            , std::string const &wrapperItemsNamePrefix
+            , std::optional<ByteDataHookPair> hooks = std::nullopt
+        ) {
+            if constexpr(DetermineServerSideIdentityForRequest<Env, A>::HasIdentity) {
+                WithIdentity<typename DetermineServerSideIdentityForRequest<Env, A>::IdentityType>
+                    ::template wrapVIEOnOrderFacilityWithoutReply<A,B,C,D>(runner, toBeWrapped, rpcQueueLocator, wrapperItemsNamePrefix, hooks);
+            } else {
+                WithoutIdentity
+                    ::template wrapVIEOnOrderFacilityWithoutReply<A,B,C,D>(runner, toBeWrapped, rpcQueueLocator, wrapperItemsNamePrefix, hooks);
+            }
+        }
+
+        template <class A, class B>
+        static auto facilityWrapper(
+            ConnectionLocator const &rpcQueueLocator
+            , std::string const &wrapperItemsNamePrefix
+            , std::optional<ByteDataHookPair> hooks = std::nullopt
+        ) -> typename infra::AppRunner<M>::template FacilityWrapper<typename DetermineServerSideIdentityForRequest<Env, A>::FullRequestType,B> {
+            return { std::bind(wrapOnOrderFacility<A,B>, std::placeholders::_1, std::placeholders::_2, rpcQueueLocator, wrapperItemsNamePrefix, hooks) };
+        }
+        template <class A, class B>
+        static auto facilityWrapperWithoutReply(
+            ConnectionLocator const &rpcQueueLocator
+            , std::string const &wrapperItemsNamePrefix
+            , std::optional<ByteDataHookPair> hooks = std::nullopt
+        ) -> typename infra::AppRunner<M>::template FacilityWrapper<typename DetermineServerSideIdentityForRequest<Env, A>::FullRequestType,B> {
+            return { std::bind(wrapOnOrderFacilityWithoutReply<A,B>, std::placeholders::_1, std::placeholders::_2, rpcQueueLocator, wrapperItemsNamePrefix, hooks) };
+        }
+        template <class A, class B, class C>
+        static auto localFacilityWrapperWithIdentity(
+            ConnectionLocator const &rpcQueueLocator
+            , std::string const &wrapperItemsNamePrefix
+            , std::optional<ByteDataHookPair> hooks = std::nullopt
+        ) -> typename infra::AppRunner<M>::template LocalFacilityWrapper<typename DetermineServerSideIdentityForRequest<Env, A>::FullRequestType,B,C> {
+            return { std::bind(wrapLocalOnOrderFacility<A,B,C>, std::placeholders::_1, std::placeholders::_2, rpcQueueLocator, wrapperItemsNamePrefix, hooks) };
+        }
+        template <class A, class B, class C>
+        static auto localFacilityWrapperWithoutReply(
+            ConnectionLocator const &rpcQueueLocator
+            , std::string const &wrapperItemsNamePrefix
+            , std::optional<ByteDataHookPair> hooks = std::nullopt
+        ) -> typename infra::AppRunner<M>::template LocalFacilityWrapper<typename DetermineServerSideIdentityForRequest<Env, A>::FullRequestType,B,C> {
+            return { std::bind(wrapLocalOnOrderFacilityWithoutReply<A,B,C>, std::placeholders::_1, std::placeholders::_2, rpcQueueLocator, wrapperItemsNamePrefix, hooks) };
+        }
+        template <class A, class B, class C>
+        static auto facilityWithExternalEffectsWrapperWithIdentity(
+            ConnectionLocator const &rpcQueueLocator
+            , std::string const &wrapperItemsNamePrefix
+            , std::optional<ByteDataHookPair> hooks = std::nullopt
+        ) -> typename infra::AppRunner<M>::template FacilityWithExternalEffectsWrapper<typename DetermineServerSideIdentityForRequest<Env, A>::FullRequestType,B,C> {
+            return { std::bind(wrapOnOrderFacilityWithExternalEffects<A,B,C>, std::placeholders::_1, std::placeholders::_2, rpcQueueLocator, wrapperItemsNamePrefix, hooks) };
+        }
+        template <class A, class B, class C>
+        static auto facilityWithExternalEffectsWrapperWithoutReply(
+            ConnectionLocator const &rpcQueueLocator
+            , std::string const &wrapperItemsNamePrefix
+            , std::optional<ByteDataHookPair> hooks = std::nullopt
+        ) -> typename infra::AppRunner<M>::template FacilityWithExternalEffectsWrapper<typename DetermineServerSideIdentityForRequest<Env, A>::FullRequestType,B,C> {
+            return { std::bind(wrapOnOrderFacilityWithExternalEffectsWithoutReply<A,B,C>, std::placeholders::_1, std::placeholders::_2, rpcQueueLocator, wrapperItemsNamePrefix, hooks) };
+        }
+        template <class A, class B, class C, class D>
+        static auto vieFacilityWrapper(
+            ConnectionLocator const &rpcQueueLocator
+            , std::string const &wrapperItemsNamePrefix
+            , std::optional<ByteDataHookPair> hooks = std::nullopt
+        ) -> typename infra::AppRunner<M>::template VIEFacilityWrapper<typename DetermineServerSideIdentityForRequest<Env, A>::FullRequestType,B,C,D> {
+            return { std::bind(wrapVIEOnOrderFacility<A,B,C,D>, std::placeholders::_1, std::placeholders::_2, rpcQueueLocator, wrapperItemsNamePrefix, hooks) };
+        }
+        template <class A, class B, class C, class D>
+        static auto vieFacilityWrapperWithoutReply(
+            ConnectionLocator const &rpcQueueLocator
+            , std::string const &wrapperItemsNamePrefix
+            , std::optional<ByteDataHookPair> hooks = std::nullopt
+        ) -> typename infra::AppRunner<M>::template VIEFacilityWrapper<typename DetermineServerSideIdentityForRequest<Env, A>::FullRequestType,B,C,D> {
+            return { std::bind(wrapVIEOnOrderFacilityWithoutReply<A,B,C,D>, std::placeholders::_1, std::placeholders::_2, rpcQueueLocator, wrapperItemsNamePrefix, hooks) };
+        }
+
+        template <class A, class B>
+        static std::future<B> typedOneShotRemoteCall(Env *env, ConnectionLocator const &rpcQueueLocator, A &&request, std::optional<ByteDataHookPair> hooks = std::nullopt) {
+            if constexpr(DetermineClientSideIdentityForRequest<Env, A>::HasIdentity) {
+                return WithIdentity<typename DetermineClientSideIdentityForRequest<Env, A>::IdentityType>
+                    ::template typedOneShotRemoteCall<A,B>(env, rpcQueueLocator, std::move(request), hooks);
+            } else {
+                return WithoutIdentity
+                    ::template typedOneShotRemoteCall<A,B>(env, rpcQueueLocator, std::move(request), hooks);
+            }
+        }
+
+        template <class A>
+        static void typedOneShotRemoteCallNoReply(Env *env, ConnectionLocator const &rpcQueueLocator, A &&request, std::optional<ByteDataHookPair> hooks = std::nullopt) {
+            if constexpr(DetermineClientSideIdentityForRequest<Env, A>::HasIdentity) {
+                WithIdentity<typename DetermineClientSideIdentityForRequest<Env, A>::IdentityType>
+                    ::template typedOneShotRemoteCallNoReply<A>(env, rpcQueueLocator, std::move(request), hooks);
+            } else {
+                WithoutIdentity
+                    ::template typedOneShotRemoteCallNoReply<A>(env, rpcQueueLocator, std::move(request), hooks);
+            }
+        }
 
     };
 
