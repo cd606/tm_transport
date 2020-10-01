@@ -53,7 +53,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 }
                 virtual void start(Env *env) override final {
                     if (!wireToUserHook_) {
-                        wireToUserHook_ = DefaultHookFactory<Env>::template incomingHook<T>(env);
+                        wireToUserHook_ = DefaultBroadcastHookFactory<Env>::template incomingHook<T>(env);
                     }
                     env->rabbitmq_addExchangeSubscriptionClient(
                         exchangeLocator_
@@ -121,7 +121,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 virtual void start(Env *env) override final {
                     env_ = env;
                     if (!userToWireHook_) {
-                        userToWireHook_ = DefaultHookFactory<Env>::template outgoingHook<T>(env);
+                        userToWireHook_ = DefaultBroadcastHookFactory<Env>::template outgoingHook<T>(env);
                     }
                     publisher_ = env_->rabbitmq_getExchangePublisher(exchangeLocator_, userToWireHook_);
                     if constexpr (std::is_convertible_v<

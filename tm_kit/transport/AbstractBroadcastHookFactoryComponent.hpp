@@ -21,7 +21,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
     };
 
     template <class Env>
-    class DefaultHookFactory {
+    class DefaultBroadcastHookFactory {
     public:
         template <class DataT>
         static std::optional<UserToWireHook> outgoingHook(Env *env) {
