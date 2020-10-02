@@ -13,7 +13,7 @@ namespace dev { namespace cd606 { namespace tm {namespace transport {namespace s
         SignatureHelper::Signer signer_;
     public:
         ClientSideSignatureBasedIdentityAttacherComponent() : signer_() {}
-        ClientSideSignatureBasedIdentityAttacherComponent(std::string const &name, SignatureHelper::PrivateKey const &privateKey) : signer_(name, privateKey) {}
+        ClientSideSignatureBasedIdentityAttacherComponent(SignatureHelper::PrivateKey const &privateKey) : signer_(privateKey) {}
         ClientSideSignatureBasedIdentityAttacherComponent(ClientSideSignatureBasedIdentityAttacherComponent const &) = delete;
         ClientSideSignatureBasedIdentityAttacherComponent &operator=(ClientSideSignatureBasedIdentityAttacherComponent const &) = delete;
         ClientSideSignatureBasedIdentityAttacherComponent(ClientSideSignatureBasedIdentityAttacherComponent &&) = default;

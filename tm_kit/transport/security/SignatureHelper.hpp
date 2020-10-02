@@ -28,7 +28,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             std::unique_ptr<SignerImpl> impl_;
         public:
             Signer();
-            Signer(std::string const &name, PrivateKey const &privateKey);
+            Signer(PrivateKey const &privateKey);
             ~Signer();
             Signer(Signer const &) = delete;
             Signer &operator=(Signer const &) = delete;

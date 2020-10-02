@@ -7,11 +7,10 @@
 namespace dev { namespace cd606 { namespace tm { namespace transport { namespace security {
     class SignerImpl {
     private:
-        std::string name_;
         std::array<unsigned char, crypto_sign_SECRETKEYBYTES> privateKey_;
     public:
-        SignerImpl(std::string const &name, std::array<unsigned char, crypto_sign_SECRETKEYBYTES> const &privateKey) : 
-            name_(name), privateKey_(privateKey) {}
+        SignerImpl(std::array<unsigned char, crypto_sign_SECRETKEYBYTES> const &privateKey) : 
+            privateKey_(privateKey) {}
         ~SignerImpl() {}
         basic::ByteData sign(basic::ByteData &&data) {       
             std::array<unsigned char, crypto_sign_BYTES> signature;
@@ -32,8 +31,8 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
     };
     
     SignatureHelper::Signer::Signer() : impl_() {}
-    SignatureHelper::Signer::Signer(std::string const &name, SignatureHelper::PrivateKey const &privateKey)
-        : impl_(std::make_unique<SignerImpl>(name, privateKey))
+    SignatureHelper::Signer::Signer(SignatureHelper::PrivateKey const &privateKey)
+        : impl_(std::make_unique<SignerImpl>(privateKey))
         {}
     SignatureHelper::Signer::~Signer() {}
     SignatureHelper::Signer::Signer(SignatureHelper::Signer &&) = default;
