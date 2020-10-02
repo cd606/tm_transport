@@ -21,6 +21,7 @@
 #include <tm_kit/transport/redis/RedisComponent.hpp>
 #include <tm_kit/transport/nng/NNGComponent.hpp>
 #include <tm_kit/transport/AbstractBroadcastHookFactoryComponent.hpp>
+#include <tm_kit/transport/MultiTransportBroadcastListener.hpp>
 
 namespace dev { namespace cd606 { namespace tm { namespace transport {
 
@@ -152,6 +153,67 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
             });
         }
     };
+
+    template <class Env>
+    inline void initializeHeartbeatAndAlertComponent(
+        Env *env
+        , std::string const &identity
+        , MultiTransportBroadcastListenerConnectionType connType
+        , ConnectionLocator const &locator 
+        , std::optional<UserToWireHook> hook = std::nullopt
+    ) {
+        switch (connType) {
+        case MultiTransportBroadcastListenerConnectionType::Multicast:
+            if constexpr (std::is_convertible_v<Env *, multicast::MulticastComponent *>) {
+                HeartbeatAndAlertComponentInitializer<Env, multicast::MulticastComponent>()(
+                    env, identity, locator, hook
+                );
+            }
+            break;
+        case MultiTransportBroadcastListenerConnectionType::RabbitMQ:
+            if constexpr (std::is_convertible_v<Env *, rabbitmq::RabbitMQComponent *>) {
+                HeartbeatAndAlertComponentInitializer<Env, rabbitmq::RabbitMQComponent>()(
+                    env, identity, locator, hook
+                );
+            }
+            break;
+        case MultiTransportBroadcastListenerConnectionType::Redis:
+            if constexpr (std::is_convertible_v<Env *, redis::RedisComponent *>) {
+                HeartbeatAndAlertComponentInitializer<Env, redis::RedisComponent>()(
+                    env, identity, locator, hook
+                );
+            }
+            break;
+        case MultiTransportBroadcastListenerConnectionType::ZeroMQ:
+            if constexpr (std::is_convertible_v<Env *, zeromq::ZeroMQComponent *>) {
+                HeartbeatAndAlertComponentInitializer<Env, zeromq::ZeroMQComponent>()(
+                    env, identity, locator, hook
+                );
+            }
+            break;
+        case MultiTransportBroadcastListenerConnectionType::NNG:
+            if constexpr (std::is_convertible_v<Env *, nng::NNGComponent *>) {
+                HeartbeatAndAlertComponentInitializer<Env, nng::NNGComponent>()(
+                    env, identity, locator, hook
+                );
+            }
+            break;
+        default:
+            break;
+        }
+    }
+    template <class Env>
+    inline void initializeHeartbeatAndAlertComponent(
+        Env *env
+        , std::string const &identity
+        , std::string const &channelDescriptor 
+        , std::optional<UserToWireHook> hook = std::nullopt
+    ) {
+        auto parsed = parseMultiTransportBroadcastChannel(channelDescriptor);
+        if (parsed) {
+            initializeHeartbeatAndAlertComponent<Env>(env, identity, std::get<0>(*parsed), std::get<1>(*parsed), hook);
+        }
+    }
 
     template <class R
         , std::enable_if_t<
