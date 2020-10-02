@@ -168,6 +168,8 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                 HeartbeatAndAlertComponentInitializer<Env, multicast::MulticastComponent>()(
                     env, identity, locator, hook
                 );
+            } else {
+                throw std::runtime_error("initializeHeartbeatAndAlertComponent: connection type Multicast not supported in environment");
             }
             break;
         case MultiTransportBroadcastListenerConnectionType::RabbitMQ:
@@ -175,6 +177,8 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                 HeartbeatAndAlertComponentInitializer<Env, rabbitmq::RabbitMQComponent>()(
                     env, identity, locator, hook
                 );
+            } else {
+                throw std::runtime_error("initializeHeartbeatAndAlertComponent: connection type RabbitMQ not supported in environment");
             }
             break;
         case MultiTransportBroadcastListenerConnectionType::Redis:
@@ -182,6 +186,8 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                 HeartbeatAndAlertComponentInitializer<Env, redis::RedisComponent>()(
                     env, identity, locator, hook
                 );
+            } else {
+                throw std::runtime_error("initializeHeartbeatAndAlertComponent: connection type Redis not supported in environment");
             }
             break;
         case MultiTransportBroadcastListenerConnectionType::ZeroMQ:
@@ -189,6 +195,8 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                 HeartbeatAndAlertComponentInitializer<Env, zeromq::ZeroMQComponent>()(
                     env, identity, locator, hook
                 );
+            } else {
+                throw std::runtime_error("initializeHeartbeatAndAlertComponent: connection type ZeroMQ not supported in environment");
             }
             break;
         case MultiTransportBroadcastListenerConnectionType::NNG:
@@ -196,9 +204,12 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                 HeartbeatAndAlertComponentInitializer<Env, nng::NNGComponent>()(
                     env, identity, locator, hook
                 );
+            } else {
+                throw std::runtime_error("initializeHeartbeatAndAlertComponent: connection type NNG not supported in environment");
             }
             break;
         default:
+            throw std::runtime_error("initializeHeartbeatAndAlertComponent: bad connection type");
             break;
         }
     }
@@ -212,6 +223,8 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
         auto parsed = parseMultiTransportBroadcastChannel(channelDescriptor);
         if (parsed) {
             initializeHeartbeatAndAlertComponent<Env>(env, identity, std::get<0>(*parsed), std::get<1>(*parsed), hook);
+        } else {
+            throw std::runtime_error("initializeHeartbeatAndAlertComponent: Bad channel descriptor '"+channelDescriptor+"'");
         }
     }
 
