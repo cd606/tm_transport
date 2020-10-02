@@ -10,6 +10,7 @@
 #include <tm_kit/transport/redis/RedisComponent.hpp>
 #include <tm_kit/transport/zeromq/ZeroMQComponent.hpp>
 #include <tm_kit/transport/nng/NNGComponent.hpp>
+#include <tm_kit/transport/AbstractBroadcastHookFactoryComponent.hpp>
 
 #include <type_traits>
 #include <regex>
@@ -163,6 +164,10 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                     case MultiTransportBroadcastListenerConnectionType::Multicast:
                         if constexpr (std::is_convertible_v<Env *, multicast::MulticastComponent *>) {
                             auto *component = static_cast<multicast::MulticastComponent *>(env);
+                            auto actualHook = wireToUserHook_;
+                            if (!actualHook) {
+                                actualHook = DefaultBroadcastHookFactory<Env>::template incomingHook<T>(env);
+                            }
                             auto res = component->multicast_addSubscriptionClient(
                                 x.connectionLocator
                                 , parseTopic<multicast::MulticastComponent>(x.topicDescription)
@@ -172,7 +177,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                                         this->ImporterParent::publish(M::template pureInnerData<basic::TypedDataWithTopic<T>>(env, {std::move(d.topic), std::move(*t)}));
                                     }
                                 }
-                                , wireToUserHook_
+                                , actualHook
                             );
                             this->FacilityParent::publish(
                                 env
@@ -200,6 +205,10 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                     case MultiTransportBroadcastListenerConnectionType::RabbitMQ:
                         if constexpr (std::is_convertible_v<Env *, rabbitmq::RabbitMQComponent *>) {
                             auto *component = static_cast<rabbitmq::RabbitMQComponent *>(env);
+                            auto actualHook = wireToUserHook_;
+                            if (!actualHook) {
+                                actualHook = DefaultBroadcastHookFactory<Env>::template incomingHook<T>(env);
+                            }
                             auto res = component->rabbitmq_addExchangeSubscriptionClient(
                                 x.connectionLocator
                                 , x.topicDescription
@@ -209,7 +218,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                                         this->ImporterParent::publish(M::template pureInnerData<basic::TypedDataWithTopic<T>>(env, {std::move(d.topic), std::move(*t)}));
                                     }
                                 }
-                                , wireToUserHook_
+                                , actualHook
                             );
                             this->FacilityParent::publish(
                                 env
@@ -237,6 +246,10 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                     case MultiTransportBroadcastListenerConnectionType::Redis:
                         if constexpr (std::is_convertible_v<Env *, redis::RedisComponent *>) {
                             auto *component = static_cast<redis::RedisComponent *>(env);
+                            auto actualHook = wireToUserHook_;
+                            if (!actualHook) {
+                                actualHook = DefaultBroadcastHookFactory<Env>::template incomingHook<T>(env);
+                            }
                             auto res = component->redis_addSubscriptionClient(
                                 x.connectionLocator
                                 , x.topicDescription
@@ -246,7 +259,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                                         this->ImporterParent::publish(M::template pureInnerData<basic::TypedDataWithTopic<T>>(env, {std::move(d.topic), std::move(*t)}));
                                     }
                                 }
-                                , wireToUserHook_
+                                , actualHook
                             );
                             this->FacilityParent::publish(
                                 env
@@ -274,6 +287,10 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                     case MultiTransportBroadcastListenerConnectionType::ZeroMQ:
                         if constexpr (std::is_convertible_v<Env *, zeromq::ZeroMQComponent *>) {
                             auto *component = static_cast<zeromq::ZeroMQComponent *>(env);
+                            auto actualHook = wireToUserHook_;
+                            if (!actualHook) {
+                                actualHook = DefaultBroadcastHookFactory<Env>::template incomingHook<T>(env);
+                            }
                             auto res = component->zeroMQ_addSubscriptionClient(
                                 x.connectionLocator
                                 , parseTopic<zeromq::ZeroMQComponent>(x.topicDescription)
@@ -283,7 +300,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                                         this->ImporterParent::publish(M::template pureInnerData<basic::TypedDataWithTopic<T>>(env, {std::move(d.topic), std::move(*t)}));
                                     }
                                 }
-                                , wireToUserHook_
+                                , actualHook
                             );
                             this->FacilityParent::publish(
                                 env
@@ -311,6 +328,10 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                     case MultiTransportBroadcastListenerConnectionType::NNG:
                         if constexpr (std::is_convertible_v<Env *, nng::NNGComponent *>) {
                             auto *component = static_cast<nng::NNGComponent *>(env);
+                            auto actualHook = wireToUserHook_;
+                            if (!actualHook) {
+                                actualHook = DefaultBroadcastHookFactory<Env>::template incomingHook<T>(env);
+                            }
                             auto res = component->nng_addSubscriptionClient(
                                 x.connectionLocator
                                 , parseTopic<nng::NNGComponent>(x.topicDescription)
@@ -320,7 +341,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                                         this->ImporterParent::publish(M::template pureInnerData<basic::TypedDataWithTopic<T>>(env, {std::move(d.topic), std::move(*t)}));
                                     }
                                 }
-                                , wireToUserHook_
+                                , actualHook
                             );
                             this->FacilityParent::publish(
                                 env
