@@ -109,6 +109,11 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
     void SignatureHelper::Verifier::addKey(std::string const &name, SignatureHelper::PublicKey const &publicKey) {
         impl_->addKey(name,publicKey);
     }
+    void SignatureHelper::Verifier::addKeys(SignatureHelper::PublicKeyMap const &keys) {
+        for (auto const &k : keys) {
+            impl_->addKey(k.first, k.second);
+        }
+    }
     std::optional<std::tuple<std::string,basic::ByteData>> SignatureHelper::Verifier::verify(basic::ByteData &&data) {
         return impl_->verify(std::move(data));
     }

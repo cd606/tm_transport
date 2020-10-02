@@ -7,6 +7,7 @@
 #include <string>
 #include <tuple>
 #include <optional>
+#include <unordered_map>
 #include <tm_kit/basic/ByteData.hpp>
 
 #include <sodium/crypto_sign.h>
@@ -22,6 +23,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
 
         using PublicKey = std::array<unsigned char, PublicKeyLength>;
         using PrivateKey = std::array<unsigned char, PrivateKeyLength>;
+        using PublicKeyMap = std::unordered_map<std::string, PublicKey>;
 
         class Signer {
         private:
@@ -48,6 +50,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             Verifier(Verifier &&);
             Verifier &operator=(Verifier &&);
             void addKey(std::string const &name, PublicKey const &publicKey);
+            void addKeys(PublicKeyMap const &keys);
             std::optional<std::tuple<std::string,basic::ByteData>> verify(basic::ByteData &&);
         };
     };

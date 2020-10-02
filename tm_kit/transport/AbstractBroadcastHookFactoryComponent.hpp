@@ -20,6 +20,31 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
         virtual WireToUserHook defaultHook() = 0;
     };
 
+    template <class DataT>
+    class EmptyOutgoingBroadcastHookFactoryComponent final : public AbstractOutgoingBroadcastHookFactoryComponent<DataT> {
+    public:
+        virtual ~EmptyOutgoingBroadcastHookFactoryComponent() {}
+        virtual UserToWireHook defaultHook() override final {
+            return UserToWireHook {
+                [](basic::ByteData &&d) -> basic::ByteData {
+                    return std::move(d);
+                }
+            };
+        }
+    };
+    template <class DataT>
+    class EmptyIncomingBroadcastHookFactoryComponent final : public AbstractIncomingBroadcastHookFactoryComponent<DataT> {
+    public:
+        virtual ~EmptyIncomingBroadcastHookFactoryComponent() {}
+        virtual WireToUserHook defaultHook() override final {
+            return WireToUserHook {
+                [](basic::ByteData &&d) -> std::optional<basic::ByteData> {
+                    return { std::move(d) };
+                }
+            };
+        }
+    };
+
     template <class Env>
     class DefaultBroadcastHookFactory {
     public:
