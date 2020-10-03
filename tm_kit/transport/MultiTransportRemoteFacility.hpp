@@ -180,7 +180,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                                     , isFinal
                                 );
                             }
-                            , hookPairFactory_(description, locator)
+                            , DefaultHookFactory<Env>::template supplyFacilityHookPair_ClientSide<A,B>(env, hookPairFactory_(description, locator))
                         );
                         RequestSender req;
                         if constexpr (std::is_same_v<Identity,void>) {
@@ -247,7 +247,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                                     , isFinal
                                 );
                             }
-                            , hookPairFactory_(description, locator)
+                            , DefaultHookFactory<Env>::template supplyFacilityHookPair_ClientSide<A,B>(env, hookPairFactory_(description, locator))
                         );
                         RequestSender req;
                         if constexpr (std::is_same_v<Identity,void>) {

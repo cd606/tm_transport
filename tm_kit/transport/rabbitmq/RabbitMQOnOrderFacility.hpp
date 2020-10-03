@@ -246,7 +246,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                                 return;
                             }
                             this->publish(env_, typename M::template Key<B> {Env::id_from_string(std::get<0>(parseRes).id), std::move(*result)}, (std::get<1>(parseRes)?std::get<1>(parseRes)->isFinal:false));
-                        }, hooks_);
+                        }, DefaultHookFactory<Env>::template supplyFacilityHookPair_ClientSide<A,B>(env_, hooks_));
                     }
                     virtual void handle(typename M::template InnerData<typename M::template Key<A>> &&data) override final {
                         if (env_) {
@@ -271,7 +271,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 , std::string const &wrapperItemsNamePrefix
                 , std::optional<ByteDataHookPair> hooks = std::nullopt
             ) {
-                auto importerExporterPair = createOnOrderFacilityRPCConnectorIncomingAndOutgoingLegs(rpcQueueLocator, hooks);
+                auto importerExporterPair = createOnOrderFacilityRPCConnectorIncomingAndOutgoingLegs(rpcQueueLocator, DefaultHookFactory<Env>::template supplyFacilityHookPair_ServerSide<A,B>(runner.environment(), hooks));
                 auto deserializer = simplyDeserialize<A>();
                 auto serializer = basic::SerializationActions<M>::template serializeWithKey<A,B>();
 
@@ -293,7 +293,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 , std::string const &wrapperItemsNamePrefix
                 , std::optional<ByteDataHookPair> hooks = std::nullopt
             ) {
-                auto importer = createOnOrderFacilityRPCConnectorIncomingLegOnly(rpcQueueLocator, hooks);
+                auto importer = createOnOrderFacilityRPCConnectorIncomingLegOnly(rpcQueueLocator, DefaultHookFactory<Env>::template supplyFacilityHookPair_ServerSide<A,B>(runner.environment(), hooks));
                 auto deserializer = simplyDeserialize<A>();
 
                 runner.registerImporter(importer, wrapperItemsNamePrefix+"_incomingLeg");
@@ -311,7 +311,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 , std::string const &wrapperItemsNamePrefix
                 , std::optional<ByteDataHookPair> hooks = std::nullopt
             ) {
-                auto importerExporterPair = createOnOrderFacilityRPCConnectorIncomingAndOutgoingLegs(rpcQueueLocator, hooks);
+                auto importerExporterPair = createOnOrderFacilityRPCConnectorIncomingAndOutgoingLegs(rpcQueueLocator, DefaultHookFactory<Env>::template supplyFacilityHookPair_ServerSide<A,B>(runner.environment(), hooks));
                 auto deserializer = simplyDeserialize<A>();
                 auto serializer = basic::SerializationActions<M>::template serializeWithKey<A,B>();
 
@@ -333,7 +333,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 , std::string const &wrapperItemsNamePrefix
                 , std::optional<ByteDataHookPair> hooks = std::nullopt
             ) {
-                auto importer = createOnOrderFacilityRPCConnectorIncomingLegOnly(rpcQueueLocator, hooks);
+                auto importer = createOnOrderFacilityRPCConnectorIncomingLegOnly(rpcQueueLocator, DefaultHookFactory<Env>::template supplyFacilityHookPair_ServerSide<A,B>(runner.environment(), hooks));
                 auto deserializer = simplyDeserialize<A>();
 
                 runner.registerImporter(importer, wrapperItemsNamePrefix+"_incomingLeg");
@@ -351,7 +351,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 , std::string const &wrapperItemsNamePrefix
                 , std::optional<ByteDataHookPair> hooks = std::nullopt
             ) {
-                auto importerExporterPair = createOnOrderFacilityRPCConnectorIncomingAndOutgoingLegs(rpcQueueLocator, hooks);
+                auto importerExporterPair = createOnOrderFacilityRPCConnectorIncomingAndOutgoingLegs(rpcQueueLocator, DefaultHookFactory<Env>::template supplyFacilityHookPair_ServerSide<A,B>(runner.environment(), hooks));
                 auto deserializer = simplyDeserialize<A>();
                 auto serializer = basic::SerializationActions<M>::template serializeWithKey<A,B>();
 
@@ -373,7 +373,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 , std::string const &wrapperItemsNamePrefix
                 , std::optional<ByteDataHookPair> hooks = std::nullopt
             ) {
-                auto importer = createOnOrderFacilityRPCConnectorIncomingLegOnly(rpcQueueLocator, hooks);
+                auto importer = createOnOrderFacilityRPCConnectorIncomingLegOnly(rpcQueueLocator, DefaultHookFactory<Env>::template supplyFacilityHookPair_ServerSide<A,B>(runner.environment(), hooks));
                 auto deserializer = simplyDeserialize<A>();
 
                 runner.registerImporter(importer, wrapperItemsNamePrefix+"_incomingLeg");
@@ -391,7 +391,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 , std::string const &wrapperItemsNamePrefix
                 , std::optional<ByteDataHookPair> hooks = std::nullopt
             ) {
-                auto importerExporterPair = createOnOrderFacilityRPCConnectorIncomingAndOutgoingLegs(rpcQueueLocator, hooks);
+                auto importerExporterPair = createOnOrderFacilityRPCConnectorIncomingAndOutgoingLegs(rpcQueueLocator, DefaultHookFactory<Env>::template supplyFacilityHookPair_ServerSide<A,B>(runner.environment(), hooks));
                 auto deserializer = simplyDeserialize<A>();
                 auto serializer = basic::SerializationActions<M>::template serializeWithKey<A,B>();
 
@@ -413,7 +413,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 , std::string const &wrapperItemsNamePrefix
                 , std::optional<ByteDataHookPair> hooks = std::nullopt
             ) {
-                auto importer = createOnOrderFacilityRPCConnectorIncomingLegOnly(rpcQueueLocator, hooks);
+                auto importer = createOnOrderFacilityRPCConnectorIncomingLegOnly(rpcQueueLocator, DefaultHookFactory<Env>::template supplyFacilityHookPair_ServerSide<A,B>(runner.environment(), hooks));
                 auto deserializer = simplyDeserialize<A>();
 
                 runner.registerImporter(importer, wrapperItemsNamePrefix+"_incomingLeg");
@@ -501,7 +501,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                         return;
                     }
                     ret->set_value(std::move(*val));
-                }, hooks);
+                }, DefaultHookFactory<Env>::template supplyFacilityHookPair_ClientSide<A,B>(env, hooks));
                 sendRequest(env, requester, basic::ByteDataWithID {
                     Env::id_to_string(keyInput.id())
                     , std::move(keyInput.key().content)
@@ -515,7 +515,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 typename M::template Key<basic::ByteData> keyInput = infra::withtime_utils::keyify<basic::ByteData,typename M::EnvironmentType>(std::move(byteData));
                 
                 auto requester = env->rabbitmq_setRPCQueueClient(rpcQueueLocator, [](std::string const &contentEncoding, basic::ByteDataWithID &&data) {
-                }, hooks);
+                }, DefaultHookFactory<Env>::template supplyFacilityHookPair_ClientSideOutgoingOnly<A>(env, hooks));
                 sendRequest(env, requester, basic::ByteDataWithID {
                     Env::id_to_string(keyInput.id())
                     , std::move(keyInput.key().content)
@@ -547,7 +547,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                                 return;
                             }
                             this->publish(env_, typename M::template Key<B> {Env::id_from_string(std::get<0>(parseRes).id), std::move(*result)}, (std::get<1>(parseRes)?std::get<1>(parseRes)->isFinal:false));
-                        }, hooks_);
+                        }, DefaultHookFactory<Env>::template supplyFacilityHookPair_ClientSide<A,B>(env_, hooks_));
                     }
                     virtual void handle(typename M::template InnerData<typename M::template Key<A>> &&data) override final {
                         if (env_) {
@@ -572,7 +572,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 , std::string const &wrapperItemsNamePrefix
                 , std::optional<ByteDataHookPair> hooks = std::nullopt
             ) {
-                auto importerExporterPair = createOnOrderFacilityRPCConnectorIncomingAndOutgoingLegs(rpcQueueLocator, hooks);
+                auto importerExporterPair = createOnOrderFacilityRPCConnectorIncomingAndOutgoingLegs(rpcQueueLocator, DefaultHookFactory<Env>::template supplyFacilityHookPair_ServerSide<A,B>(runner.environment(), hooks));
                 auto deserializer = checkIdentityAndDeserialize<Identity,A>();
                 auto serializer = basic::SerializationActions<M>::template serializeWithKey<std::tuple<Identity,A>,B>();
 
@@ -594,7 +594,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 , std::string const &wrapperItemsNamePrefix
                 , std::optional<ByteDataHookPair> hooks = std::nullopt
             ) {
-                auto importer = createOnOrderFacilityRPCConnectorIncomingLegOnly(rpcQueueLocator, hooks);
+                auto importer = createOnOrderFacilityRPCConnectorIncomingLegOnly(rpcQueueLocator, DefaultHookFactory<Env>::template supplyFacilityHookPair_ServerSide<A,B>(runner.environment(), hooks));
                 auto deserializer = checkIdentityAndDeserialize<Identity,A>();
 
                 runner.registerImporter(importer, wrapperItemsNamePrefix+"_incomingLeg");
@@ -612,7 +612,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 , std::string const &wrapperItemsNamePrefix
                 , std::optional<ByteDataHookPair> hooks = std::nullopt
             ) {
-                auto importerExporterPair = createOnOrderFacilityRPCConnectorIncomingAndOutgoingLegs(rpcQueueLocator, hooks);
+                auto importerExporterPair = createOnOrderFacilityRPCConnectorIncomingAndOutgoingLegs(rpcQueueLocator, DefaultHookFactory<Env>::template supplyFacilityHookPair_ServerSide<A,B>(runner.environment(), hooks));
                 auto deserializer = checkIdentityAndDeserialize<Identity,A>();
                 auto serializer = basic::SerializationActions<M>::template serializeWithKey<std::tuple<Identity,A>,B>();
 
@@ -634,7 +634,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 , std::string const &wrapperItemsNamePrefix
                 , std::optional<ByteDataHookPair> hooks = std::nullopt
             ) {
-                auto importer = createOnOrderFacilityRPCConnectorIncomingLegOnly(rpcQueueLocator, hooks);
+                auto importer = createOnOrderFacilityRPCConnectorIncomingLegOnly(rpcQueueLocator, DefaultHookFactory<Env>::template supplyFacilityHookPair_ServerSide<A,B>(runner.environment(), hooks));
                 auto deserializer = checkIdentityAndDeserialize<Identity,A>();
 
                 runner.registerImporter(importer, wrapperItemsNamePrefix+"_incomingLeg");
@@ -652,7 +652,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 , std::string const &wrapperItemsNamePrefix
                 , std::optional<ByteDataHookPair> hooks = std::nullopt
             ) {
-                auto importerExporterPair = createOnOrderFacilityRPCConnectorIncomingAndOutgoingLegs(rpcQueueLocator, hooks);
+                auto importerExporterPair = createOnOrderFacilityRPCConnectorIncomingAndOutgoingLegs(rpcQueueLocator, DefaultHookFactory<Env>::template supplyFacilityHookPair_ServerSide<A,B>(runner.environment(), hooks));
                 auto deserializer = checkIdentityAndDeserialize<Identity,A>();
                 auto serializer = basic::SerializationActions<M>::template serializeWithKey<std::tuple<Identity,A>,B>();
 
@@ -674,7 +674,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 , std::string const &wrapperItemsNamePrefix
                 , std::optional<ByteDataHookPair> hooks = std::nullopt
             ) {
-                auto importer = createOnOrderFacilityRPCConnectorIncomingLegOnly(rpcQueueLocator, hooks);
+                auto importer = createOnOrderFacilityRPCConnectorIncomingLegOnly(rpcQueueLocator, DefaultHookFactory<Env>::template supplyFacilityHookPair_ServerSide<A,B>(runner.environment(), hooks));
                 auto deserializer = checkIdentityAndDeserialize<Identity,A>();
 
                 runner.registerImporter(importer, wrapperItemsNamePrefix+"_incomingLeg");
@@ -692,7 +692,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 , std::string const &wrapperItemsNamePrefix
                 , std::optional<ByteDataHookPair> hooks = std::nullopt
             ) {
-                auto importerExporterPair = createOnOrderFacilityRPCConnectorIncomingAndOutgoingLegs(rpcQueueLocator, hooks);
+                auto importerExporterPair = createOnOrderFacilityRPCConnectorIncomingAndOutgoingLegs(rpcQueueLocator, DefaultHookFactory<Env>::template supplyFacilityHookPair_ServerSide<A,B>(runner.environment(), hooks));
                 auto deserializer = checkIdentityAndDeserialize<Identity,A>();
                 auto serializer = basic::SerializationActions<M>::template serializeWithKey<std::tuple<Identity,A>,B>();
 
@@ -714,7 +714,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 , std::string const &wrapperItemsNamePrefix
                 , std::optional<ByteDataHookPair> hooks = std::nullopt
             ) {
-                auto importer = createOnOrderFacilityRPCConnectorIncomingLegOnly(rpcQueueLocator, hooks);
+                auto importer = createOnOrderFacilityRPCConnectorIncomingLegOnly(rpcQueueLocator, DefaultHookFactory<Env>::template supplyFacilityHookPair_ServerSide<A,B>(runner.environment(), hooks));
                 auto deserializer = checkIdentityAndDeserialize<Identity,A>();
 
                 runner.registerImporter(importer, wrapperItemsNamePrefix+"_incomingLeg");
@@ -803,7 +803,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                         return;
                     }
                     ret->set_value(std::move(*val));
-                }, hooks);
+                }, DefaultHookFactory<Env>::template supplyFacilityHookPair_ClientSide<A,B>(env, hooks));
                 sendRequestWithIdentity<Identity,A>(env, requester, basic::ByteDataWithID {
                     Env::id_to_string(keyInput.id())
                     , std::move(keyInput.key().content)
@@ -817,7 +817,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 typename M::template Key<basic::ByteData> keyInput = infra::withtime_utils::keyify<basic::ByteData,typename M::EnvironmentType>(std::move(byteData));
                 
                 auto requester = env->rabbitmq_setRPCQueueClient(rpcQueueLocator, [](std::string const &contentEncoding, basic::ByteDataWithID &&data) {
-                }, hooks);
+                }, DefaultHookFactory<Env>::template supplyFacilityHookPair_ClientSideOutgoingOnly<A>(env, hooks));
                 sendRequestWithIdentity<Identity,A>(env, requester, basic::ByteDataWithID {
                     Env::id_to_string(keyInput.id())
                     , std::move(keyInput.key().content)

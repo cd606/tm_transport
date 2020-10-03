@@ -9,7 +9,7 @@
 #include <tm_kit/basic/ByteData.hpp>
 #include <tm_kit/transport/redis/RedisComponent.hpp>
 #include <tm_kit/transport/HeartbeatAndAlertComponent.hpp>
-#include <tm_kit/transport/AbstractBroadcastHookFactoryComponent.hpp>
+#include <tm_kit/transport/AbstractHookFactoryComponent.hpp>
 
 namespace dev { namespace cd606 { namespace tm { namespace transport { namespace redis {
 
@@ -55,7 +55,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 }
                 virtual void start(Env *env) override final {
                     if (!wireToUserHook_) {
-                        wireToUserHook_ = DefaultBroadcastHookFactory<Env>::template incomingHook<T>(env);
+                        wireToUserHook_ = DefaultHookFactory<Env>::template incomingHook<T>(env);
                     }
                     env->redis_addSubscriptionClient(
                        locator_
@@ -123,7 +123,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 virtual void start(Env *env) override final {
                     env_ = env;
                     if (!userToWireHook_) {
-                        userToWireHook_ = DefaultBroadcastHookFactory<Env>::template outgoingHook<T>(env);
+                        userToWireHook_ = DefaultHookFactory<Env>::template outgoingHook<T>(env);
                     }
                     publisher_ = env->redis_getPublisher(locator_, userToWireHook_);
                     if constexpr (std::is_convertible_v<

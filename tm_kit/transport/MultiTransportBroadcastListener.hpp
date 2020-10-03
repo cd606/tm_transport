@@ -10,7 +10,7 @@
 #include <tm_kit/transport/redis/RedisComponent.hpp>
 #include <tm_kit/transport/zeromq/ZeroMQComponent.hpp>
 #include <tm_kit/transport/nng/NNGComponent.hpp>
-#include <tm_kit/transport/AbstractBroadcastHookFactoryComponent.hpp>
+#include <tm_kit/transport/AbstractHookFactoryComponent.hpp>
 
 #include <type_traits>
 #include <regex>
@@ -166,7 +166,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                             auto *component = static_cast<multicast::MulticastComponent *>(env);
                             auto actualHook = wireToUserHook_;
                             if (!actualHook) {
-                                actualHook = DefaultBroadcastHookFactory<Env>::template incomingHook<T>(env);
+                                actualHook = DefaultHookFactory<Env>::template incomingHook<T>(env);
                             }
                             auto res = component->multicast_addSubscriptionClient(
                                 x.connectionLocator
@@ -207,7 +207,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                             auto *component = static_cast<rabbitmq::RabbitMQComponent *>(env);
                             auto actualHook = wireToUserHook_;
                             if (!actualHook) {
-                                actualHook = DefaultBroadcastHookFactory<Env>::template incomingHook<T>(env);
+                                actualHook = DefaultHookFactory<Env>::template incomingHook<T>(env);
                             }
                             auto res = component->rabbitmq_addExchangeSubscriptionClient(
                                 x.connectionLocator
@@ -248,7 +248,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                             auto *component = static_cast<redis::RedisComponent *>(env);
                             auto actualHook = wireToUserHook_;
                             if (!actualHook) {
-                                actualHook = DefaultBroadcastHookFactory<Env>::template incomingHook<T>(env);
+                                actualHook = DefaultHookFactory<Env>::template incomingHook<T>(env);
                             }
                             auto res = component->redis_addSubscriptionClient(
                                 x.connectionLocator
@@ -289,7 +289,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                             auto *component = static_cast<zeromq::ZeroMQComponent *>(env);
                             auto actualHook = wireToUserHook_;
                             if (!actualHook) {
-                                actualHook = DefaultBroadcastHookFactory<Env>::template incomingHook<T>(env);
+                                actualHook = DefaultHookFactory<Env>::template incomingHook<T>(env);
                             }
                             auto res = component->zeroMQ_addSubscriptionClient(
                                 x.connectionLocator
@@ -330,7 +330,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                             auto *component = static_cast<nng::NNGComponent *>(env);
                             auto actualHook = wireToUserHook_;
                             if (!actualHook) {
-                                actualHook = DefaultBroadcastHookFactory<Env>::template incomingHook<T>(env);
+                                actualHook = DefaultHookFactory<Env>::template incomingHook<T>(env);
                             }
                             auto res = component->nng_addSubscriptionClient(
                                 x.connectionLocator

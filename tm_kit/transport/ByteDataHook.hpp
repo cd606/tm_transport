@@ -14,8 +14,8 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
         std::function<std::optional<basic::ByteData>(basic::ByteData &&)> hook;
     };
     struct ByteDataHookPair {
-        UserToWireHook userToWire;
-        WireToUserHook wireToUser;
+        std::optional<UserToWireHook> userToWire;
+        std::optional<WireToUserHook> wireToUser;
     };
     //the order is data flow through h1 first, then h2
     inline UserToWireHook composeUserToWireHook(UserToWireHook h1, UserToWireHook h2) {
@@ -28,6 +28,33 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
             auto x = h1.hook(std::move(b));
             if (x) {
                 return h2.hook(std::move(*x));
+            } else {
+                return std::nullopt;
+            }
+        } };
+    }
+    inline std::optional<UserToWireHook> composeUserToWireHook(std::optional<UserToWireHook> h1, std::optional<UserToWireHook> h2) {
+        if (!h1) {
+            return h2;
+        } 
+        if (!h2) {
+            return h1;
+        }
+        return UserToWireHook { [h1,h2](basic::ByteData &&b) -> basic::ByteData {
+            return h2->hook(h1->hook(std::move(b)));
+        } };
+    }
+    inline std::optional<WireToUserHook> composeWireToUserHook(std::optional<WireToUserHook> h1, std::optional<WireToUserHook> h2) {
+        if (!h1) {
+            return h2;
+        } 
+        if (!h2) {
+            return h1;
+        }
+        return WireToUserHook { [h1,h2](basic::ByteData &&b) -> std::optional<basic::ByteData> {
+            auto x = h1->hook(std::move(b));
+            if (x) {
+                return h2->hook(std::move(*x));
             } else {
                 return std::nullopt;
             }

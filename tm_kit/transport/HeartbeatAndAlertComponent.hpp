@@ -20,7 +20,7 @@
 #include <tm_kit/transport/zeromq/ZeroMQComponent.hpp>
 #include <tm_kit/transport/redis/RedisComponent.hpp>
 #include <tm_kit/transport/nng/NNGComponent.hpp>
-#include <tm_kit/transport/AbstractBroadcastHookFactoryComponent.hpp>
+#include <tm_kit/transport/AbstractHookFactoryComponent.hpp>
 #include <tm_kit/transport/MultiTransportBroadcastListener.hpp>
 
 namespace dev { namespace cd606 { namespace tm { namespace transport {
@@ -65,7 +65,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
         void operator()(Env *env, std::string const &identity, ConnectionLocator const &locator, std::optional<UserToWireHook> hook=std::nullopt) {
             auto realHook = hook;
             if (!realHook) {
-                realHook = DefaultBroadcastHookFactory<Env>::template outgoingHook<HeartbeatMessage>(env);
+                realHook = DefaultHookFactory<Env>::template outgoingHook<HeartbeatMessage>(env);
             }
             env->HeartbeatAndAlertComponent::assignIdentity(HeartbeatAndAlertComponent {
                 static_cast<basic::real_time_clock::ClockComponent *>(env)
@@ -85,7 +85,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
         void operator()(Env *env, std::string const &identity, ConnectionLocator const &locator, std::optional<UserToWireHook> hook=std::nullopt) {
             auto realHook = hook;
             if (!realHook) {
-                realHook = DefaultBroadcastHookFactory<Env>::template outgoingHook<HeartbeatMessage>(env);
+                realHook = DefaultHookFactory<Env>::template outgoingHook<HeartbeatMessage>(env);
             }
             env->HeartbeatAndAlertComponent::assignIdentity(HeartbeatAndAlertComponent {
                 static_cast<basic::real_time_clock::ClockComponent *>(env)
@@ -109,7 +109,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
             env->log(infra::LogLevel::Warning, "[HeartbeatAndAlertComponentInitializer] You are trying to use ZeroMQ transport to send heartbeat and alert messages. Due to a known issue, the first few messages sent on this transport are likely to get lost.");
             auto realHook = hook;
             if (!realHook) {
-                realHook = DefaultBroadcastHookFactory<Env>::template outgoingHook<HeartbeatMessage>(env);
+                realHook = DefaultHookFactory<Env>::template outgoingHook<HeartbeatMessage>(env);
             }
             env->HeartbeatAndAlertComponent::assignIdentity(HeartbeatAndAlertComponent {
                 static_cast<basic::real_time_clock::ClockComponent *>(env)
@@ -125,7 +125,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
         void operator()(Env *env, std::string const &identity, ConnectionLocator const &locator, std::optional<UserToWireHook> hook=std::nullopt) {
             auto realHook = hook;
             if (!realHook) {
-                realHook = DefaultBroadcastHookFactory<Env>::template outgoingHook<HeartbeatMessage>(env);
+                realHook = DefaultHookFactory<Env>::template outgoingHook<HeartbeatMessage>(env);
             }
             env->HeartbeatAndAlertComponent::assignIdentity(HeartbeatAndAlertComponent {
                 static_cast<basic::real_time_clock::ClockComponent *>(env)
@@ -143,7 +143,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
             env->log(infra::LogLevel::Warning, "[HeartbeatAndAlertComponentInitializer] You are trying to use NNG transport to send heartbeat and alert messages. Due to a known issue, the first few messages sent on this transport are likely to get lost.");
             auto realHook = hook;
             if (!realHook) {
-                realHook = DefaultBroadcastHookFactory<Env>::template outgoingHook<HeartbeatMessage>(env);
+                realHook = DefaultHookFactory<Env>::template outgoingHook<HeartbeatMessage>(env);
             }
             env->HeartbeatAndAlertComponent::assignIdentity(HeartbeatAndAlertComponent {
                 static_cast<basic::real_time_clock::ClockComponent *>(env)

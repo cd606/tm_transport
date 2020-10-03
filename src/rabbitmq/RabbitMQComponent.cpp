@@ -425,8 +425,8 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 wireToUserHook = std::nullopt;
             }
             auto *conn = createRpcQueueClientConnection(locator, client, wireToUserHook);
-            if (hookPair) {
-                auto hook = hookPair->userToWire.hook;
+            if (hookPair && hookPair->userToWire) {
+                auto hook = hookPair->userToWire->hook;
                 return [conn,hook](std::string const &contentEncoding, basic::ByteDataWithID &&data) {
                     auto x = hook(basic::ByteData {std::move(data.content)});
                     conn->sendRequest(contentEncoding, {data.id, std::move(x.content)});
@@ -451,8 +451,8 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 wireToUserHook = std::nullopt;
             }
             auto *conn = createRpcQueueServerConnection(locator, server, wireToUserHook);
-            if (hookPair) {
-                auto hook = hookPair->userToWire.hook;
+            if (hookPair && hookPair->userToWire) {
+                auto hook = hookPair->userToWire->hook;
                 return [conn,hook](bool isFinal, std::string const &contentEncoding, basic::ByteDataWithID &&data) {
                     auto x = hook(basic::ByteData {std::move(data.content)});
                     conn->sendReply(isFinal, contentEncoding, {data.id, std::move(x.content)});

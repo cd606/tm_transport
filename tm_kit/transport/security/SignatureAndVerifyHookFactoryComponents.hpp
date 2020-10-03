@@ -1,14 +1,14 @@
 #ifndef TM_KIT_TRANSPORT_SECURITY_SIGNATURE_AND_VERIFY_HOOK_FACTORY_COMPONENTS_HPP_
 #define TM_KIT_TRANSPORT_SECURITY_SIGNATURE_AND_VERIFY_HOOK_FACTORY_COMPONENTS_HPP_
 
-#include <tm_kit/transport/AbstractBroadcastHookFactoryComponent.hpp>
+#include <tm_kit/transport/AbstractHookFactoryComponent.hpp>
 #include <tm_kit/transport/security/SignatureHelper.hpp>
 #include <unordered_map>
 
 namespace dev { namespace cd606 { namespace tm { namespace transport { namespace security {
 
 template <class T>
-class SignatureHookFactoryComponent final : public AbstractOutgoingBroadcastHookFactoryComponent<T> {
+class SignatureHookFactoryComponent : public AbstractOutgoingHookFactoryComponent<T> {
 private:
     SignatureHelper::PrivateKey signKey_;
 public:
@@ -27,7 +27,7 @@ public:
 };
 
 template <class T>
-class VerifyHookFactoryComponent final : public AbstractIncomingBroadcastHookFactoryComponent<T> {
+class VerifyHookFactoryComponent : public AbstractIncomingHookFactoryComponent<T> {
 private:
     SignatureHelper::PublicKeyMap verifyKeys_;
 public:
