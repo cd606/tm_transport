@@ -22,6 +22,9 @@ namespace dev { namespace cd606 { namespace tm {namespace transport {namespace s
         virtual dev::cd606::tm::basic::ByteData attach_identity(dev::cd606::tm::basic::ByteData &&d) override final {
             return signer_.sign(std::move(d));
         }
+        virtual std::optional<basic::ByteData> process_incoming_data(basic::ByteData &&d) override final {
+            return {std::move(d)};
+        }
     };
 
     template <class Req>
@@ -42,6 +45,9 @@ namespace dev { namespace cd606 { namespace tm {namespace transport {namespace s
         }
         virtual std::optional<std::tuple<std::string,dev::cd606::tm::basic::ByteData>> check_identity(dev::cd606::tm::basic::ByteData &&d) override final {
             return verifier_.verify(std::move(d));
+        }
+        virtual basic::ByteData process_outgoing_data(std::string const &identity, basic::ByteData &&d) override final {
+            return std::move(d);
         }
     };
 }}}}}

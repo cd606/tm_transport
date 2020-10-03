@@ -34,6 +34,9 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                 >::apply({t})
             };
         }
+        virtual std::optional<basic::ByteData> process_incoming_data(basic::ByteData &&d) override final {
+            return {std::move(d)};
+        }
     };
 
     template <class Identity, class Request>
@@ -48,6 +51,9 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
             } else {
                 return std::nullopt;
             }
+        }
+        virtual basic::ByteData process_outgoing_data(Identity const &identity, basic::ByteData &&d) override final {
+            return std::move(d);
         }
     };
 

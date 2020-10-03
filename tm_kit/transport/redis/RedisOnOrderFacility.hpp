@@ -162,6 +162,28 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                     return M::template pureInnerData<typename M::template Key<std::tuple<Identity, A>>> (
                         input.environment
                         , std::move(retVal)
+                        , input.timedData.finalFlag
+                    );
+                }
+            );
+        }
+
+        template <class Identity, class A, class B>
+        static auto serializeBasedOnIdentity()
+            -> typename infra::AppRunner<M>::template ActionPtr<typename M::template KeyedData<std::tuple<Identity,A>, B>, basic::ByteDataWithID>
+        {
+            return M::template kleisli<typename M::template KeyedData<std::tuple<Identity,A>, B>>(
+                [](typename M::template InnerData<typename M::template KeyedData<std::tuple<Identity,A>, B>> &&input) -> typename M::template Data<basic::ByteDataWithID> {
+                    return M::template pureInnerData<typename basic::ByteDataWithID> (
+                        input.environment
+                        , basic::ByteDataWithID {
+                            Env::id_to_string(input.timedData.value.key.id())
+                            , std::move(static_cast<ServerSideAbstractIdentityCheckerComponent<Identity,A> *>(input.environment)->process_outgoing_data(
+                                std::get<0>(input.timedData.value.key.key())
+                                , basic::ByteData { basic::bytedata_utils::RunSerializer<B>::apply(input.timedData.value.data) }
+                            ).content)
+                        }
+                        , input.timedData.finalFlag
                     );
                 }
             );
@@ -525,11 +547,16 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                             }
                             , [this](basic::ByteDataWithID &&data) {
                                 auto parseRes = parseReplyData(std::move(data));
-                                auto result = basic::bytedata_utils::RunDeserializer<B>::apply(std::get<0>(parseRes).content);
-                                if (!result) {
-                                    return;
+                                auto processRes = static_cast<ClientSideAbstractIdentityAttacherComponent<Identity,A> *>(env_)->process_incoming_data(
+                                    basic::ByteData {std::move(std::get<0>(parseRes).content)}
+                                );
+                                if (processRes) {
+                                    auto result = basic::bytedata_utils::RunDeserializer<B>::apply(processRes->content);
+                                    if (!result) {
+                                        return;
+                                    }
+                                    this->publish(env_, typename M::template Key<B> {Env::id_from_string(std::get<0>(parseRes).id), std::move(*result)}, (std::get<1>(parseRes)?std::get<1>(parseRes)->isFinal:false));
                                 }
-                                this->publish(env_, typename M::template Key<B> {Env::id_from_string(std::get<0>(parseRes).id), std::move(*result)}, (std::get<1>(parseRes)?std::get<1>(parseRes)->isFinal:false));
                             }
                             , DefaultHookFactory<Env>::template supplyFacilityHookPair_ClientSide<A,B>(env_, hooks_)
                         );
@@ -559,7 +586,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             ) {
                 auto importerExporterPair = createOnOrderFacilityRPCConnectorIncomingAndOutgoingLegs(rpcQueueLocator, DefaultHookFactory<Env>::template supplyFacilityHookPair_ServerSide<A,B>(runner.environment(), hooks));
                 auto deserializer = checkIdentityAndDeserialize<Identity,A>();
-                auto serializer = basic::SerializationActions<M>::template serializeWithKey<std::tuple<Identity,A>,B>();
+                auto serializer = serializeBasedOnIdentity<Identity,A,B>();
 
                 runner.registerImporter(std::get<0>(importerExporterPair), wrapperItemsNamePrefix+"_incomingLeg");
                 runner.registerExporter(std::get<1>(importerExporterPair), wrapperItemsNamePrefix+"_outgoingLeg");
@@ -599,7 +626,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             ) {
                 auto importerExporterPair = createOnOrderFacilityRPCConnectorIncomingAndOutgoingLegs(rpcQueueLocator, DefaultHookFactory<Env>::template supplyFacilityHookPair_ServerSide<A,B>(runner.environment(), hooks));
                 auto deserializer = checkIdentityAndDeserialize<Identity,A>();
-                auto serializer = basic::SerializationActions<M>::template serializeWithKey<std::tuple<Identity,A>,B>();
+                auto serializer = serializeBasedOnIdentity<Identity,A,B>();
 
                 runner.registerImporter(std::get<0>(importerExporterPair), wrapperItemsNamePrefix+"_incomingLeg");
                 runner.registerExporter(std::get<1>(importerExporterPair), wrapperItemsNamePrefix+"_outgoingLeg");
@@ -639,7 +666,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             ) {
                 auto importerExporterPair = createOnOrderFacilityRPCConnectorIncomingAndOutgoingLegs(rpcQueueLocator, DefaultHookFactory<Env>::template supplyFacilityHookPair_ServerSide<A,B>(runner.environment(), hooks));
                 auto deserializer = checkIdentityAndDeserialize<Identity,A>();
-                auto serializer = basic::SerializationActions<M>::template serializeWithKey<std::tuple<Identity,A>,B>();
+                auto serializer = serializeBasedOnIdentity<Identity,A,B>();
 
                 runner.registerImporter(std::get<0>(importerExporterPair), wrapperItemsNamePrefix+"_incomingLeg");
                 runner.registerExporter(std::get<1>(importerExporterPair), wrapperItemsNamePrefix+"_outgoingLeg");
@@ -679,7 +706,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             ) {
                 auto importerExporterPair = createOnOrderFacilityRPCConnectorIncomingAndOutgoingLegs(rpcQueueLocator, DefaultHookFactory<Env>::template supplyFacilityHookPair_ServerSide<A,B>(runner.environment(), hooks));
                 auto deserializer = checkIdentityAndDeserialize<Identity,A>();
-                auto serializer = basic::SerializationActions<M>::template serializeWithKey<std::tuple<Identity,A>,B>();
+                auto serializer = serializeBasedOnIdentity<Identity,A,B>();
 
                 runner.registerImporter(std::get<0>(importerExporterPair), wrapperItemsNamePrefix+"_incomingLeg");
                 runner.registerExporter(std::get<1>(importerExporterPair), wrapperItemsNamePrefix+"_outgoingLeg");
@@ -786,13 +813,18 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                     , [env]() {
                         return Env::id_to_string(env->new_id());
                     }
-                    , [ret](basic::ByteDataWithID &&data) {
+                    , [ret,env](basic::ByteDataWithID &&data) {
                         auto parseRes = parseReplyData(std::move(data));
-                        auto val = basic::bytedata_utils::RunDeserializer<B>::apply(std::get<0>(parseRes).content);
-                        if (!val) {
-                            return;
+                        auto processRes = static_cast<ClientSideAbstractIdentityAttacherComponent<Identity,A> *>(env)->process_incoming_data(
+                            basic::ByteData {std::move(std::get<0>(parseRes).content)}
+                        );
+                        if (processRes) {
+                            auto val = basic::bytedata_utils::RunDeserializer<B>::apply(processRes->content);
+                            if (!val) {
+                                return;
+                            }
+                            ret->set_value(std::move(*val));
                         }
-                        ret->set_value(std::move(*val));
                     }
                     , DefaultHookFactory<Env>::template supplyFacilityHookPair_ClientSide<A,B>(env, hooks)
                 );

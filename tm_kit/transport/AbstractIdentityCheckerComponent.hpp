@@ -16,6 +16,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
         : public virtual ClientSideAbstractIdentityAttacherComponentBase<Request> {
     public:
         virtual basic::ByteData attach_identity(basic::ByteData &&d) = 0;
+        virtual std::optional<basic::ByteData> process_incoming_data(basic::ByteData &&d) = 0;
         virtual ~ClientSideAbstractIdentityAttacherComponent() {}
     };
 
@@ -27,6 +28,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
         : public virtual ServerSideAbstractIdentityCheckerComponentBase<Request> {
     public:
         virtual std::optional<std::tuple<Identity, basic::ByteData>> check_identity(basic::ByteData &&d) = 0;
+        virtual basic::ByteData process_outgoing_data(Identity const &identity, basic::ByteData &&d) = 0;
         virtual ~ServerSideAbstractIdentityCheckerComponent() {}
     };
 

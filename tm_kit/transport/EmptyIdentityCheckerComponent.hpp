@@ -11,6 +11,9 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
         virtual basic::ByteData attach_identity(basic::ByteData &&d) override final {
             return std::move(d);
         }
+        virtual std::optional<basic::ByteData> process_incoming_data(basic::ByteData &&d) override final {
+            return {std::move(d)};
+        }
     };
 
     template <class Identity, class Request>
@@ -18,6 +21,9 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
     public:
         virtual std::optional<std::tuple<Identity, basic::ByteData>> check_identity(basic::ByteData &&d) override final {
             return std::tuple<Identity, basic::ByteData> {Identity {}, std::move(d)};
+        }
+        virtual basic::ByteData process_outgoing_data(Identity const &identity, basic::ByteData &&d) override final {
+            return std::move(d);
         }
     };
 
