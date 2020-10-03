@@ -71,7 +71,8 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
         , Designated
     };
 
-    template <class Env, class A, class B, class Identity=void
+    template <class Env, class A, class B
+        , class Identity=typename DetermineClientSideIdentityForRequest<Env,A>::IdentityType
         , MultiTransportRemoteFacilityDispatchStrategy DispatchStrategy 
             = MultiTransportRemoteFacilityDispatchStrategy::Random
     >
@@ -167,18 +168,38 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                                         data.content.resize(l-1);                                
                                     }
                                 }
-                                auto result = basic::bytedata_utils::RunDeserializer<Output>::apply(data.content);
-                                if (!result) {
-                                    return;
-                                }
-                                this->FacilityParent::publish(
-                                    env
-                                    , typename M::template Key<Output> {
-                                        Env::id_from_string(data.id)
-                                        , std::move(*result)
+                                if constexpr (std::is_same_v<Identity, void>) {
+                                    auto result = basic::bytedata_utils::RunDeserializer<Output>::apply(data.content);
+                                    if (!result) {
+                                        return;
                                     }
-                                    , isFinal
-                                );
+                                    this->FacilityParent::publish(
+                                        env
+                                        , typename M::template Key<Output> {
+                                            Env::id_from_string(data.id)
+                                            , std::move(*result)
+                                        }
+                                        , isFinal
+                                    );
+                                } else {
+                                    auto processRes = static_cast<ClientSideAbstractIdentityAttacherComponent<Identity,A> *>(env)->process_incoming_data(
+                                        basic::ByteData {std::move(data.content)}
+                                    );
+                                    if (processRes) {
+                                        auto result = basic::bytedata_utils::RunDeserializer<Output>::apply(processRes->content);
+                                        if (!result) {
+                                            return;
+                                        }
+                                        this->FacilityParent::publish(
+                                            env
+                                            , typename M::template Key<Output> {
+                                                Env::id_from_string(data.id)
+                                                , std::move(*result)
+                                            }
+                                            , isFinal
+                                        );
+                                    }
+                                }
                             }
                             , DefaultHookFactory<Env>::template supplyFacilityHookPair_ClientSide<A,B>(env, hookPairFactory_(description, locator))
                         );
@@ -234,18 +255,38 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                                     isFinal = (data.content[l-1] != (char) 0);
                                     data.content.resize(l-1);                                
                                 }
-                                auto result = basic::bytedata_utils::RunDeserializer<Output>::apply(data.content);
-                                if (!result) {
-                                    return;
-                                }
-                                this->FacilityParent::publish(
-                                    env
-                                    , typename M::template Key<Output> {
-                                        Env::id_from_string(data.id)
-                                        , std::move(*result)
+                                if constexpr (std::is_same_v<Identity, void>) {
+                                    auto result = basic::bytedata_utils::RunDeserializer<Output>::apply(data.content);
+                                    if (!result) {
+                                        return;
                                     }
-                                    , isFinal
-                                );
+                                    this->FacilityParent::publish(
+                                        env
+                                        , typename M::template Key<Output> {
+                                            Env::id_from_string(data.id)
+                                            , std::move(*result)
+                                        }
+                                        , isFinal
+                                    );
+                                } else {
+                                    auto processRes = static_cast<ClientSideAbstractIdentityAttacherComponent<Identity,A> *>(env)->process_incoming_data(
+                                        basic::ByteData {std::move(data.content)}
+                                    );
+                                    if (processRes) {
+                                        auto result = basic::bytedata_utils::RunDeserializer<Output>::apply(processRes->content);
+                                        if (!result) {
+                                            return;
+                                        }
+                                        this->FacilityParent::publish(
+                                            env
+                                            , typename M::template Key<Output> {
+                                                Env::id_from_string(data.id)
+                                                , std::move(*result)
+                                            }
+                                            , isFinal
+                                        );
+                                    }
+                                }
                             }
                             , DefaultHookFactory<Env>::template supplyFacilityHookPair_ClientSide<A,B>(env, hookPairFactory_(description, locator))
                         );
