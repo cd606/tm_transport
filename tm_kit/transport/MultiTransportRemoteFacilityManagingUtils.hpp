@@ -663,6 +663,68 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                 }
             )));
         }
+        template <class FirstRequest, class FirstResult, class SecondRequest, class SecondResult>
+        static auto setupTwoStepRemoteFacility(
+            R &r 
+            , typename R::template Sourceoid<HeartbeatMessage> heartbeatSource
+            , std::regex const &serverNameRE
+            , std::tuple<std::string, std::string> const &facilityRegistrationNames
+            , std::function<FirstRequest()> firstRequestGenerator
+            , std::function<bool(FirstRequest const &, FirstResult const &)> firstResultChecker
+            , std::tuple<
+                std::optional<ByteDataHookPair>
+                , std::optional<ByteDataHookPair>
+            > hooks = {std::nullopt, std::nullopt}
+            , std::chrono::system_clock::duration ttl = std::chrono::seconds(3)
+            , std::chrono::system_clock::duration checkPeriod = std::chrono::seconds(5)
+        ) -> std::tuple<
+            DistinguishedRemoteFacility<FirstRequest, FirstResult>
+            , typename R::template FacilitioidConnector<SecondRequest, SecondResult>
+        >
+        {
+            auto res = SetupRemoteFacilities<
+                std::tuple<
+                    std::tuple<
+                        typename DetermineClientSideIdentityForRequest<typename R::EnvironmentType, FirstRequest>::IdentityType
+                        , FirstRequest
+                        , FirstResult
+                    >
+                >
+                , std::tuple<
+                    std::tuple<
+                        typename DetermineClientSideIdentityForRequest<typename R::EnvironmentType, SecondRequest>::IdentityType
+                        , SecondRequest
+                        , SecondResult
+                    >
+                >
+            >::run(
+                r 
+                , heartbeatSource
+                , serverNameRE
+                , {std::get<0>(facilityRegistrationNames), std::get<1>(facilityRegistrationNames)}
+                , ttl 
+                , checkPeriod
+                , {firstRequestGenerator}
+                , {firstResultChecker}
+                , {"proxy:"+std::get<0>(facilityRegistrationNames), "proxy:"+std::get<1>(facilityRegistrationNames)}
+                , "group:"+std::get<0>(facilityRegistrationNames)+","+std::get<1>(facilityRegistrationNames)
+                , std::nullopt 
+                , [hooks,facilityRegistrationNames](std::string const &s, ConnectionLocator const &) -> std::optional<ByteDataHookPair> {
+                    if (s == std::get<0>(facilityRegistrationNames)) {
+                        return std::get<0>(hooks);
+                    } else if (s == std::get<1>(facilityRegistrationNames)) {
+                        return std::get<1>(hooks);
+                    } else {
+                        return std::nullopt;
+                    }
+                }
+            );
+
+            return {
+                std::get<0>(std::get<0>(res))
+                , std::get<0>(std::get<1>(res))
+            };
+        }
     };
     
 } } } }
