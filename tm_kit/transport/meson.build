@@ -13,6 +13,7 @@ tm_transport_headers = [
       , 'HeartbeatMessageToRemoteFacilityCommand.hpp'
       , 'MultiTransportRemoteFacilityManagingUtils.hpp'
       , 'MultiTransportBroadcastListenerManagingUtils.hpp'
+      , 'MultiTransportBroadcastPublisherManagingUtils.hpp'
       , 'CrossGuidComponent.hpp'
       , 'AbstractHookFactoryComponent.hpp'
     ]

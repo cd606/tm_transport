@@ -190,6 +190,9 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                                 , true
                             );
                         } else {
+                            std::ostringstream errOss;
+                            errOss << "[MultiTransportBroadcastListner::actuallyHandle] trying to set up multicast channel " << x.connectionLocator << " but multicast is unsupported in the environment";
+                            env->log(infra::LogLevel::Warning, errOss.str());
                             this->FacilityParent::publish(
                                 env
                                 , typename M::template Key<MultiTransportBroadcastListenerOutput> {
@@ -231,6 +234,9 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                                 , true
                             );
                         } else {
+                            std::ostringstream errOss;
+                            errOss << "[MultiTransportBroadcastListner::actuallyHandle] trying to set up rabbitmq channel " << x.connectionLocator << " but rabbitmq is unsupported in the environment";
+                            env->log(infra::LogLevel::Warning, errOss.str());
                             this->FacilityParent::publish(
                                 env
                                 , typename M::template Key<MultiTransportBroadcastListenerOutput> {
@@ -272,6 +278,9 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                                 , true
                             );
                         } else {
+                            std::ostringstream errOss;
+                            errOss << "[MultiTransportBroadcastListner::actuallyHandle] trying to set up redis channel " << x.connectionLocator << " but redis is unsupported in the environment";
+                            env->log(infra::LogLevel::Warning, errOss.str());
                             this->FacilityParent::publish(
                                 env
                                 , typename M::template Key<MultiTransportBroadcastListenerOutput> {
@@ -313,6 +322,9 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                                 , true
                             );
                         } else {
+                            std::ostringstream errOss;
+                            errOss << "[MultiTransportBroadcastListner::actuallyHandle] trying to set up zeromq channel " << x.connectionLocator << " but zeromq is unsupported in the environment";
+                            env->log(infra::LogLevel::Warning, errOss.str());
                             this->FacilityParent::publish(
                                 env
                                 , typename M::template Key<MultiTransportBroadcastListenerOutput> {
@@ -354,6 +366,9 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                                 , true
                             );
                         } else {
+                            std::ostringstream errOss;
+                            errOss << "[MultiTransportBroadcastListner::actuallyHandle] trying to set up nng channel " << x.connectionLocator << " but nng is unsupported in the environment";
+                            env->log(infra::LogLevel::Warning, errOss.str());
                             this->FacilityParent::publish(
                                 env
                                 , typename M::template Key<MultiTransportBroadcastListenerOutput> {

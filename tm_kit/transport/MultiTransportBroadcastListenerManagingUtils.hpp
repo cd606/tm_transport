@@ -84,12 +84,22 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                 } else {
                     std::get<CurrentIdx>(output) = r.sourceAsSourceoid(r.facilityWithExternalEffectsAsSource(listener));
                 }
+            } else {
+                r.environment()->log(infra::LogLevel::Warning, "[MultiTransportBroadcastListenerManagingUtils::setupBroadcastListeners_internal] Unrecognized spec channel '"+spec.channel+"'");
             }
             setupBroadcastListeners_internal<
                 RemoveTopic, CurrentIdx+1, Input, Output, RemainingInputTypes...
             >(r, specs, prefix, hookFactory, output);
         }
     public:
+        //Please note that all the multi-transport listener setup functions
+        //are permissive, which means, if the spec is wrong, or unsupported in
+        //the environment, it is bypassed with only a logging message. This is
+        //because these setup functions may be used to create a program that 
+        //listens to outside messages and uses those messages to set up its
+        //listeners, if a new outside publisher starts and is available on a
+        //transport that this program does not support, this should not cause the
+        //program to crash.
         template <class ... InputTypes>
         static auto setupBroadcastListeners(
             R &r
@@ -125,6 +135,47 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                 , InputTypes...
             >(r, specs, prefix, hookFactory, result);
             return result;
+        }
+
+        template <class InputType>
+        static auto oneBroadcastListener(
+            R &r
+            , std::string const &namePrefix
+            , std::string const &channelSpec
+            , std::string const &topicDescription
+            , std::optional<WireToUserHook> hook = std::nullopt
+        ) -> typename R::template Sourceoid<InputType>
+        {
+            return std::get<0>(setupBroadcastListeners<InputType>(
+                r 
+                , {
+                    namePrefix, channelSpec, topicDescription
+                }
+                , namePrefix
+                , [hook](std::string const &) -> std::optional<WireToUserHook> {
+                    return hook;
+                }
+            ));
+        }
+        template <class InputType>
+        static auto oneBroadcastListenerWithTopic(
+            R &r
+            , std::string const &namePrefix
+            , std::string const &channelSpec
+            , std::string const &topicDescription
+            , std::optional<WireToUserHook> hook = std::nullopt
+        ) -> typename R::template Sourceoid<basic::TypedDataWithTopic<InputType>>
+        {
+            return std::get<0>(setupBroadcastListenersWithTopic<InputType>(
+                r 
+                , {
+                    namePrefix, channelSpec, topicDescription
+                }
+                , namePrefix
+                , [hook](std::string const &) -> std::optional<WireToUserHook> {
+                    return hook;
+                }
+            ));
         }
 
         //we assume that all the broadcasts under one source lookup name are

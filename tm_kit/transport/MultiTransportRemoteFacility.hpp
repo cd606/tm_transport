@@ -236,6 +236,10 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                             << locator;
                         env->log(infra::LogLevel::Error, oss.str());
                     }
+                } else {
+                    std::ostringstream errOss;
+                    errOss << "[MultiTransportRemoteFacility::registerFacility] Trying to set up rabbitmq facility for " << locator << ", but rabbitmq is unsupported in the environment";
+                    env->log(infra::LogLevel::Warning, errOss.str());
                 }
                 return true;
                 break;
@@ -321,6 +325,10 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                             << locator;
                         env->log(infra::LogLevel::Error, oss.str());
                     }
+                } else {
+                    std::ostringstream errOss;
+                    errOss << "[MultiTransportRemoteFacility::registerFacility] Trying to set up redis facility for " << locator << ", but redis is unsupported in the environment";
+                    env->log(infra::LogLevel::Warning, errOss.str());
                 }
                 return true;
                 break;
