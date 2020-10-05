@@ -148,9 +148,9 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
         {
             return std::get<0>(setupBroadcastListeners<InputType>(
                 r 
-                , {
+                , { MultiTransportBroadcastListenerSpec<InputType> {
                     namePrefix, channelSpec, topicDescription
-                }
+                } }
                 , namePrefix
                 , [hook](std::string const &) -> std::optional<WireToUserHook> {
                     return hook;
@@ -168,9 +168,9 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
         {
             return std::get<0>(setupBroadcastListenersWithTopic<InputType>(
                 r 
-                , {
+                , { MultiTransportBroadcastListenerSpec<InputType> {
                     namePrefix, channelSpec, topicDescription
-                }
+                } }
                 , namePrefix
                 , [hook](std::string const &) -> std::optional<WireToUserHook> {
                     return hook;
