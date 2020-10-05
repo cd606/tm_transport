@@ -629,7 +629,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
         template <class Request, class Result>
         static auto setupOneNonDistinguishedRemoteFacility(
             R &r 
-            , typename R::template Sourceoid<HeartbeatMessage> heartbeatSource
+            , typename R::template ConvertibleToSourceoid<HeartbeatMessage> &&heartbeatSource
             , std::regex const &serverNameRE
             , std::string const &facilityRegistrationName 
             , std::optional<ByteDataHookPair> hooks = std::nullopt
@@ -648,7 +648,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                 >
             >::run(
                 r 
-                , heartbeatSource
+                , R::convertToSourceoid(std::move(heartbeatSource))
                 , serverNameRE
                 , {facilityRegistrationName}
                 , ttl 
@@ -663,10 +663,50 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                 }
             )));
         }
+        template <class Request, class Result>
+        static auto setupOneDistinguishedRemoteFacility(
+            R &r 
+            , typename R::template ConvertibleToSourceoid<HeartbeatMessage> &&heartbeatSource
+            , std::regex const &serverNameRE
+            , std::string const &facilityRegistrationName
+            , std::function<Request()> requestGenerator
+            , std::function<bool(Request const &, Result const &)> resultChecker
+            , std::optional<ByteDataHookPair> hooks = std::nullopt
+            , std::chrono::system_clock::duration ttl = std::chrono::seconds(3)
+            , std::chrono::system_clock::duration checkPeriod = std::chrono::seconds(5)
+        ) -> DistinguishedRemoteFacility<Request, Result>
+        {
+            return std::get<0>(std::get<0>(SetupRemoteFacilities<
+                std::tuple<
+                    std::tuple<
+                        typename DetermineClientSideIdentityForRequest<typename R::EnvironmentType, Request>::IdentityType
+                        , Request
+                        , Result
+                    >
+                >
+                , std::tuple<
+                >
+            >::run(
+                r 
+                , R::convertToSourceoid(std::move(heartbeatSource))
+                , serverNameRE
+                , {facilityRegistrationName}
+                , ttl 
+                , checkPeriod
+                , {requestGenerator}
+                , {resultChecker}
+                , {"proxy:"+facilityRegistrationName}
+                , ("group:"+facilityRegistrationName)
+                , std::nullopt 
+                , [hooks](std::string const &, ConnectionLocator const &) {
+                    return hooks;
+                }
+            )));
+        }
         template <class FirstRequest, class FirstResult, class SecondRequest, class SecondResult>
         static auto setupTwoStepRemoteFacility(
             R &r 
-            , typename R::template Sourceoid<HeartbeatMessage> heartbeatSource
+            , typename R::template ConvertibleToSourceoid<HeartbeatMessage> &&heartbeatSource
             , std::regex const &serverNameRE
             , std::tuple<std::string, std::string> const &facilityRegistrationNames
             , std::function<FirstRequest()> firstRequestGenerator
@@ -699,7 +739,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                 >
             >::run(
                 r 
-                , heartbeatSource
+                , R::convertToSourceoid(std::move(heartbeatSource))
                 , serverNameRE
                 , {std::get<0>(facilityRegistrationNames), std::get<1>(facilityRegistrationNames)}
                 , ttl 

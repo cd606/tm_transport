@@ -41,16 +41,19 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
             , Output &output
         )
         {}
-        template <bool RemoveTopic, int CurrentIdx, class Input, class Output, class FirstInputType, class ... RemainingInputTypes>
-        static void setupBroadcastListeners_internal(
-             R &r
-            , Input const &specs
+        template <bool RemoveTopic, class FirstInputType>
+        static void setupOneBroadcastListener_internal(
+            R &r
+            , MultiTransportBroadcastListenerSpec<FirstInputType> const &spec
             , std::string const &prefix
             , std::function<std::optional<WireToUserHook>(std::string const &)> const &hookFactory
-            , Output &output
-        )
+            , std::function<void(typename R::template Source<std::conditional_t<
+                RemoveTopic
+                , FirstInputType
+                , basic::TypedDataWithTopic<FirstInputType>
+            >> &&)> outputReceiver
+        ) 
         {
-            MultiTransportBroadcastListenerSpec<FirstInputType> const &spec = std::get<CurrentIdx>(specs);
             auto parsedSpec = parseMultiTransportBroadcastChannel(spec.channel);
             if (parsedSpec) {
                 auto thisSource = M::template constFirstPushKeyImporter<
@@ -80,13 +83,34 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                         }
                     );
                     r.registerAction(prefix+"/"+spec.name+".removeTopic", removeTopic);
-                    std::get<CurrentIdx>(output) = r.sourceAsSourceoid(r.execute(removeTopic, r.facilityWithExternalEffectsAsSource(listener)));
+                    outputReceiver(r.execute(removeTopic, r.facilityWithExternalEffectsAsSource(listener)));
                 } else {
-                    std::get<CurrentIdx>(output) = r.sourceAsSourceoid(r.facilityWithExternalEffectsAsSource(listener));
+                    outputReceiver(r.facilityWithExternalEffectsAsSource(listener));
                 }
             } else {
                 r.environment()->log(infra::LogLevel::Warning, "[MultiTransportBroadcastListenerManagingUtils::setupBroadcastListeners_internal] Unrecognized spec channel '"+spec.channel+"'");
             }
+        }
+        template <bool RemoveTopic, int CurrentIdx, class Input, class Output, class FirstInputType, class ... RemainingInputTypes>
+        static void setupBroadcastListeners_internal(
+             R &r
+            , Input const &specs
+            , std::string const &prefix
+            , std::function<std::optional<WireToUserHook>(std::string const &)> const &hookFactory
+            , Output &output
+        )
+        {
+            MultiTransportBroadcastListenerSpec<FirstInputType> const &spec = std::get<CurrentIdx>(specs);
+            setupOneBroadcastListener_internal<RemoveTopic, FirstInputType>(
+                r, spec, prefix, hookFactory
+                , [&output](typename R::template Source<std::conditional_t<
+                    RemoveTopic
+                    , FirstInputType
+                    , basic::TypedDataWithTopic<FirstInputType>
+                >> &&src) {
+                    std::get<CurrentIdx>(output) = R::sourceAsSourceoid(std::move(src));
+                }
+            );
             setupBroadcastListeners_internal<
                 RemoveTopic, CurrentIdx+1, Input, Output, RemainingInputTypes...
             >(r, specs, prefix, hookFactory, output);
@@ -144,9 +168,10 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
             , std::string const &channelSpec
             , std::string const &topicDescription
             , std::optional<WireToUserHook> hook = std::nullopt
-        ) -> typename R::template Sourceoid<InputType>
+        ) -> std::optional<typename R::template Source<InputType>>
         {
-            return std::get<0>(setupBroadcastListeners<InputType>(
+            std::optional<typename R::template Source<InputType>> ret = std::nullopt;
+            setupOneBroadcastListener_internal<true, InputType>(
                 r 
                 , { MultiTransportBroadcastListenerSpec<InputType> {
                     namePrefix, channelSpec, topicDescription
@@ -155,7 +180,11 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                 , [hook](std::string const &) -> std::optional<WireToUserHook> {
                     return hook;
                 }
-            ));
+                , [&ret](typename R::template Source<InputType> &&src) {
+                    ret = {std::move(src)};
+                }
+            );
+            return ret;
         }
         template <class InputType>
         static auto oneBroadcastListenerWithTopic(
@@ -164,9 +193,10 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
             , std::string const &channelSpec
             , std::string const &topicDescription
             , std::optional<WireToUserHook> hook = std::nullopt
-        ) -> typename R::template Sourceoid<basic::TypedDataWithTopic<InputType>>
+        ) -> std::optional<typename R::template Source<basic::TypedDataWithTopic<InputType>>>
         {
-            return std::get<0>(setupBroadcastListenersWithTopic<InputType>(
+            std::optional<typename R::template Source<basic::TypedDataWithTopic<InputType>>> ret = std::nullopt;
+            setupOneBroadcastListener_internal<false, InputType>(
                 r 
                 , { MultiTransportBroadcastListenerSpec<InputType> {
                     namePrefix, channelSpec, topicDescription
@@ -175,7 +205,11 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                 , [hook](std::string const &) -> std::optional<WireToUserHook> {
                     return hook;
                 }
-            ));
+                , [&ret](typename R::template Source<basic::TypedDataWithTopic<InputType>> &&src) {
+                    ret = {std::move(src)};
+                }
+            );
+            return ret;
         }
 
         //we assume that all the broadcasts under one source lookup name are
@@ -183,7 +217,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
         template <class InputType>
         static auto setupBroadcastListenerWithTopicThroughHeartbeat(
             R &r
-            , typename R::template Sourceoid<HeartbeatMessage> heartbeatSource
+            , typename R::template ConvertibleToSourceoid<HeartbeatMessage> &&heartbeatSource
             , std::regex const &serverNameRE
             , std::string const &broadcastSourceLookupName
             , std::string const &broadcastTopic
@@ -234,7 +268,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                 AddSubscriptionCreator(serverNameRE, broadcastSourceLookupName, broadcastTopic)
             );
             r.registerAction(prefix+"/addSubscriptionCreator", addSubscriptionCreator);
-            heartbeatSource(r, r.actionAsSink(addSubscriptionCreator));
+            (R::convertToSourceoid(std::move(heartbeatSource)))(r, r.actionAsSink(addSubscriptionCreator));
 
             auto keyify = M::template kleisli<MultiTransportBroadcastListenerInput>(
                 basic::CommonFlowUtilComponents<M>::template keyify<MultiTransportBroadcastListenerInput>()
@@ -256,7 +290,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
         template <class InputType>
         static auto setupBroadcastListenerThroughHeartbeat(
             R &r
-            , typename R::template Sourceoid<HeartbeatMessage> heartbeatSource
+            , typename R::template ConvertibleToSourceoid<HeartbeatMessage> &&heartbeatSource
             , std::regex const &serverNameRE
             , std::string const &broadcastSourceLookupName
             , std::string const &broadcastTopic
@@ -266,7 +300,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
             ->  typename R::template Source<InputType>
         {
             auto s = setupBroadcastListenerWithTopicThroughHeartbeat<InputType>(
-                r, heartbeatSource, serverNameRE, broadcastSourceLookupName, broadcastTopic, prefix, hook
+                r, std::move(heartbeatSource), serverNameRE, broadcastSourceLookupName, broadcastTopic, prefix, hook
             );
             auto removeTopic = M::template liftPure<basic::TypedDataWithTopic<InputType>>(
                 [](basic::TypedDataWithTopic<InputType> &&d) -> InputType {
