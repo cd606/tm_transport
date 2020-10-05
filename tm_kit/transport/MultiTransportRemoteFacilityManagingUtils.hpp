@@ -625,8 +625,44 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                     };
                 }               
             }
-
         };
+        template <class Request, class Result>
+        static auto setupOneNonDistinguishedRemoteFacility(
+            R &r 
+            , typename R::template Sourceoid<HeartbeatMessage> heartbeatSource
+            , std::regex const &serverNameRE
+            , std::string const &facilityRegistrationName 
+            , std::optional<ByteDataHookPair> hooks = std::nullopt
+            , std::chrono::system_clock::duration ttl = std::chrono::seconds(3)
+            , std::chrono::system_clock::duration checkPeriod = std::chrono::seconds(5)
+        ) -> typename R::template FacilitioidConnector<Request, Result>
+        {
+            return std::get<0>(std::get<1>(SetupRemoteFacilities<
+                std::tuple<>
+                , std::tuple<
+                    std::tuple<
+                        typename DetermineClientSideIdentityForRequest<typename R::EnvironmentType, Request>::IdentityType
+                        , Request
+                        , Result
+                    >
+                >
+            >::run(
+                r 
+                , heartbeatSource
+                , serverNameRE
+                , {facilityRegistrationName}
+                , ttl 
+                , checkPeriod
+                , {}
+                , {}
+                , {"proxy:"+facilityRegistrationName}
+                , "group:"+facilityRegistrationName
+                , std::nullopt 
+                , [hooks](std::string const &, ConnectionLocator const &) {
+                    return hooks;
+                }
+            )));
+        }
     };
     
 } } } }

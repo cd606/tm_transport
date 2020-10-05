@@ -12,6 +12,7 @@ tm_transport_headers = [
       , 'MultiTransportRemoteFacility.hpp'
       , 'HeartbeatMessageToRemoteFacilityCommand.hpp'
       , 'MultiTransportRemoteFacilityManagingUtils.hpp'
+      , 'MultiTransportFacilityWrapper.hpp'
       , 'MultiTransportBroadcastListenerManagingUtils.hpp'
       , 'MultiTransportBroadcastPublisherManagingUtils.hpp'
       , 'CrossGuidComponent.hpp'
