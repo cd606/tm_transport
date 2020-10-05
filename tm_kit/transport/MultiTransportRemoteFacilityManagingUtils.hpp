@@ -765,6 +765,38 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                 , std::get<0>(std::get<1>(res))
             };
         }
+        template <class Request, class Result>
+        static auto setupSimpleRemoteFacility(
+            R &r 
+            , std::string const &channelSpec
+            , std::optional<ByteDataHookPair> hooks = std::nullopt
+        ) ->  typename R::template OnOrderFacilityPtr<Request, Result>
+        {
+            auto parsed = parseMultiTransportRemoteFacilityChannel(channelSpec);
+            if (parsed) {
+                switch (std::get<0>(*parsed)) {
+                case MultiTransportRemoteFacilityConnectionType::RabbitMQ:
+                    if constexpr(std::is_convertible_v<typename R::EnvironmentType *, rabbitmq::RabbitMQComponent *>) {
+                        return rabbitmq::RabbitMQOnOrderFacility<typename R::EnvironmentType>::template createTypedRPCOnOrderFacility<Request,Result>(std::get<1>(*parsed), hooks);
+                    } else {
+                        throw std::runtime_error("[MultiTransportRemoteFacilityManagingUtils::setupSimpleRemoteFacility] trying to set up rabbitmq facility for channel spec '"+channelSpec+"', but rabbitmq is unsupported in the environment");
+                    }
+                    break;
+                case MultiTransportRemoteFacilityConnectionType::Redis:
+                    if constexpr(std::is_convertible_v<typename R::EnvironmentType *, redis::RedisComponent *>) {
+                        return redis::RedisOnOrderFacility<typename R::EnvironmentType>::template createTypedRPCOnOrderFacility<Request,Result>(std::get<1>(*parsed), hooks);
+                    } else {
+                        throw std::runtime_error("[MultiTransportRemoteFacilityManagingUtils::setupSimpleRemoteFacility] trying to set up redis facility for channel spec '"+channelSpec+"', but redis is unsupported in the environment");
+                    }
+                    break;
+                default:
+                    throw std::runtime_error("[MultiTransportRemoteFacilityManagingUtils::setupSimpleRemoteFacility] trying to set up unsupported facility for channel spec '"+channelSpec+"'");
+                    break;
+                }
+            } else {
+                throw std::runtime_error("[MultiTransportRemoteFacilityManagingUtils::setupSimpleRemoteFacility] unknown channel spec '"+channelSpec+"'");
+            }
+        }
     };
     
 } } } }

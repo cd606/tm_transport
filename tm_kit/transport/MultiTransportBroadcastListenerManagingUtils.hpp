@@ -161,6 +161,10 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
             return result;
         }
 
+        //Since the two "oneBroadcastListener" calls are supposed to be used
+        //with quasi-constant channel specification string (i.e. one that does
+        //not come from network), it is preferable to have them throw when the
+        //specification is unsupported
         template <class InputType>
         static auto oneBroadcastListener(
             R &r
@@ -168,7 +172,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
             , std::string const &channelSpec
             , std::string const &topicDescription
             , std::optional<WireToUserHook> hook = std::nullopt
-        ) -> std::optional<typename R::template Source<InputType>>
+        ) -> typename R::template Source<InputType>
         {
             std::optional<typename R::template Source<InputType>> ret = std::nullopt;
             setupOneBroadcastListener_internal<true, InputType>(
@@ -184,7 +188,10 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                     ret = {std::move(src)};
                 }
             );
-            return ret;
+            if (!ret) {
+                throw std::runtime_error("[MultiTransportBroadcastListenerManagingUtils::oneBroadcastListener] Cannot setup listener for channel spec '"+channelSpec+"'");
+            }
+            return std::move(*ret);
         }
         template <class InputType>
         static auto oneBroadcastListenerWithTopic(
@@ -193,7 +200,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
             , std::string const &channelSpec
             , std::string const &topicDescription
             , std::optional<WireToUserHook> hook = std::nullopt
-        ) -> std::optional<typename R::template Source<basic::TypedDataWithTopic<InputType>>>
+        ) -> typename R::template Source<basic::TypedDataWithTopic<InputType>>
         {
             std::optional<typename R::template Source<basic::TypedDataWithTopic<InputType>>> ret = std::nullopt;
             setupOneBroadcastListener_internal<false, InputType>(
@@ -209,7 +216,10 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                     ret = {std::move(src)};
                 }
             );
-            return ret;
+            if (!ret) {
+                throw std::runtime_error("[MultiTransportBroadcastListenerManagingUtils::oneBroadcastListenerWithTopic] Cannot setup listener for channel spec '"+channelSpec+"'");
+            }
+            return std::move(*ret);
         }
 
         //we assume that all the broadcasts under one source lookup name are
