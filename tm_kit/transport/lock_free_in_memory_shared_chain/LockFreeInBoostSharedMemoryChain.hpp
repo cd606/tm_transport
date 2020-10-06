@@ -20,14 +20,14 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
     };
 
     enum class BoostSharedMemoryChainFastRecoverSupport {
-        Enabled, Disabled
+        ByName, ByOffset
     };
 
     template <class T, BoostSharedMemoryChainFastRecoverSupport FRS>
     struct BoostSharedMemoryStorageItem {};
     
     template <class T>
-    struct BoostSharedMemoryStorageItem<T, BoostSharedMemoryChainFastRecoverSupport::Enabled> {
+    struct BoostSharedMemoryStorageItem<T, BoostSharedMemoryChainFastRecoverSupport::ByName> {
         char id[36]; //for uuid, please notice that the end '\0' is not included
         T data;
         std::atomic<std::ptrdiff_t> next;
@@ -40,7 +40,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         }
     };
     template <class T>
-    struct BoostSharedMemoryStorageItem<T, BoostSharedMemoryChainFastRecoverSupport::Disabled> {
+    struct BoostSharedMemoryStorageItem<T, BoostSharedMemoryChainFastRecoverSupport::ByOffset> {
         T data;
         std::atomic<std::ptrdiff_t> next;
         BoostSharedMemoryStorageItem() : data(), next(0) {
@@ -50,7 +50,20 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
     };
     
     template <class T, BoostSharedMemoryChainFastRecoverSupport FRS>
-    using BoostSharedMemoryChainItem = BoostSharedMemoryStorageItem<T,FRS> *;
+    struct BoostSharedMemoryChainItemHelper {};
+    template <class T>
+    struct BoostSharedMemoryChainItemHelper<T, BoostSharedMemoryChainFastRecoverSupport::ByName> {
+        using Type = BoostSharedMemoryStorageItem<T, BoostSharedMemoryChainFastRecoverSupport::ByName> *;
+    };
+    template <class T>
+    struct BoostSharedMemoryChainItemHelper<T, BoostSharedMemoryChainFastRecoverSupport::ByOffset> {
+        using Type = std::tuple<
+            BoostSharedMemoryStorageItem<T, BoostSharedMemoryChainFastRecoverSupport::ByOffset> *
+            , std::ptrdiff_t
+        >;
+    };
+    template <class T, BoostSharedMemoryChainFastRecoverSupport FRS>
+    using BoostSharedMemoryChainItem = typename BoostSharedMemoryChainItemHelper<T,FRS>::Type;
 
     enum class BoostSharedMemoryChainExtraDataProtectionStrategy {
         DontSupportExtraData
@@ -114,10 +127,10 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
     template <class T, BoostSharedMemoryChainExtraDataProtectionStrategy EDPS>
     class LockFreeInBoostSharedMemoryChain<
         T
-        , BoostSharedMemoryChainFastRecoverSupport::Enabled
+        , BoostSharedMemoryChainFastRecoverSupport::ByName
         , EDPS 
         , void
-    > : public LockFreeInBoostSharedMemoryChainBase<T,BoostSharedMemoryChainFastRecoverSupport::Enabled,void> {
+    > : public LockFreeInBoostSharedMemoryChainBase<T,BoostSharedMemoryChainFastRecoverSupport::ByName,void> {
     private:
         IPCMutexWrapper<EDPS> mutex_;
 #ifdef _MSC_VER
@@ -125,9 +138,11 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
 #else
         boost::interprocess::managed_shared_memory mem_;
 #endif
-        BoostSharedMemoryStorageItem<T,BoostSharedMemoryChainFastRecoverSupport::Enabled> *head_;
+        BoostSharedMemoryStorageItem<T,BoostSharedMemoryChainFastRecoverSupport::ByName> *head_;
     public:
-        using ItemType = BoostSharedMemoryChainItem<T,BoostSharedMemoryChainFastRecoverSupport::Enabled>;
+        static constexpr BoostSharedMemoryChainFastRecoverSupport FastRecoverySupport = BoostSharedMemoryChainFastRecoverSupport::ByName;
+        static constexpr BoostSharedMemoryChainExtraDataProtectionStrategy ExtraDataProtectionStrategy = EDPS;
+        using ItemType = BoostSharedMemoryChainItem<T,BoostSharedMemoryChainFastRecoverSupport::ByName>;
         LockFreeInBoostSharedMemoryChain(std::string const &name, std::size_t sharedMemorySize) :
             mutex_(name) 
             , mem_(
@@ -137,7 +152,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             )
             , head_(nullptr)
         {
-            head_ = mem_.find_or_construct<BoostSharedMemoryStorageItem<T,BoostSharedMemoryChainFastRecoverSupport::Enabled>>(boost::interprocess::unique_instance)();
+            head_ = mem_.find_or_construct<BoostSharedMemoryStorageItem<T,BoostSharedMemoryChainFastRecoverSupport::ByName>>(boost::interprocess::unique_instance)();
         }
         ItemType head(void *) {
             return head_;
@@ -146,7 +161,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             if (id == "" || id == "head") {
                 return head_;
             }
-            return mem_.find<BoostSharedMemoryStorageItem<T,BoostSharedMemoryChainFastRecoverSupport::Enabled>>(id.c_str()).first;
+            return mem_.find<BoostSharedMemoryStorageItem<T,BoostSharedMemoryChainFastRecoverSupport::ByName>>(id.c_str()).first;
         }
         std::optional<ItemType> fetchNext(ItemType const &current) {
             if (!current) {
@@ -225,7 +240,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             }
         }
         ItemType createItemFromData(std::string const &id, T &&data) {
-            return mem_.construct<BoostSharedMemoryStorageItem<T,BoostSharedMemoryChainFastRecoverSupport::Enabled>>(id.c_str())(id, std::move(data));
+            return mem_.construct<BoostSharedMemoryStorageItem<T,BoostSharedMemoryChainFastRecoverSupport::ByName>>(id.c_str())(id, std::move(data));
         }
         void destroyItem(ItemType &p) {
             mem_.destroy_ptr(p);
@@ -235,10 +250,10 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
     template <class T, BoostSharedMemoryChainExtraDataProtectionStrategy EDPS>
     class LockFreeInBoostSharedMemoryChain<
         T
-        , BoostSharedMemoryChainFastRecoverSupport::Disabled
+        , BoostSharedMemoryChainFastRecoverSupport::ByOffset
         , EDPS 
         , void
-    > : public LockFreeInBoostSharedMemoryChainBase<T,BoostSharedMemoryChainFastRecoverSupport::Disabled,void> {
+    > : public LockFreeInBoostSharedMemoryChainBase<T,BoostSharedMemoryChainFastRecoverSupport::ByOffset,void> {
     private:
         IPCMutexWrapper<EDPS> mutex_;
 #ifdef _MSC_VER
@@ -246,9 +261,12 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
 #else
         boost::interprocess::managed_shared_memory mem_;
 #endif
-        BoostSharedMemoryStorageItem<T,BoostSharedMemoryChainFastRecoverSupport::Disabled> *head_;
+        BoostSharedMemoryStorageItem<T,BoostSharedMemoryChainFastRecoverSupport::ByOffset> *head_;
     public:
-        using ItemType = BoostSharedMemoryChainItem<T,BoostSharedMemoryChainFastRecoverSupport::Disabled>;
+        static constexpr BoostSharedMemoryChainFastRecoverSupport FastRecoverySupport = BoostSharedMemoryChainFastRecoverSupport::ByOffset;
+        static constexpr BoostSharedMemoryChainExtraDataProtectionStrategy ExtraDataProtectionStrategy = EDPS;
+        using ItemType = BoostSharedMemoryChainItem<T,BoostSharedMemoryChainFastRecoverSupport::ByOffset>;
+
         LockFreeInBoostSharedMemoryChain(std::string const &name, std::size_t sharedMemorySize) :
             mutex_(name) 
             , mem_(
@@ -258,37 +276,44 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             )
             , head_(nullptr)
         {
-            head_ = mem_.find_or_construct<BoostSharedMemoryStorageItem<T,BoostSharedMemoryChainFastRecoverSupport::Disabled>>(boost::interprocess::unique_instance)();
+            head_ = mem_.find_or_construct<BoostSharedMemoryStorageItem<T,BoostSharedMemoryChainFastRecoverSupport::ByOffset>>(boost::interprocess::unique_instance)();
         }
         ItemType head(void *) {
-            return head_;
+            return ItemType {head_, 0};
+        }
+        ItemType loadUntil(void *env, std::string const &id) {
+            if (id.length() < sizeof(std::ptrdiff_t)) {
+                return head(env);
+            }
+            auto offset = *reinterpret_cast<std::ptrdiff_t const *>(id.data());
+            return ItemType {head_+offset, offset};
         }
         std::optional<ItemType> fetchNext(ItemType const &current) {
-            if (!current) {
+            if (!std::get<0>(current)) {
                 throw LockFreeInBoostSharedMemoryChainException("FetchNext on nullptr");
             }
-            auto next = current->next.load(std::memory_order_acquire);
+            auto next = std::get<0>(current)->next.load(std::memory_order_acquire);
             if (next != 0) {
-                return (current+next);
+                return ItemType {std::get<0>(current)+next, (std::get<0>(current)+next)-head_};
             } else {
                 return std::nullopt;
             }
         }
         bool appendAfter(ItemType const &current, ItemType &&toBeWritten) {
-            if (!current) {
+            if (!std::get<0>(current)) {
                 throw LockFreeInBoostSharedMemoryChainException("AppendAfter on nullptr");
             }
-            if (!toBeWritten) {
+            if (!std::get<0>(toBeWritten)) {
                 throw LockFreeInBoostSharedMemoryChainException("AppendAfter trying to append nullptr");
             }
-            if (toBeWritten->next != 0) {
+            if (std::get<0>(toBeWritten)->next != 0) {
                 throw LockFreeInBoostSharedMemoryChainException("AppendAfter trying to append an item with non-zero next");
             }
             std::ptrdiff_t x = 0;
             return std::atomic_compare_exchange_strong<std::ptrdiff_t>(
-                &(current->next)
+                &(std::get<0>(current)->next)
                 , &x
-                , (toBeWritten-current)
+                , (std::get<0>(toBeWritten)-std::get<0>(current))
             );
         }
         template <class ExtraData>
@@ -340,10 +365,11 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             }
         }
         ItemType createItemFromData(std::string const &id, T &&data) {
-            return mem_.construct<BoostSharedMemoryStorageItem<T,BoostSharedMemoryChainFastRecoverSupport::Disabled>>(boost::interprocess::anonymous_instance)(std::move(data));
+            auto *p = mem_.construct<BoostSharedMemoryStorageItem<T,BoostSharedMemoryChainFastRecoverSupport::ByOffset>>(boost::interprocess::anonymous_instance)(std::move(data));
+            return ItemType {p, p-head_};
         }
         void destroyItem(ItemType &p) {
-            mem_.destroy_ptr(p);
+            mem_.destroy_ptr(std::get<0>(p));
         }
     };
 
