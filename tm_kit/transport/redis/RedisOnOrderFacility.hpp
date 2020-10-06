@@ -393,7 +393,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             template <class A, class B, class C, class D>
             static void wrapVIEOnOrderFacilityWithoutReply(
                 infra::AppRunner<M> &runner
-                , std::shared_ptr<typename M::template VIEOnOrderFacility<A,B,C>> const &toBeWrapped
+                , std::shared_ptr<typename M::template VIEOnOrderFacility<A,B,C,D>> const &toBeWrapped
                 , ConnectionLocator const &rpcQueueLocator
                 , std::string const &wrapperItemsNamePrefix
                 , std::optional<ByteDataHookPair> hooks = std::nullopt
@@ -754,7 +754,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 return { std::bind(wrapOnOrderFacilityWithoutReply<A,B>, std::placeholders::_1, std::placeholders::_2, rpcQueueLocator, wrapperItemsNamePrefix, hooks) };
             }
             template <class A, class B, class C>
-            static auto localFacilityWrapperWithIdentity(
+            static auto localFacilityWrapper(
                 ConnectionLocator const &rpcQueueLocator
                 , std::string const &wrapperItemsNamePrefix
                 , std::optional<ByteDataHookPair> hooks = std::nullopt
@@ -770,7 +770,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 return { std::bind(wrapLocalOnOrderFacilityWithoutReply<A,B,C>, std::placeholders::_1, std::placeholders::_2, rpcQueueLocator, wrapperItemsNamePrefix, hooks) };
             }
             template <class A, class B, class C>
-            static auto facilityWithExternalEffectsWrapperWithIdentity(
+            static auto facilityWithExternalEffectsWrapper(
                 ConnectionLocator const &rpcQueueLocator
                 , std::string const &wrapperItemsNamePrefix
                 , std::optional<ByteDataHookPair> hooks = std::nullopt
@@ -1038,7 +1038,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             return { std::bind(wrapOnOrderFacilityWithoutReply<A,B>, std::placeholders::_1, std::placeholders::_2, rpcQueueLocator, wrapperItemsNamePrefix, hooks) };
         }
         template <class A, class B, class C>
-        static auto localFacilityWrapperWithIdentity(
+        static auto localFacilityWrapper(
             ConnectionLocator const &rpcQueueLocator
             , std::string const &wrapperItemsNamePrefix
             , std::optional<ByteDataHookPair> hooks = std::nullopt
@@ -1054,7 +1054,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             return { std::bind(wrapLocalOnOrderFacilityWithoutReply<A,B,C>, std::placeholders::_1, std::placeholders::_2, rpcQueueLocator, wrapperItemsNamePrefix, hooks) };
         }
         template <class A, class B, class C>
-        static auto facilityWithExternalEffectsWrapperWithIdentity(
+        static auto facilityWithExternalEffectsWrapper(
             ConnectionLocator const &rpcQueueLocator
             , std::string const &wrapperItemsNamePrefix
             , std::optional<ByteDataHookPair> hooks = std::nullopt

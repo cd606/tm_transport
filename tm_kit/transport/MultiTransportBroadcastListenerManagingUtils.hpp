@@ -3,6 +3,11 @@
 
 #include <tm_kit/transport/MultiTransportBroadcastListener.hpp>
 #include <tm_kit/transport/HeartbeatMessage.hpp>
+#include <tm_kit/transport/multicast/MulticastImporterExporter.hpp>
+#include <tm_kit/transport/rabbitmq/RabbitMQImporterExporter.hpp>
+#include <tm_kit/transport/redis/RedisImporterExporter.hpp>
+#include <tm_kit/transport/zeromq/ZeroMQImporterExporter.hpp>
+#include <tm_kit/transport/nng/NNGImporterExporter.hpp>
 
 #include <tm_kit/basic/CommonFlowUtils.hpp>
 #include <tm_kit/basic/AppRunnerUtils.hpp>
@@ -13,13 +18,22 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
     struct MultiTransportBroadcastListenerSpec {
         std::string name;
         std::string channel;
-        std::string topicDescription;
+        std::optional<std::string> topicDescription;
     }; //InputType is put in the signature to force type safety
 
     template <class R>
     class MultiTransportBroadcastListenerManagingUtils {
+    private:
+        static std::string getTopic_internal(MultiTransportBroadcastListenerConnectionType connType, std::optional<std::string> const &topic) {
+            if (topic) {
+                return *topic;
+            } else {
+                return multiTransportListenerDefaultTopic(connType);
+            }
+        }
     public:
         using M = typename R::AppType;
+        using Env = typename R::EnvironmentType;
         
         template <class ... InputTypes>
         using BroadcastListeners = 
@@ -62,7 +76,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                     MultiTransportBroadcastListenerAddSubscription {
                         std::get<0>(*parsedSpec)
                         , std::get<1>(*parsedSpec)
-                        , spec.topicDescription
+                        , getTopic_internal(std::get<0>(*parsedSpec), spec.topicDescription)
                     }
                 });
                 auto listener = M::onOrderFacilityWithExternalEffects(
@@ -170,7 +184,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
             R &r
             , std::string const &namePrefix
             , std::string const &channelSpec
-            , std::string const &topicDescription
+            , std::optional<std::string> const &topicDescription = std::nullopt
             , std::optional<WireToUserHook> hook = std::nullopt
         ) -> typename R::template Source<InputType>
         {
@@ -198,7 +212,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
             R &r
             , std::string const &namePrefix
             , std::string const &channelSpec
-            , std::string const &topicDescription
+            , std::optional<std::string> const &topicDescription = std::nullopt
             , std::optional<WireToUserHook> hook = std::nullopt
         ) -> typename R::template Source<basic::TypedDataWithTopic<InputType>>
         {
@@ -220,6 +234,90 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                 throw std::runtime_error("[MultiTransportBroadcastListenerManagingUtils::oneBroadcastListenerWithTopic] Cannot setup listener for channel spec '"+channelSpec+"'");
             }
             return std::move(*ret);
+        }
+
+        static auto oneByteDataBroadcastListener(
+            R &r
+            , std::string const &name
+            , std::string const &channelSpec
+            , std::optional<std::string> const &topicDescription = std::nullopt
+            , std::optional<WireToUserHook> hook = std::nullopt
+        ) -> typename R::template Source<basic::ByteDataWithTopic>
+        {
+            auto parsed = parseMultiTransportBroadcastChannel(channelSpec);
+            if (!parsed) {
+                throw std::runtime_error("[MultiTransportBroadcastListenerManagingUtils::oneByteDataBroadcastListener] Unknown channel spec '"+channelSpec+"'");
+            }
+            switch (std::get<0>(*parsed)) {
+            case MultiTransportBroadcastListenerConnectionType::Multicast:
+                if constexpr (std::is_convertible_v<Env *, multicast::MulticastComponent *>) {
+                    auto sub = multicast::MulticastImporterExporter<Env>::createImporter(
+                        std::get<1>(*parsed)
+                        , MultiTransportBroadcastListenerTopicHelper<multicast::MulticastComponent>::parseTopic(getTopic_internal(std::get<0>(*parsed), topicDescription))
+                        , hook
+                    );
+                    r.registerImporter(name, sub);
+                    return r.importItem(sub);
+                } else {
+                    throw std::runtime_error("[MultiTransportBroadcastListenerManagingUtils::oneByteDataBroadcastListener] Trying to create multicast publisher with channel spec '"+channelSpec+"', but multicast is unsupported in the environment");
+                }
+                break;
+            case MultiTransportBroadcastListenerConnectionType::RabbitMQ:
+                if constexpr (std::is_convertible_v<Env *, rabbitmq::RabbitMQComponent *>) {
+                    auto sub = rabbitmq::RabbitMQImporterExporter<Env>::createImporter(
+                        std::get<1>(*parsed)
+                        , getTopic_internal(std::get<0>(*parsed), topicDescription)
+                        , hook
+                    );
+                    r.registerImporter(name, sub);
+                    return r.importItem(sub);
+                } else {
+                    throw std::runtime_error("[MultiTransportBroadcastListenerManagingUtils::oneByteDataBroadcastListener] Trying to create rabbitmq publisher with channel spec '"+channelSpec+"', but rabbitmq is unsupported in the environment");
+                }
+                break;
+            case MultiTransportBroadcastListenerConnectionType::Redis:
+                if constexpr (std::is_convertible_v<Env *, redis::RedisComponent *>) {
+                    auto sub = redis::RedisImporterExporter<Env>::createImporter(
+                        std::get<1>(*parsed)
+                        , getTopic_internal(std::get<0>(*parsed), topicDescription)
+                        , hook
+                    );
+                    r.registerImporter(name, sub);
+                    return r.importItem(sub);
+                } else {
+                    throw std::runtime_error("[MultiTransportBroadcastListenerManagingUtils::oneByteDataBroadcastListener] Trying to create redis publisher with channel spec '"+channelSpec+"', but redis is unsupported in the environment");
+                }
+                break;
+            case MultiTransportBroadcastListenerConnectionType::ZeroMQ:
+                if constexpr (std::is_convertible_v<Env *, zeromq::ZeroMQComponent *>) {
+                    auto sub = zeromq::ZeroMQImporterExporter<Env>::createImporter(
+                        std::get<1>(*parsed)
+                        , MultiTransportBroadcastListenerTopicHelper<zeromq::ZeroMQComponent>::parseTopic(getTopic_internal(std::get<0>(*parsed), topicDescription))
+                        , hook
+                    );
+                    r.registerImporter(name, sub);
+                    return r.importItem(sub);
+                } else {
+                    throw std::runtime_error("[MultiTransportBroadcastListenerManagingUtils::oneByteDataBroadcastListener] Trying to create zeromq publisher with channel spec '"+channelSpec+"', but zeromq is unsupported in the environment");
+                }
+                break;
+            case MultiTransportBroadcastListenerConnectionType::NNG:
+                if constexpr (std::is_convertible_v<Env *, nng::NNGComponent *>) {
+                    auto sub = nng::NNGImporterExporter<Env>::createImporter(
+                        std::get<1>(*parsed)
+                        , MultiTransportBroadcastListenerTopicHelper<nng::NNGComponent>::parseTopic(getTopic_internal(std::get<0>(*parsed), topicDescription))
+                        , hook
+                    );
+                    r.registerImporter(name, sub);
+                    return r.importItem(sub);
+                } else {
+                    throw std::runtime_error("[MultiTransportBroadcastListenerManagingUtils::oneByteDataBroadcastListener] Trying to create nng publisher with channel spec '"+channelSpec+"', but nng is unsupported in the environment");
+                }
+                break;
+            default:
+                throw std::runtime_error("[MultiTransportBroadcastListenerManagingUtils::oneByteDataBroadcastListener] Trying to create unknown-protocol publisher with channel spec '"+channelSpec+"'");
+                break;
+            }
         }
 
         //we assume that all the broadcasts under one source lookup name are

@@ -113,6 +113,38 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
         >
     >;
 
+    template <class Component>
+    class MultiTransportBroadcastListenerTopicHelper final {
+    public:
+        static std::variant<
+            typename Component::NoTopicSelection, std::string, std::regex
+        > parseTopic(std::string const &s) {
+            if (s == "") {
+                return typename Component::NoTopicSelection {};
+            } else {
+                if (boost::starts_with(s, "r/") && boost::ends_with(s, "/") && s.length() > 3) {
+                    return std::regex {s.substr(2, s.length()-3)};
+                } else {
+                    return s;
+                }
+            }
+        }
+    };
+
+    inline constexpr char const * const multiTransportListenerDefaultTopic(MultiTransportBroadcastListenerConnectionType connType) {
+        switch (connType) {
+        case MultiTransportBroadcastListenerConnectionType::RabbitMQ:
+            return "#";
+            break;
+        case MultiTransportBroadcastListenerConnectionType::Redis:
+            return "*";
+            break;
+        default:
+            return "";
+            break;
+        }
+    }
+
     template <class Env, class T>
     class MultiTransportBroadcastListener final :
         public infra::RealTimeApp<Env>::template AbstractIntegratedOnOrderFacilityWithExternalEffects<
@@ -136,21 +168,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
             basic::TypedDataWithTopic<T>
         >;
         std::optional<WireToUserHook> wireToUserHook_; 
-
-        template <class Component>
-        static std::variant<
-            typename Component::NoTopicSelection, std::string, std::regex
-        > parseTopic(std::string const &s) {
-            if (s == "") {
-                return typename Component::NoTopicSelection {};
-            } else {
-                if (boost::starts_with(s, "r/") && boost::ends_with(s, "/") && s.length() > 3) {
-                    return std::regex {s.substr(2, s.length()-3)};
-                } else {
-                    return s;
-                }
-            }
-        }  
+  
         void actuallyHandle(typename M::template InnerData<typename M::template Key<MultiTransportBroadcastListenerInput>> &&input) {
             Env *env = input.environment;
             typename Env::IDType id = std::move(input.timedData.value.id());
@@ -170,7 +188,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                             }
                             auto res = component->multicast_addSubscriptionClient(
                                 x.connectionLocator
-                                , parseTopic<multicast::MulticastComponent>(x.topicDescription)
+                                , MultiTransportBroadcastListenerTopicHelper<multicast::MulticastComponent>::parseTopic(x.topicDescription)
                                 , [this,env](basic::ByteDataWithTopic &&d) {
                                     auto t = basic::bytedata_utils::RunDeserializer<T>::apply(d.content);
                                     if (t) {
@@ -302,7 +320,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                             }
                             auto res = component->zeroMQ_addSubscriptionClient(
                                 x.connectionLocator
-                                , parseTopic<zeromq::ZeroMQComponent>(x.topicDescription)
+                                , MultiTransportBroadcastListenerTopicHelper<zeromq::ZeroMQComponent>::parseTopic(x.topicDescription)
                                 , [this,env](basic::ByteDataWithTopic &&d) {
                                     auto t = basic::bytedata_utils::RunDeserializer<T>::apply(d.content);
                                     if (t) {
@@ -346,7 +364,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                             }
                             auto res = component->nng_addSubscriptionClient(
                                 x.connectionLocator
-                                , parseTopic<nng::NNGComponent>(x.topicDescription)
+                                , MultiTransportBroadcastListenerTopicHelper<nng::NNGComponent>::parseTopic(x.topicDescription)
                                 , [this,env](basic::ByteDataWithTopic &&d) {
                                     auto t = basic::bytedata_utils::RunDeserializer<T>::apply(d.content);
                                     if (t) {
