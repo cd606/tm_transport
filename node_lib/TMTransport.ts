@@ -7,7 +7,7 @@ import * as Stream from 'stream'
 import * as fs from 'fs'
 import {v4 as uuidv4} from "uuid"
 
-import {Etcd3, IOptions as IEtcd3Options, STMConflictError} from 'etcd3'
+import {Etcd3, IOptions as IEtcd3Options} from 'etcd3'
 //NOTE: according to https://www.gitmemory.com/SunshowerC, etcd3 1.0.1 is not compatible with 
 //cockatiel 1.1.0, and cockatiel@1.0.0 must be installed instead, otherwise tsc will reject
 //the importing of etcd3
