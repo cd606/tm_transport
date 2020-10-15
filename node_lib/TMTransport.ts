@@ -14,6 +14,9 @@ import {Etcd3, IOptions as IEtcd3Options} from 'etcd3'
 import * as asyncRedis from 'async-redis'
 import * as dateFormat from 'dateformat'
 
+import * as TMInfra from '../../tm_infra/node_lib/TMInfra'
+import * as TMBasic from '../../tm_basic/node_lib/TMBasic'
+
 export enum Transport {
     Multicast
     , RabbitMQ
@@ -855,6 +858,79 @@ export class MultiTransportFacilityServer {
             output = resolve;
         }
         return [input, output];
+    }
+}
+
+export namespace RemoteComponents {
+    export type Encoder<T> = (t : T) => TMBasic.ByteData;
+    export type Decoder<T> = (d : TMBasic.ByteData) => T;
+    export function createImporter<Env extends TMBasic.ClockEnv>(address : string, topic? : string, wireToUserHook? : ((data: Buffer) => Buffer)) : TMInfra.RealTimeApp.Importer<Env,TMBasic.ByteDataWithTopic> {
+        class LocalI extends TMInfra.RealTimeApp.Importer<Env,TMBasic.ByteDataWithTopic> {
+            private conversionStream : Stream.Writable;
+            private address : string;
+            private topic : string;
+            private wireToUserHook : ((data: Buffer) => Buffer);
+            public constructor(address : string, topic : string, wireToUserHook : ((data: Buffer) => Buffer)) {
+                super();
+                let thisObj = this;
+                this.conversionStream = new Stream.Writable({
+                    write : function(chunk : [string, Buffer], _encoding : BufferEncoding, callback) {
+                        let x : TMBasic.ByteDataWithTopic ={
+                            topic : chunk[0]
+                            , content : chunk[1]
+                        };
+                        thisObj.publish(x, false);
+                        callback();
+                    }
+                    , objectMode : true
+                });
+                this.env = null;
+                this.address = address;
+                this.topic = topic;
+                this.wireToUserHook = wireToUserHook;
+            }
+            public start(e : Env) {
+                this.env = e;
+                let s = MultiTransportListener.inputStream(this.address, this.topic, this.wireToUserHook);
+                s.pipe(this.conversionStream);
+            }
+        }
+        return new LocalI(address, topic, wireToUserHook);
+    }
+    export function createTypedImporter<Env extends TMBasic.ClockEnv,T>(decoder : Decoder<T>, address : string, topic? : string, wireToUserHook? : ((data: Buffer) => Buffer)) : TMInfra.RealTimeApp.Importer<Env,TMBasic.TypedDataWithTopic<T>> {
+        class LocalI extends TMInfra.RealTimeApp.Importer<Env,TMBasic.TypedDataWithTopic<T>> {
+            private conversionStream : Stream.Writable;
+            private decoder : Decoder<T>;
+            private address : string;
+            private topic : string;
+            private wireToUserHook : ((data: Buffer) => Buffer);
+            public constructor(decoder : Decoder<T>, address : string, topic : string, wireToUserHook : ((data: Buffer) => Buffer)) {
+                super();
+                let thisObj = this;
+                this.conversionStream = new Stream.Writable({
+                    write : function(chunk : [string, Buffer], _encoding : BufferEncoding, callback) {
+                        let x : TMBasic.TypedDataWithTopic<T> ={
+                            topic : chunk[0]
+                            , content : thisObj.decoder(chunk[1])
+                        };
+                        thisObj.publish(x, false);
+                        callback();
+                    }
+                    , objectMode : true
+                });
+                this.env = null;
+                this.decoder = decoder;
+                this.address = address;
+                this.topic = topic;
+                this.wireToUserHook = wireToUserHook;
+            }
+            public start(e : Env) {
+                this.env = e;
+                let s = MultiTransportListener.inputStream(this.address, this.topic, this.wireToUserHook);
+                s.pipe(this.conversionStream);
+            }
+        }
+        return new LocalI(decoder, address, topic, wireToUserHook);
     }
 }
 
