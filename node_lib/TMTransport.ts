@@ -942,6 +942,54 @@ export namespace RemoteComponents {
         }
         return new LocalI(decoder, address, topic, wireToUserHook);
     }
+    export class DynamicTypedImporter<Env extends TMBasic.ClockEnv,T> extends TMInfra.RealTimeApp.Importer<Env,TMBasic.TypedDataWithTopic<T>> {
+        private conversionStream : Stream.Writable;
+        private decoder : Decoder<T>;
+        private addresses : Record<string, string>;
+        private wireToUserHook : ((data: Buffer) => Buffer);
+        public constructor(decoder : Decoder<T>, address? : string, topic? : string, wireToUserHook? : ((data: Buffer) => Buffer)) {
+            super();
+            let thisObj = this;
+            this.conversionStream = new Stream.Writable({
+                write : function(chunk : [string, Buffer], _encoding : BufferEncoding, callback) {
+                    let x : TMBasic.TypedDataWithTopic<T> ={
+                        topic : chunk[0]
+                        , content : thisObj.decoder(chunk[1])
+                    };
+                    thisObj.publish(x, false);
+                    callback();
+                }
+                , objectMode : true
+            });
+            this.env = null;
+            this.decoder = decoder;
+            this.addresses = {};
+            if (address !== undefined && address !== null && address != "") {
+                this.addresses[address] = topic;
+            }
+            this.wireToUserHook = wireToUserHook;
+        }
+        private doAddSubscription(address : string, topic? : string) : void {
+            let s = MultiTransportListener.inputStream(address, topic, this.wireToUserHook);
+            if (s == null) {
+                this.env.log(TMInfra.LogLevel.Warning, `Cannot open input stream from ${address} for topic ${topic}`);
+            } else {
+                s.pipe(this.conversionStream);
+            }
+        }
+        public start(e : Env) {
+            this.env = e;
+            for (let addr in this.addresses) {
+                this.doAddSubscription(addr, this.addresses[addr]);
+            }
+        }
+        public addSubscription(address? : string, topic? : string) {
+            if (address !== undefined && address !== null && address != "" && !(address in this.addresses)) {
+                this.doAddSubscription(address, topic);
+                this.addresses[address] = topic;
+            }
+        }
+    }
     export function createExporter<Env extends TMBasic.ClockEnv>(address : string, userToWireHook? : ((data: Buffer) => Buffer)) : TMInfra.RealTimeApp.Exporter<Env,TMBasic.ByteDataWithTopic> {
         class LocalE extends TMInfra.RealTimeApp.Exporter<Env,TMBasic.ByteDataWithTopic> {
             private conversionStream : Stream.Readable;
