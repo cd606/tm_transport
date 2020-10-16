@@ -16,6 +16,7 @@ import * as dateFormat from 'dateformat'
 
 import * as TMInfra from '../../tm_infra/node_lib/TMInfra'
 import * as TMBasic from '../../tm_basic/node_lib/TMBasic'
+import { inflateRaw } from 'zlib'
 
 export enum Transport {
     Multicast
@@ -892,7 +893,11 @@ export namespace RemoteComponents {
             public start(e : Env) {
                 this.env = e;
                 let s = MultiTransportListener.inputStream(this.address, this.topic, this.wireToUserHook);
-                s.pipe(this.conversionStream);
+                if (s == null) {
+                    e.log(TMInfra.LogLevel.Warning, `Cannot open input stream from ${this.address} for topic ${this.topic}`);
+                } else {
+                    s.pipe(this.conversionStream);
+                }
             }
         }
         return new LocalI(address, topic, wireToUserHook);
@@ -927,10 +932,76 @@ export namespace RemoteComponents {
             public start(e : Env) {
                 this.env = e;
                 let s = MultiTransportListener.inputStream(this.address, this.topic, this.wireToUserHook);
-                s.pipe(this.conversionStream);
+                if (s == null) {
+                    e.log(TMInfra.LogLevel.Warning, `Cannot open input stream from ${this.address} for topic ${this.topic}`);
+                } else {
+                    s.pipe(this.conversionStream);
+                }
             }
         }
         return new LocalI(decoder, address, topic, wireToUserHook);
+    }
+    export function createExporter<Env extends TMBasic.ClockEnv>(address : string, userToWireHook? : ((data: Buffer) => Buffer)) : TMInfra.RealTimeApp.Exporter<Env,TMBasic.ByteDataWithTopic> {
+        class LocalE extends TMInfra.RealTimeApp.Exporter<Env,TMBasic.ByteDataWithTopic> {
+            private conversionStream : Stream.Readable;
+            private address : string;
+            private userToWireHook : ((data: Buffer) => Buffer);
+            public constructor(address : string, userToWireHook : ((data: Buffer) => Buffer)) {
+                super();
+                this.conversionStream = new Stream.Readable({
+                    read : function(_s : number) {}
+                    , objectMode : true
+                });
+                this.address = address;
+                this.userToWireHook = userToWireHook;
+            }
+            public start(e : Env) {
+                (async () => {
+                    let outputStream = await MultiTransportPublisher.outputStream(this.address, this.userToWireHook);
+                    if (outputStream == null) {
+                        e.log(TMInfra.LogLevel.Warning, `Cannot open output stream to ${this.address}`);
+                    } else {
+                        this.conversionStream.pipe(outputStream);
+                    }
+                })();
+            }
+            public handle(d : TMInfra.TimedDataWithEnvironment<Env,TMBasic.ByteDataWithTopic>) : void {
+                this.conversionStream.push([d.timedData.value.topic, d.timedData.value.content]);
+            }
+        }
+        return new LocalE(address, userToWireHook);
+    }
+    export function createTypedExporter<Env extends TMBasic.ClockEnv,T>(encoder : Encoder<T>, address : string, userToWireHook? : ((data: Buffer) => Buffer)) : TMInfra.RealTimeApp.Exporter<Env,TMBasic.TypedDataWithTopic<T>> {
+        class LocalE extends TMInfra.RealTimeApp.Exporter<Env,TMBasic.TypedDataWithTopic<T>> {
+            private conversionStream : Stream.Readable;
+            private encoder : Encoder<T>;
+            private address : string;
+            private userToWireHook : ((data: Buffer) => Buffer);
+            public constructor(encoder : Encoder<T>, address : string, userToWireHook : ((data: Buffer) => Buffer)) {
+                super();
+                this.conversionStream = new Stream.Readable({
+                    read : function(_s : number) {}
+                    , objectMode : true
+                });
+                this.encoder = encoder;
+                this.address = address;
+                this.userToWireHook = userToWireHook;
+            }
+            public start(e : Env) {
+                (async () => {
+                    let outputStream = await MultiTransportPublisher.outputStream(this.address, this.userToWireHook);
+                    if (outputStream == null) {
+                        e.log(TMInfra.LogLevel.Warning, `Cannot open output stream to ${this.address}`);
+                    } else {
+                        this.conversionStream.pipe(outputStream);
+                    }
+                })();
+            }
+            public handle(d : TMInfra.TimedDataWithEnvironment<Env,TMBasic.TypedDataWithTopic<T>>) : void {
+                this.conversionStream.push([d.timedData.value.topic, this.encoder(d.timedData.value.content)]);
+            }
+        }
+        return new LocalE(encoder, address, userToWireHook);
     }
 }
 
