@@ -17,6 +17,7 @@ import * as dateFormat from 'dateformat'
 import * as TMInfra from '../../tm_infra/node_lib/TMInfra'
 import * as TMBasic from '../../tm_basic/node_lib/TMBasic'
 import { inflateRaw } from 'zlib'
+import { timeStamp } from 'console'
 
 export enum Transport {
     Multicast
@@ -1002,6 +1003,168 @@ export namespace RemoteComponents {
             }
         }
         return new LocalE(encoder, address, userToWireHook);
+    }
+    export function createFacilityProxy<Env extends TMBasic.ClockEnv,InputT,OutputT>(encoder: Encoder<InputT>, decoder : Decoder<OutputT>, param : ClientFacilityStreamParameters)
+        : TMInfra.RealTimeApp.OnOrderFacility<Env,InputT,OutputT>
+    {
+        class LocalO extends TMInfra.RealTimeApp.OnOrderFacility<Env,InputT,OutputT> {
+            private env : Env;
+            private encoder : Encoder<InputT>;
+            private decoder : Decoder<OutputT>;
+            private param : ClientFacilityStreamParameters;
+            private conversionStream_in : Stream.Readable;
+            private conversionStream_out : Stream.Writable;
+
+            public constructor(encoder : Encoder<InputT>, decoder : Decoder<OutputT>, param : ClientFacilityStreamParameters) {
+                super();
+                this.env = null;
+                this.encoder = encoder;
+                this.decoder = decoder;
+                this.param = param;
+
+                this.conversionStream_in = new Stream.Readable({
+                    read : function(_s : number) {}
+                    , objectMode : true
+                });
+                let thisObj = this;
+                this.conversionStream_out = new Stream.Writable({
+                    write : function(chunk : FacilityOutput, _encoding : BufferEncoding, callback : any) {
+                        let parsed = thisObj.decoder(chunk.output);
+                        if (parsed != null) {
+                            thisObj.publish({
+                                environment : thisObj.env
+                                , timedData : {
+                                    timePoint : thisObj.env.now()
+                                    , value : {
+                                        id : chunk.id
+                                        , key : parsed
+                                    }
+                                    , finalFlag : chunk.isFinal
+                                }
+                            });
+                        }
+                        callback();
+                    }
+                    , objectMode : true
+                });
+            }
+            public start(e : Env) {
+                this.env = e;
+                (async () => {
+                    let s = await MultiTransportFacilityClient.facilityStream(this.param);
+                    if (s == null) {
+                        e.log(TMInfra.LogLevel.Warning, `Cannot open remote facility to ${this.param.address}`);
+                    } else {
+                        this.conversionStream_in.pipe(s[0]);
+                        s[1].pipe(this.conversionStream_out);
+                    }
+                })();
+            }
+            public handle(d : TMInfra.TimedDataWithEnvironment<Env,TMInfra.Key<InputT>>) {
+                this.conversionStream_in.push([d.timedData.value.id, this.encoder(d.timedData.value.key)]);
+            }
+        }
+        return new LocalO(encoder, decoder, param);
+    }
+    export class DynamicFacilityProxy<Env extends TMBasic.ClockEnv, InputT, OutputT> extends TMInfra.RealTimeApp.OnOrderFacility<Env,InputT,OutputT> {
+        private env : Env;
+        private encoder : Encoder<InputT>;
+        private decoder : Decoder<OutputT>;
+        private currentParam : ClientFacilityStreamParameters;
+        private conversionStream_in : Stream.Readable;
+        private conversionStream_out : Stream.Writable;
+        private facilityStreams : [Stream.Writable, Stream.Readable];
+
+        public constructor(encoder : Encoder<InputT>, decoder : Decoder<OutputT>, initialParam : ClientFacilityStreamParameters) {
+            super();
+            this.env = null;
+            this.encoder = encoder;
+            this.decoder = decoder;
+            this.currentParam = initialParam;
+
+            this.conversionStream_in = new Stream.Readable({
+                read : function(_s : number) {}
+                , objectMode : true
+            });
+            let thisObj = this;
+            this.conversionStream_out = new Stream.Writable({
+                write : function(chunk : FacilityOutput, _encoding : BufferEncoding, callback : any) {
+                    let parsed = thisObj.decoder(chunk.output);
+                    if (parsed != null) {
+                        thisObj.publish({
+                            environment : thisObj.env
+                            , timedData : {
+                                timePoint : thisObj.env.now()
+                                , value : {
+                                    id : chunk.id
+                                    , key : parsed
+                                }
+                                , finalFlag : chunk.isFinal
+                            }
+                        });
+                    }
+                    callback();
+                }
+                , objectMode : true
+            });
+            this.facilityStreams = null;
+        }
+        public start(e : Env) {
+            this.env = e;
+            if (this.currentParam.address != null && this.currentParam.address != "") {
+                (async () => {
+                    let s = await MultiTransportFacilityClient.facilityStream(this.currentParam);
+                    if (s == null) {
+                        e.log(TMInfra.LogLevel.Warning, `Cannot open remote facility to ${this.currentParam.address}`);
+                    } else {
+                        this.conversionStream_in.pipe(s[0]);
+                        s[1].pipe(this.conversionStream_out);
+                        this.facilityStreams = s;
+                    }
+                })();
+            }
+        }
+        public changeAddress(address : string) {
+            if (address != null && address != "" && address != this.currentParam.address) {
+                this.currentParam.address = address;
+                (async () => {
+                    let s = await MultiTransportFacilityClient.facilityStream(this.currentParam);
+                    if (s == null) {
+                        this.env.log(TMInfra.LogLevel.Warning, `Cannot open remote facility to ${this.currentParam.address}`);
+                    } else {
+                        if (this.facilityStreams != null) {
+                            this.conversionStream_in.unpipe(this.facilityStreams[0]);
+                            this.facilityStreams[1].unpipe(this.conversionStream_out);
+                        }
+                        this.facilityStreams = s;
+                        this.conversionStream_in.pipe(s[0]);
+                        s[1].pipe(this.conversionStream_out);
+                    }
+                })();
+            }
+        }
+        public handle(d : TMInfra.TimedDataWithEnvironment<Env,TMInfra.Key<InputT>>) {
+            this.conversionStream_in.push([d.timedData.value.id, this.encoder(d.timedData.value.key)]);
+        }
+    }
+
+    export interface Heartbeat {
+        uuid_str : string;
+        timestamp : number;
+        host : string;
+        pid : number;
+        sender_description : string;
+        broadcast_channels : Record<string, string[]>;
+        facility_channels : Record<string, string>;
+        details : Record<string, {status : string, info : string}>;
+    }
+    export interface Alert {
+        alertTime : number;
+        host : string;
+        pid : number;
+        sender : string;
+        level : string;
+        message : string;
     }
 }
 
