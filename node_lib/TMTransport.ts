@@ -6,6 +6,7 @@ import * as cbor from 'cbor'
 import * as Stream from 'stream'
 import * as fs from 'fs'
 import {v4 as uuidv4} from "uuid"
+import {eddsa as EDDSA} from "elliptic"
 
 import {Etcd3, IOptions as IEtcd3Options} from 'etcd3'
 //NOTE: according to https://www.gitmemory.com/SunshowerC, etcd3 1.0.1 is not compatible with 
@@ -1159,7 +1160,7 @@ export namespace RemoteComponents {
         }
         public start(e : Env) {
             this.env = e;
-            if (this.currentParam.address != null && this.currentParam.address != "") {
+            if (this.currentParam.address !== undefined && this.currentParam.address !== null && this.currentParam.address != "") {
                 (async () => {
                     let s = await MultiTransportFacilityClient.facilityStream(this.currentParam);
                     if (s == null) {
@@ -1173,7 +1174,7 @@ export namespace RemoteComponents {
             }
         }
         public changeAddress(address : string) {
-            if (address != null && address != "" && address != this.currentParam.address) {
+            if (address !== undefined && address !== null && address != "" && address != this.currentParam.address) {
                 this.currentParam.address = address;
                 (async () => {
                     let s = await MultiTransportFacilityClient.facilityStream(this.currentParam);
@@ -1213,6 +1214,21 @@ export namespace RemoteComponents {
         sender : string;
         level : string;
         message : string;
+    }
+
+    export namespace Security {
+        export function simpleIdentityAttacher(identity : string) : ((d : Buffer) => Buffer) {
+            return function(data : Buffer) {
+                return Buffer.from(cbor.encode([identity, data]));
+            }
+        }
+        export function signatureIdentityAttacher(secretKey : Buffer) : ((d : Buffer) => Buffer) {
+            const signature_key = new EDDSA("ed25519").keyFromSecret(secretKey);
+            return function(data : Buffer) {
+                let signature = signature_key.sign(data);
+                return Buffer.from(cbor.encode({"signature" : Buffer.from(signature.toBytes()), "data" : data}));
+            }
+        }
     }
 }
 
