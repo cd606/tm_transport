@@ -17,14 +17,43 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         static AmqpClient::Channel::ptr_t createChannel(ConnectionLocator const &l) {
             std::string useSSL = boost::to_lower_copy(boost::trim_copy(l.query("ssl", "false")));
             if (useSSL == "true" || useSSL == "yes") {
+#if (SIMPLEAMQPCLIENT_VERSION_MAJOR >= 3) || (SIMPLEAMQPCLIENT_VERSION_MAJOR == 2 && SIMPLEAMQPCLIENT_VERSION_MINOR >= 6)
+                AmqpClient::Channel::OpenOpts opts;
+                opts.host = l.host();
+                opts.vhost = l.query("vhost", "/");
+                opts.port = (l.port()==0?5671:l.port());
+                opts.auth = AmqpClient::Channel::OpenOpts::BasicAuth {
+                    l.userName()
+                    , l.password()
+                };
+                AmqpClient::Channel::OpenOpts::TLSParams tlsParams;
+                tlsParams.client_key_path = l.query("client_key", "");
+                tlsParams.client_cert_path = l.query("client_cert", "");
+                tlsParams.ca_cert_path = l.query("ca_cert", "");
+                opts.tls_params = tlsParams;
+                return AmqpClient::Channel::Open(opts);
+#else
                 return AmqpClient::Channel::CreateSecure(
                     l.query("ca_cert", ""), l.host(), l.query("client_key", ""), l.query("client_cert", ""),
                     (l.port()==0?5671:l.port()), l.userName(), l.password(), l.query("vhost", "/")
                 );
+#endif
             } else {
+#if (SIMPLEAMQPCLIENT_VERSION_MAJOR >= 3) || (SIMPLEAMQPCLIENT_VERSION_MAJOR == 2 && SIMPLEAMQPCLIENT_VERSION_MINOR >= 6)
+                AmqpClient::Channel::OpenOpts opts;
+                opts.host = l.host();
+                opts.vhost = l.query("vhost", "/");
+                opts.port = (l.port()==0?5672:l.port());
+                opts.auth = AmqpClient::Channel::OpenOpts::BasicAuth {
+                    l.userName()
+                    , l.password()
+                };
+                return AmqpClient::Channel::Open(opts);
+#else
                 return AmqpClient::Channel::Create(
                     l.host(), (l.port()==0?5672:l.port()), l.userName(), l.password(), l.query("vhost", "/")
-                );                
+                );  
+#endif              
             }
         }
         class OneExchangeSubscriptionConnection {
@@ -162,7 +191,9 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                     auto msg = AmqpClient::BasicMessage::Create(data.content);
                     msg->ContentEncoding(contentEncoding);
                     msg->DeliveryMode(AmqpClient::BasicMessage::dm_nonpersistent);
+#if !((SIMPLEAMQPCLIENT_VERSION_MAJOR >= 3) || (SIMPLEAMQPCLIENT_VERSION_MAJOR == 2 && SIMPLEAMQPCLIENT_VERSION_MINOR >= 6))
                     msg->Expiration("1000");
+#endif                    
                     incoming_.push_back(PublishingData {exchange, data.topic, msg});
                 }
                 cond_.notify_one();
@@ -237,7 +268,9 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 msg->ReplyTo(localQueue_);
                 msg->ContentEncoding(contentEncoding);
                 msg->DeliveryMode(persistent_?AmqpClient::BasicMessage::dm_persistent:AmqpClient::BasicMessage::dm_nonpersistent);
+#if !((SIMPLEAMQPCLIENT_VERSION_MAJOR >= 3) || (SIMPLEAMQPCLIENT_VERSION_MAJOR == 2 && SIMPLEAMQPCLIENT_VERSION_MINOR >= 6))                
                 msg->Expiration("5000");
+#endif                
                 publishing_->publishOnQueue(rpcQueue_, msg);           
             }
         };
