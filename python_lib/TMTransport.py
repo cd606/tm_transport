@@ -258,7 +258,10 @@ class MultiTransportListener:
         async def taskcr():
             ctx = zmq.asyncio.Context()
             sock = ctx.socket(zmq.SUB)
-            sock.connect(f"tcp://{locator.host}:{locator.port}")
+            if locator.host == 'inproc' or locator.host == 'ipc':
+                sock.connect(f"{locator.host}://{locator.identifier}")
+            else:
+                sock.connect(f"tcp://{locator.host}:{locator.port}")
             sock.subscribe("")
             while True:
                 data = await sock.recv()
@@ -364,7 +367,10 @@ class MultiTransportPublisher:
         async def taskcr():
             ctx = zmq.asyncio.Context()
             sock = ctx.socket(zmq.PUB)
-            sock.bind(f"tcp://{locator.host}:{locator.port}")
+            if locator.host == 'inproc' or locator.host == 'ipc':
+                sock.bind(f"{locator.host}://{locator.identifier}")
+            else:
+                sock.bind(f"tcp://{locator.host}:{locator.port}")
             while True:
                 topic, data = await qin.get()
                 await sock.send(cbor.dumps([topic, data]))

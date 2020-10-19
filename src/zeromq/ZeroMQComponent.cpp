@@ -44,7 +44,11 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 sock.set(zmq::sockopt::rcvtimeo, 1000);
 
                 std::ostringstream oss;
-                oss << "tcp://" << locator.host() << ":" << locator.port();
+                if (locator.host() == "inproc" || locator.host() == "ipc") {
+                    oss << locator.host() << "://" << locator.identifier();
+                } else {
+                    oss << "tcp://" << locator.host() << ":" << locator.port();
+                }
                 sock.connect(oss.str());
                 sock.set(zmq::sockopt::subscribe, "");
 
@@ -178,11 +182,15 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             std::mutex mutex_;
             zmq::socket_t sock_;
         public:
-            OneZeroMQSender(int port, zmq::context_t *p_ctx)
+            OneZeroMQSender(ConnectionLocator const &locator, zmq::context_t *p_ctx)
                 : mutex_(), sock_(*p_ctx, zmq::socket_type::pub)
             {
                 std::ostringstream oss;
-                oss << "tcp://*:" << port;
+                if (locator.host() == "inproc" || locator.host() == "ipc") {
+                    oss << locator.host() << "://" << locator.identifier();
+                } else {
+                    oss << "tcp://*:" << locator.port();
+                }
                 sock_.bind(oss.str());
             }
             ~OneZeroMQSender() {
@@ -204,7 +212,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             }
         };
 
-        std::unordered_map<int, std::unique_ptr<OneZeroMQSender>> senders_;
+        std::unordered_map<ConnectionLocator, std::unique_ptr<OneZeroMQSender>> senders_;
 
         std::mutex mutex_;
         zmq::context_t ctx_;
@@ -214,11 +222,11 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         std::mutex idMutex_;
 
         OneZeroMQSubscription *getOrStartSubscription(ConnectionLocator const &d) {
-            ConnectionLocator hostAndPort {d.host(), d.port()};
+            ConnectionLocator hostAndPortAndIdentifier {d.host(), d.port(), "", "", d.identifier()};
             std::lock_guard<std::mutex> _(mutex_);
-            auto iter = subscriptions_.find(hostAndPort);
+            auto iter = subscriptions_.find(hostAndPortAndIdentifier);
             if (iter == subscriptions_.end()) {
-                iter = subscriptions_.insert({hostAndPort, std::make_unique<OneZeroMQSubscription>(hostAndPort, &ctx_)}).first;
+                iter = subscriptions_.insert({hostAndPortAndIdentifier, std::make_unique<OneZeroMQSubscription>(hostAndPortAndIdentifier, &ctx_)}).first;
             }
             return iter->second.get();
         }
@@ -229,10 +237,11 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             }
         }
         OneZeroMQSender *getOrStartSender(ConnectionLocator const &d) {
+            ConnectionLocator hostAndPortAndIdentifier {d.host(), d.port(), "", "", d.identifier()};
             std::lock_guard<std::mutex> _(mutex_);
-            auto iter = senders_.find(d.port());
+            auto iter = senders_.find(hostAndPortAndIdentifier);
             if (iter == senders_.end()) {
-                iter = senders_.insert({d.port(), std::make_unique<OneZeroMQSender>(d.port(), &ctx_)}).first;
+                iter = senders_.insert({hostAndPortAndIdentifier, std::make_unique<OneZeroMQSender>(hostAndPortAndIdentifier, &ctx_)}).first;
             }
             return iter->second.get();
         }
