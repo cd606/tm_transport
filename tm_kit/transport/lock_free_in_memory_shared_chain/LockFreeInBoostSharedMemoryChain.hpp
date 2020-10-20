@@ -30,9 +30,6 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
     struct BoostSharedMemoryStorageItem {};
     
     template <class T>
-    #ifdef _MSC_VER
-    __declspec(align(1))
-    #endif
     struct BoostSharedMemoryStorageItem<T, BoostSharedMemoryChainFastRecoverSupport::ByName> {
         char id[36]; //for uuid, please notice that the end '\0' is not included
         ActualNodeData<T> data;
@@ -44,15 +41,8 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             std::memset(id, 0, 36);
             std::memcpy(id, s.c_str(), std::min<std::size_t>(36, s.length()));
         }
-    }
-    #ifndef _MSC_VER
-    __attribute__ ((aligned (1)))
-    #endif
-    ;
+    };
     template <class T>
-    #ifdef _MSC_VER
-    __declspec(align(1))
-    #endif
     struct BoostSharedMemoryStorageItem<T, BoostSharedMemoryChainFastRecoverSupport::ByOffset> {
         ActualNodeData<T> data;
         std::atomic<std::ptrdiff_t> next;
@@ -60,11 +50,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         }
         BoostSharedMemoryStorageItem(ActualNodeData<T> &&d) : data(std::move(d)), next(0) {
         }
-    }
-    #ifndef _MSC_VER
-    __attribute__ ((aligned (1)))
-    #endif
-    ;
+    };
     
     template <class T>
     using ParsedNodeData = std::conditional_t<std::is_trivially_copyable_v<T>,basic::VoidStruct,std::optional<T>>;
