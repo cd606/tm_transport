@@ -199,8 +199,11 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             }
         }
     public:
+        using StorageIDType = std::string;
+        using DataType = T;
         using ItemType = ChainItem<T>;
         using MapData = ChainStorage<T>;
+        static constexpr bool SupportsExtraData = true;
         EtcdChain(EtcdChainConfiguration const &config) :
             configuration_(config) 
             , updateTriggerFunc_()
@@ -372,7 +375,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 }
             }
         }
-        ItemType loadUntil(void *env, std::string const &id) {
+        ItemType loadUntil(void *env, StorageIDType const &id) {
             if (id == "") {
                 return head(env);
             }
@@ -846,6 +849,24 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 return std::nullopt;
             }
         }
+        template <class Env>
+        static StorageIDType newStorageID() {
+            return Env::id_to_string(Env::new_id());
+        }
+        static StorageIDType newStorageIDFromStringInput(std::string const &id) {
+            return id;
+        }
+        static ItemType formChainItem(StorageIDType const &itemID, T &&itemData) {
+            return ItemType {
+                0, itemID, std::move(itemData), ""
+            };
+        }
+        static StorageIDType extractStorageID(ItemType const &p) {
+            return p.id;
+        }
+        static T const *extractData(ItemType const &p) {
+            return &(p.data);
+        }
     };
     
     //InMemoryChain has the same basic interface as EtcdChain, it can be used
@@ -853,9 +874,12 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
     template <class T>
     class InMemoryChain {
     public:
+        using StorageIDType = std::string;
+        using DataType = T;
         using MapData = ChainStorage<T>;
         using TheMap = std::unordered_map<std::string, MapData>;
         using ItemType = ChainItem<T>;
+        static constexpr bool SupportsExtraData = false;
     private:
         std::function<void()> updateTriggerFunc_;
         TheMap theMap_;
@@ -878,7 +902,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             auto &x = theMap_[""];
             return ItemType {0, "", x.data, x.nextID};
         }
-        ItemType loadUntil(void *, std::string const &id) {
+        ItemType loadUntil(void *, StorageIDType const &id) {
             std::lock_guard<std::mutex> _(mutex_);
             auto &x = theMap_[id];
             return ItemType {0, id, x.data, x.nextID};
@@ -944,6 +968,24 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             } else {
                 return std::nullopt;
             }
+        }
+        template <class Env>
+        static StorageIDType newStorageID() {
+            return Env::id_to_string(Env::new_id());
+        }
+        static StorageIDType newStorageIDFromStringInput(std::string const &id) {
+            return id;
+        }
+        static ItemType formChainItem(StorageIDType const &itemID, T &&itemData) {
+            return ItemType {
+                0, itemID, std::move(itemData), ""
+            };
+        }
+        static StorageIDType extractStorageID(ItemType const &p) {
+            return p.id;
+        }
+        static T const *extractData(ItemType const &p) {
+            return &(p.data);
         }
     };
 

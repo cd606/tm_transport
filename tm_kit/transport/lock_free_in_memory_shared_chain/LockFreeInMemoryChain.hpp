@@ -35,7 +35,10 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
     private:
         StorageItem<T> head_;
     public:
+        using StorageIDType = std::string;
+        using DataType = T;
         using ItemType = ChainItem<T>;
+        static constexpr bool SupportsExtraData = false;
         LockFreeInMemoryChain() : head_() {
         }
         ItemType head(void *) {
@@ -60,18 +63,33 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 throw LockFreeInMemoryChainException("AppendAfter trying to append nullptr");
             }
             StorageItem<T> *p = nullptr;
-            return std::atomic_compare_exchange_strong<StorageItem<T> *>(
+            bool ret = std::atomic_compare_exchange_strong<StorageItem<T> *>(
                 &(current->next)
                 , &p
                 , toBeWritten
             );
+            if (!ret) {
+                delete toBeWritten;
+            }
+            return ret;
         }
-        template <class ExtraData>
-        void saveExtraData(std::string const &key, ExtraData const &data) {
+        template <class Env>
+        static StorageIDType newStorageID() {
+            return Env::id_to_string(Env::new_id());
         }
-        template <class ExtraData>
-        std::optional<ExtraData> loadExtraData(std::string const &key) {
-            return std::nullopt;
+        static StorageIDType newStorageIDFromStringInput(std::string const &id) {
+            return id;
+        }
+        static ItemType formChainItem(StorageIDType const &itemID, T &&itemData) {
+            return new StorageItem<T> {
+                itemID, std::move(itemData), nullptr
+            };
+        }
+        static StorageIDType extractStorageID(ItemType const &p) {
+            return p->id;
+        }
+        static T const *extractData(ItemType const &p) {
+            return &(p->data);
         }
     };
 

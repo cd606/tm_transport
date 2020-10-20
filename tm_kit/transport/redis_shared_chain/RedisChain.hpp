@@ -72,7 +72,10 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         redisContext *redisCtx_;
         std::mutex redisMutex_;
     public:
+        using StorageIDType = std::string;
+        using DataType = T;
         using ItemType = ChainItem<T>;
+        static constexpr bool SupportsExtraData = true;
         RedisChain(RedisChainConfiguration const &configuration) :
             configuration_(configuration)
             , redisCtx_(nullptr), redisMutex_()
@@ -122,7 +125,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             freeReplyObject((void *) r);
             return ItemType {configuration_.headKey, T{}, std::move(nextID)};
         }
-        ItemType loadUntil(void *env, std::string const &id) {
+        ItemType loadUntil(void *env, StorageIDType const &id) {
             if (id == "") {
                 return head(env);
             }
@@ -315,6 +318,24 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 return std::nullopt;
             }
             return std::get<0>(*data);
+        }
+        template <class Env>
+        static StorageIDType newStorageID() {
+            return Env::id_to_string(Env::new_id());
+        }
+        static StorageIDType newStorageIDFromStringInput(std::string const &id) {
+            return id;
+        }
+        static ItemType formChainItem(StorageIDType const &itemID, T &&itemData) {
+            return ItemType {
+                itemID, std::move(itemData), ""
+            };
+        }
+        static StorageIDType extractStorageID(ItemType const &p) {
+            return p.id;
+        }
+        static T const *extractData(ItemType const &p) {
+            return &(p.data);
         }
     };
 }}}}}

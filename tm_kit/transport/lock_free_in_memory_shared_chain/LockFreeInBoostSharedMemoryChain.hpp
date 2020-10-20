@@ -170,9 +170,12 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
 #endif
         BoostSharedMemoryStorageItem<T,BoostSharedMemoryChainFastRecoverSupport::ByName> *head_;
     public:
+        using StorageIDType = std::string;
+        using DataType = T;
         static constexpr BoostSharedMemoryChainFastRecoverSupport FastRecoverySupport = BoostSharedMemoryChainFastRecoverSupport::ByName;
         static constexpr BoostSharedMemoryChainExtraDataProtectionStrategy ExtraDataProtectionStrategy = EDPS;
         using ItemType = BoostSharedMemoryChainItem<T,BoostSharedMemoryChainFastRecoverSupport::ByName>;
+        static constexpr bool SupportsExtraData = true;
     private:
         static inline ItemType fromPtr(BoostSharedMemoryStorageItem<T,BoostSharedMemoryChainFastRecoverSupport::ByName> *ptr) {
             if constexpr (std::is_trivially_copyable_v<T>) {
@@ -221,7 +224,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         ItemType head(void *) {
             return fromPtr(head_);
         }
-        ItemType loadUntil(void *env, std::string const &id) {
+        ItemType loadUntil(void *env, StorageIDType const &id) {
             if (id == "" || id == "head") {
                 return head(env);
             }
@@ -253,11 +256,15 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 throw LockFreeInBoostSharedMemoryChainException("AppendAfter trying to append an item with non-zero next");
             }
             std::ptrdiff_t x = 0;
-            return std::atomic_compare_exchange_strong<std::ptrdiff_t>(
+            bool ret = std::atomic_compare_exchange_strong<std::ptrdiff_t>(
                 &(current.ptr->next)
                 , &x
                 , (reinterpret_cast<char const *>(toBeWritten.ptr)-reinterpret_cast<char const *>(current.ptr))
             );
+            if (!ret) {
+                destroyItem(std::move(toBeWritten));
+            }
+            return ret;
         }
         template <class ExtraData>
         void saveExtraData(std::string const &key, ExtraData const &data) {
@@ -400,7 +407,14 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 return std::nullopt;
             }
         }
-        ItemType createItemFromData(std::string const &id, T &&data) {
+        template <class Env>
+        static StorageIDType newStorageID() {
+            return Env::id_to_string(Env::new_id());
+        }
+        static StorageIDType newStorageIDFromStringInput(std::string const &id) {
+            return id;
+        }
+        ItemType formChainItem(StorageIDType const &id, T &&data) {
             if constexpr (std::is_trivially_copyable_v<T>) {
                 return fromPtr(
                     mem_.construct<BoostSharedMemoryStorageItem<T,BoostSharedMemoryChainFastRecoverSupport::ByName>>(id.c_str())(id, std::move(data))
@@ -419,7 +433,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 };
             }
         }
-        void destroyItem(ItemType &p) {
+        void destroyItem(ItemType &&p) {
             if (p.ptr) {
                 if constexpr (!std::is_trivially_copyable_v<T>) {
                     if (p.ptr->data != 0) {
@@ -428,6 +442,12 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 }
                 mem_.destroy_ptr(p.ptr);
             }
+        }
+        static StorageIDType extractStorageID(ItemType const &p) {
+            return std::string(p.ptr->id, 36);
+        }
+        static T const *extractData(ItemType const &p) {
+            return p.actualData();
         }
     };
 
@@ -446,9 +466,12 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
 #endif
         BoostSharedMemoryStorageItem<T,BoostSharedMemoryChainFastRecoverSupport::ByOffset> *head_;
     public:
+        using StorageIDType = std::ptrdiff_t;
+        using DataType = T;
         static constexpr BoostSharedMemoryChainFastRecoverSupport FastRecoverySupport = BoostSharedMemoryChainFastRecoverSupport::ByOffset;
         static constexpr BoostSharedMemoryChainExtraDataProtectionStrategy ExtraDataProtectionStrategy = EDPS;
         using ItemType = BoostSharedMemoryChainItem<T,BoostSharedMemoryChainFastRecoverSupport::ByOffset>;
+        static constexpr bool SupportsExtraData = true;
     private:
         inline ItemType fromPtr(BoostSharedMemoryStorageItem<T,BoostSharedMemoryChainFastRecoverSupport::ByOffset> *ptr) const {
             if constexpr (std::is_trivially_copyable_v<T>) {
@@ -503,13 +526,9 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 head_
             );
         }
-        ItemType loadUntil(void *env, std::string const &id) {
-            if (id.length() < sizeof(std::ptrdiff_t)) {
-                return head(env);
-            }
-            auto offset = *reinterpret_cast<std::ptrdiff_t const *>(id.data());
+        ItemType loadUntil(void *env, StorageIDType const &id) {
             return fromPtr(
-                reinterpret_cast<BoostSharedMemoryStorageItem<T,BoostSharedMemoryChainFastRecoverSupport::ByOffset> *>(reinterpret_cast<char *>(head_)+offset)
+                reinterpret_cast<BoostSharedMemoryStorageItem<T,BoostSharedMemoryChainFastRecoverSupport::ByOffset> *>(reinterpret_cast<char *>(head_)+id)
             );
         }
         std::optional<ItemType> fetchNext(ItemType const &current) {
@@ -536,11 +555,15 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 throw LockFreeInBoostSharedMemoryChainException("AppendAfter trying to append an item with non-zero next");
             }
             std::ptrdiff_t x = 0;
-            return std::atomic_compare_exchange_strong<std::ptrdiff_t>(
+            bool ret = std::atomic_compare_exchange_strong<std::ptrdiff_t>(
                 &(current.ptr->next)
                 , &x
                 , (reinterpret_cast<char const *>(toBeWritten.ptr)-reinterpret_cast<char const *>(current.ptr))
             );
+            if (!ret) {
+                destroyItem(std::move(toBeWritten));
+            }
+            return ret;
         }
         template <class ExtraData>
         void saveExtraData(std::string const &key, ExtraData const &data) {
@@ -683,7 +706,14 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 return std::nullopt;
             }
         }
-        ItemType createItemFromData(std::string const &id, T &&data) {
+        template <class Env>
+        static StorageIDType newStorageID() {
+            return 0;
+        }
+        static StorageIDType newStorageIDFromStringInput(std::string const &id) {
+            return 0;
+        }
+        ItemType formChainItem(StorageIDType const &notUsed, T &&data) {
             if constexpr (std::is_trivially_copyable_v<T>) {
                 return fromPtr(
                     mem_.construct<BoostSharedMemoryStorageItem<T,BoostSharedMemoryChainFastRecoverSupport::ByOffset>>(boost::interprocess::anonymous_instance)(std::move(data))
@@ -703,7 +733,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 };
             }
         }
-        void destroyItem(ItemType &p) {
+        void destroyItem(ItemType &&p) {
             if (p.ptr) {
                 if constexpr (!std::is_trivially_copyable_v<T>) {
                     if (p.ptr->data != 0) {
@@ -712,6 +742,12 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 }
                 mem_.destroy_ptr(p.ptr);
             }
+        }
+        static StorageIDType extractStorageID(ItemType const &p) {
+            return p.offset;
+        }
+        static T const *extractData(ItemType const &p) {
+            return p.actualData();
         }
     };
 
