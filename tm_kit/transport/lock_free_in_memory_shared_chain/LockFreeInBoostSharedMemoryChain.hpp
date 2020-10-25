@@ -14,6 +14,8 @@
 #include <boost/interprocess/sync/named_mutex.hpp>
 
 namespace dev { namespace cd606 { namespace tm { namespace transport { namespace lock_free_in_memory_shared_chain {
+    struct SharedMemoryChainComponent {};
+
     class LockFreeInBoostSharedMemoryChainException : public std::runtime_error {
     public:
         LockFreeInBoostSharedMemoryChainException(std::string const &s) : std::runtime_error(s) {}
@@ -411,8 +413,9 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         static StorageIDType newStorageID() {
             return Env::id_to_string(Env::new_id());
         }
-        static StorageIDType newStorageIDFromStringInput(std::string const &id) {
-            return id;
+        template <class Env>
+        static std::string newStorageIDAsString() {
+            return newStorageID<Env>();
         }
         ItemType formChainItem(StorageIDType const &id, T &&data) {
             if constexpr (std::is_trivially_copyable_v<T>) {
@@ -448,6 +451,9 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         }
         static T const *extractData(ItemType const &p) {
             return p.actualData();
+        }
+        static std::string_view extractStorageIDStringView(ItemType const &p) {
+            return std::string_view {p.ptr->id, 36};
         }
     };
 
@@ -530,6 +536,17 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             return fromPtr(
                 reinterpret_cast<BoostSharedMemoryStorageItem<T,BoostSharedMemoryChainFastRecoverSupport::ByOffset> *>(reinterpret_cast<char *>(head_)+id)
             );
+        }
+        ItemType loadUntil(void *env, std::string const &id) {
+            if (id == "") {
+                return head(env);
+            }
+            if (id.length() < sizeof(StorageIDType)) {
+                throw std::runtime_error("LockFreeInBoostSharedMemoryChain(using offset)::loadUntil: ID must have sufficient length");
+            }
+            StorageIDType storageID;
+            std::memcpy(reinterpret_cast<char *>(&storageID), id.data(), sizeof(StorageIDType));
+            return loadUntil(env, storageID);
         }
         std::optional<ItemType> fetchNext(ItemType const &current) {
             if (!current.ptr) {
@@ -710,8 +727,9 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         static StorageIDType newStorageID() {
             return 0;
         }
-        static StorageIDType newStorageIDFromStringInput(std::string const &id) {
-            return 0;
+        template <class Env>
+        static std::string newStorageIDAsString() {
+            return "";
         }
         ItemType formChainItem(StorageIDType const &notUsed, T &&data) {
             if constexpr (std::is_trivially_copyable_v<T>) {
@@ -733,6 +751,9 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 };
             }
         }
+        ItemType formChainItem(std::string const &notUsed, T &&data) {
+            return formChainItem((StorageIDType) 0, std::move(data));
+        }
         void destroyItem(ItemType &&p) {
             if (p.ptr) {
                 if constexpr (!std::is_trivially_copyable_v<T>) {
@@ -748,6 +769,12 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         }
         static T const *extractData(ItemType const &p) {
             return p.actualData();
+        }
+        static std::string_view extractStorageIDStringView(ItemType const &p) {
+            return std::string_view(
+                reinterpret_cast<char const *>(&p.offset)
+                , sizeof(StorageIDType)
+            );
         }
     };
 

@@ -77,8 +77,9 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         static StorageIDType newStorageID() {
             return Env::id_to_string(Env::new_id());
         }
-        static StorageIDType newStorageIDFromStringInput(std::string const &id) {
-            return id;
+        template <class Env>
+        static std::string newStorageIDAsString() {
+            return newStorageID<Env>();
         }
         static ItemType formChainItem(StorageIDType const &itemID, T &&itemData) {
             return new StorageItem<T> {
@@ -90,6 +91,9 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         }
         static T const *extractData(ItemType const &p) {
             return &(p->data);
+        }
+        static std::string_view extractStorageIDStringView(ItemType const &p) {
+            return std::string_view {p->id};
         }
     };
 

@@ -25,6 +25,8 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
 TM_BASIC_CBOR_CAPABLE_TEMPLATE_STRUCT_SERIALIZE_NO_FIELD_NAMES(((typename, T)), dev::cd606::tm::transport::redis_shared_chain::ChainItem, RedisChainItemFields);
 
 namespace dev { namespace cd606 { namespace tm { namespace transport { namespace redis_shared_chain {
+    struct RedisChainComponent {};
+    
     struct RedisChainConfiguration {
         std::string redisServerAddr="127.0.0.1:6379";
         std::string headKey="";
@@ -323,8 +325,9 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         static StorageIDType newStorageID() {
             return Env::id_to_string(Env::new_id());
         }
-        static StorageIDType newStorageIDFromStringInput(std::string const &id) {
-            return id;
+        template <class Env>
+        static std::string newStorageIDAsString() {
+            return newStorageID<Env>();
         }
         static ItemType formChainItem(StorageIDType const &itemID, T &&itemData) {
             return ItemType {
@@ -336,6 +339,9 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         }
         static T const *extractData(ItemType const &p) {
             return &(p.data);
+        }
+        static std::string_view extractStorageIDStringView(ItemType const &p) {
+            return std::string_view {p.id};
         }
     };
 }}}}}

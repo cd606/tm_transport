@@ -48,6 +48,8 @@ TM_BASIC_CBOR_CAPABLE_TEMPLATE_STRUCT_SERIALIZE_NO_FIELD_NAMES(((typename, T)), 
 TM_BASIC_CBOR_CAPABLE_TEMPLATE_EMPTY_STRUCT_SERIALIZE_NO_FIELD_NAMES(((typename, T)), dev::cd606::tm::transport::etcd_shared_chain::ChainUpdateNotification);
 
 namespace dev { namespace cd606 { namespace tm { namespace transport { namespace etcd_shared_chain {
+    struct EtcdChainComponent {};
+
     struct EtcdChainConfiguration {
         std::shared_ptr<grpc::ChannelInterface> etcdChannel {};
         std::string headKey="";
@@ -853,8 +855,9 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         static StorageIDType newStorageID() {
             return Env::id_to_string(Env::new_id());
         }
-        static StorageIDType newStorageIDFromStringInput(std::string const &id) {
-            return id;
+        template <class Env>
+        static std::string newStorageIDAsString() {
+            return newStorageID<Env>();
         }
         static ItemType formChainItem(StorageIDType const &itemID, T &&itemData) {
             return ItemType {
@@ -866,6 +869,9 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         }
         static T const *extractData(ItemType const &p) {
             return &(p.data);
+        }
+        static std::string_view extractStorageIDStringView(ItemType const &p) {
+            return std::string_view {p.id};
         }
     };
     
@@ -973,8 +979,9 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         static StorageIDType newStorageID() {
             return Env::id_to_string(Env::new_id());
         }
-        static StorageIDType newStorageIDFromStringInput(std::string const &id) {
-            return id;
+        template <class Env>
+        static std::string newStorageIDAsString() {
+            return newStorageID<Env>();
         }
         static ItemType formChainItem(StorageIDType const &itemID, T &&itemData) {
             return ItemType {
@@ -986,6 +993,9 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         }
         static T const *extractData(ItemType const &p) {
             return &(p.data);
+        }
+        static std::string_view extractStorageIDStringView(ItemType const &p) {
+            return std::string_view {p.id};
         }
     };
 
