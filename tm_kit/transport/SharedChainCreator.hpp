@@ -287,30 +287,33 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                         if (sizeStr != "") {
                             memorySize = static_cast<std::size_t>(std::stoull(sizeStr));
                         }
-                        bool useName = (locator.query("useName", "false") == "true");
-                        constexpr lock_free_in_memory_shared_chain::BoostSharedMemoryChainExtraDataProtectionStrategy
-                            EDPS = (
-                                App::PossiblyMultiThreaded
-                                ?
-                                lock_free_in_memory_shared_chain::BoostSharedMemoryChainExtraDataProtectionStrategy::MutexProtected
-                                :
-                                lock_free_in_memory_shared_chain::BoostSharedMemoryChainExtraDataProtectionStrategy::Unsafe
-                                );
-                        
+                        bool useName = (locator.query("useName", "false") == "true");                       
                         if (useName) {
                             return shared_chain_utils::chainReaderHelper<App,ChainItemFolder,TriggerT>(
                                 env
                                 , getChain<lock_free_in_memory_shared_chain::LockFreeInBoostSharedMemoryChain<
                                     ChainData
                                     , lock_free_in_memory_shared_chain::BoostSharedMemoryChainFastRecoverSupport::ByName
-                                    , EDPS
+                                    , (
+                                        App::PossiblyMultiThreaded
+                                        ?
+                                        lock_free_in_memory_shared_chain::BoostSharedMemoryChainExtraDataProtectionStrategy::MutexProtected
+                                        :
+                                        lock_free_in_memory_shared_chain::BoostSharedMemoryChainExtraDataProtectionStrategy::Unsafe
+                                    )
                                 >>(
                                     shared_chain_utils::makeSharedChainLocator(protocol, locator)
                                     , [memoryName,memorySize]() {
                                         return new lock_free_in_memory_shared_chain::LockFreeInBoostSharedMemoryChain<
                                             ChainData
                                             , lock_free_in_memory_shared_chain::BoostSharedMemoryChainFastRecoverSupport::ByName
-                                            , EDPS
+                                            , (
+                                                App::PossiblyMultiThreaded
+                                                ?
+                                                lock_free_in_memory_shared_chain::BoostSharedMemoryChainExtraDataProtectionStrategy::MutexProtected
+                                                :
+                                                lock_free_in_memory_shared_chain::BoostSharedMemoryChainExtraDataProtectionStrategy::Unsafe
+                                            )
                                         >(memoryName, memorySize);
                                     }
                                 )
@@ -322,14 +325,26 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                                 , getChain<lock_free_in_memory_shared_chain::LockFreeInBoostSharedMemoryChain<
                                     ChainData
                                     , lock_free_in_memory_shared_chain::BoostSharedMemoryChainFastRecoverSupport::ByOffset
-                                    , EDPS
+                                    , (
+                                        App::PossiblyMultiThreaded
+                                        ?
+                                        lock_free_in_memory_shared_chain::BoostSharedMemoryChainExtraDataProtectionStrategy::MutexProtected
+                                        :
+                                        lock_free_in_memory_shared_chain::BoostSharedMemoryChainExtraDataProtectionStrategy::Unsafe
+                                    )
                                 >>(
                                     shared_chain_utils::makeSharedChainLocator(protocol, locator)
                                     , [memoryName,memorySize]() {
                                         return new lock_free_in_memory_shared_chain::LockFreeInBoostSharedMemoryChain<
                                             ChainData
                                             , lock_free_in_memory_shared_chain::BoostSharedMemoryChainFastRecoverSupport::ByOffset
-                                            , EDPS
+                                            , (
+                                                App::PossiblyMultiThreaded
+                                                ?
+                                                lock_free_in_memory_shared_chain::BoostSharedMemoryChainExtraDataProtectionStrategy::MutexProtected
+                                                :
+                                                lock_free_in_memory_shared_chain::BoostSharedMemoryChainExtraDataProtectionStrategy::Unsafe
+                                            )
                                         >(memoryName, memorySize);
                                     }
                                 )
@@ -472,28 +487,31 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                             memorySize = static_cast<std::size_t>(std::stoull(sizeStr));
                         }
                         bool useName = (locator.query("useName", "false") == "true");
-                        constexpr lock_free_in_memory_shared_chain::BoostSharedMemoryChainExtraDataProtectionStrategy
-                            EDPS = (
-                                App::PossiblyMultiThreaded
-                                ?
-                                lock_free_in_memory_shared_chain::BoostSharedMemoryChainExtraDataProtectionStrategy::MutexProtected
-                                :
-                                lock_free_in_memory_shared_chain::BoostSharedMemoryChainExtraDataProtectionStrategy::Unsafe
-                                );
-                        
                         if (useName) {
                             return shared_chain_utils::chainWriterHelper<App,ChainItemFolder,InputHandler,IdleLogic>(
                                 getChain<lock_free_in_memory_shared_chain::LockFreeInBoostSharedMemoryChain<
                                     ChainData
                                     , lock_free_in_memory_shared_chain::BoostSharedMemoryChainFastRecoverSupport::ByName
-                                    , EDPS
+                                    , (
+                                        App::PossiblyMultiThreaded
+                                        ?
+                                        lock_free_in_memory_shared_chain::BoostSharedMemoryChainExtraDataProtectionStrategy::MutexProtected
+                                        :
+                                        lock_free_in_memory_shared_chain::BoostSharedMemoryChainExtraDataProtectionStrategy::Unsafe
+                                    )
                                 >>(
                                     shared_chain_utils::makeSharedChainLocator(protocol, locator)
                                     , [memoryName,memorySize]() {
                                         return new lock_free_in_memory_shared_chain::LockFreeInBoostSharedMemoryChain<
                                             ChainData
                                             , lock_free_in_memory_shared_chain::BoostSharedMemoryChainFastRecoverSupport::ByName
-                                            , EDPS
+                                            , (
+                                                App::PossiblyMultiThreaded
+                                                ?
+                                                lock_free_in_memory_shared_chain::BoostSharedMemoryChainExtraDataProtectionStrategy::MutexProtected
+                                                :
+                                                lock_free_in_memory_shared_chain::BoostSharedMemoryChainExtraDataProtectionStrategy::Unsafe
+                                            )
                                         >(memoryName, memorySize);
                                     }
                                 )
@@ -506,14 +524,26 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                                 getChain<lock_free_in_memory_shared_chain::LockFreeInBoostSharedMemoryChain<
                                     ChainData
                                     , lock_free_in_memory_shared_chain::BoostSharedMemoryChainFastRecoverSupport::ByOffset
-                                    , EDPS
+                                    , (
+                                        App::PossiblyMultiThreaded
+                                        ?
+                                        lock_free_in_memory_shared_chain::BoostSharedMemoryChainExtraDataProtectionStrategy::MutexProtected
+                                        :
+                                        lock_free_in_memory_shared_chain::BoostSharedMemoryChainExtraDataProtectionStrategy::Unsafe
+                                    )
                                 >>(
                                     shared_chain_utils::makeSharedChainLocator(protocol, locator)
                                     , [memoryName,memorySize]() {
                                         return new lock_free_in_memory_shared_chain::LockFreeInBoostSharedMemoryChain<
                                             ChainData
                                             , lock_free_in_memory_shared_chain::BoostSharedMemoryChainFastRecoverSupport::ByOffset
-                                            , EDPS
+                                            , (
+                                                App::PossiblyMultiThreaded
+                                                ?
+                                                lock_free_in_memory_shared_chain::BoostSharedMemoryChainExtraDataProtectionStrategy::MutexProtected
+                                                :
+                                                lock_free_in_memory_shared_chain::BoostSharedMemoryChainExtraDataProtectionStrategy::Unsafe
+                                            )
                                         >(memoryName, memorySize);
                                     }
                                 )
