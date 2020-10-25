@@ -14,6 +14,8 @@
 #include <unordered_map>
 #include <mutex>
 
+#include <boost/algorithm/string.hpp>
+
 namespace dev { namespace cd606 { namespace tm { namespace transport {
 
     struct AllChainComponents :
