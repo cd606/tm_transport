@@ -3,6 +3,7 @@
 
 #include <tm_kit/basic/simple_shared_chain/ChainReader.hpp>
 #include <tm_kit/basic/simple_shared_chain/ChainWriter.hpp>
+#include <tm_kit/basic/simple_shared_chain/OneShotChainWriter.hpp>
 
 #include <tm_kit/transport/etcd_shared_chain/EtcdChain.hpp>
 #include <tm_kit/transport/redis_shared_chain/RedisChain.hpp>
@@ -653,6 +654,612 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                     locatorStr, pollingPolicy, std::move(h1), std::move(l1)
                 );
             };
+        }
+
+        template <class ChainData, class ChainItemFolder, class F>
+        bool oneShotWrite(
+            typename App::EnvironmentType *env
+            , SharedChainProtocol protocol
+            , ConnectionLocator const &locator
+            , F const &f
+            , ChainItemFolder &&folder = ChainItemFolder {}
+        ) {
+            switch (protocol) {
+            case SharedChainProtocol::Etcd:
+                {
+                    if constexpr (std::is_convertible_v<typename App::EnvironmentType *, etcd_shared_chain::EtcdChainComponent *>) {
+                        auto conf = shared_chain_utils::etcdChainConfigurationFromConnectionLocator(locator);
+                        return basic::simple_shared_chain::OneShotChainWriter<typename App::EnvironmentType,etcd_shared_chain::EtcdChain<ChainData>>::write(
+                            env
+                            , getChain<etcd_shared_chain::EtcdChain<ChainData>>(
+                                shared_chain_utils::makeSharedChainLocator(protocol, locator)
+                                , [&conf]() {
+                                    return new etcd_shared_chain::EtcdChain<ChainData>(conf);
+                                }
+                            )
+                            , f 
+                            , std::move(folder)
+                        );
+                    } else {
+                        throw new std::runtime_error("sharedChainCreator::oneShotWrite: Etcd chain is not supported by the environment");
+                    }
+                }
+                break;
+            case SharedChainProtocol::Redis:
+                {
+                    if constexpr (std::is_convertible_v<typename App::EnvironmentType *, redis_shared_chain::RedisChainComponent *>) {
+                        auto conf = shared_chain_utils::redisChainConfigurationFromConnectionLocator(locator);
+                        return basic::simple_shared_chain::OneShotChainWriter<typename App::EnvironmentType,redis_shared_chain::RedisChain<ChainData>>::write(
+                            env
+                            , getChain<redis_shared_chain::RedisChain<ChainData>>(
+                                shared_chain_utils::makeSharedChainLocator(protocol, locator)
+                                , [&conf]() {
+                                    return new redis_shared_chain::RedisChain<ChainData>(conf);
+                                }
+                            )
+                            , f 
+                            , std::move(folder)
+                        );
+                    } else {
+                        throw new std::runtime_error("sharedChainCreator::oneShotWrite: Redis chain is not supported by the environment");
+                    }
+                }
+                break;
+            case SharedChainProtocol::InMemoryWithLock:
+                {
+                    return basic::simple_shared_chain::OneShotChainWriter<typename App::EnvironmentType,etcd_shared_chain::InMemoryChain<ChainData>>::write(
+                        env
+                        , getChain<etcd_shared_chain::InMemoryChain<ChainData>>(
+                            shared_chain_utils::makeSharedChainLocator(protocol, locator)
+                            , []() {
+                                return new etcd_shared_chain::InMemoryChain<ChainData>();
+                            }
+                        )
+                        , f 
+                        , std::move(folder)
+                    );
+                }
+                break;
+            case SharedChainProtocol::InMemoryLockFree:
+                {
+                    return basic::simple_shared_chain::OneShotChainWriter<typename App::EnvironmentType,lock_free_in_memory_shared_chain::LockFreeInMemoryChain<ChainData>>::write(
+                        env
+                        , getChain<lock_free_in_memory_shared_chain::LockFreeInMemoryChain<ChainData>>(
+                            shared_chain_utils::makeSharedChainLocator(protocol, locator)
+                            , []() {
+                                return new lock_free_in_memory_shared_chain::LockFreeInMemoryChain<ChainData>();
+                            }
+                        )
+                        , f 
+                        , std::move(folder)
+                    );
+                }
+                break;
+            case SharedChainProtocol::InSharedMemory:
+                {
+                    if constexpr (std::is_convertible_v<typename App::EnvironmentType *, lock_free_in_memory_shared_chain::SharedMemoryChainComponent *>) {
+                        auto memoryName = locator.identifier();
+                        std::size_t memorySize = static_cast<std::size_t>(4*1024LL*1024LL*1024LL);
+                        auto sizeStr = locator.query("size","");
+                        if (sizeStr != "") {
+                            memorySize = static_cast<std::size_t>(std::stoull(sizeStr));
+                        }
+                        bool useName = (locator.query("useName", "false") == "true");
+                        if (useName) {
+                            return basic::simple_shared_chain::OneShotChainWriter<typename App::EnvironmentType,lock_free_in_memory_shared_chain::LockFreeInBoostSharedMemoryChain<
+                                ChainData
+                                , lock_free_in_memory_shared_chain::BoostSharedMemoryChainFastRecoverSupport::ByName
+                                , (
+                                    App::PossiblyMultiThreaded
+                                    ?
+                                    lock_free_in_memory_shared_chain::BoostSharedMemoryChainExtraDataProtectionStrategy::MutexProtected
+                                    :
+                                    lock_free_in_memory_shared_chain::BoostSharedMemoryChainExtraDataProtectionStrategy::Unsafe
+                                )
+                            >>::write(
+                                env
+                                , getChain<lock_free_in_memory_shared_chain::LockFreeInBoostSharedMemoryChain<
+                                    ChainData
+                                    , lock_free_in_memory_shared_chain::BoostSharedMemoryChainFastRecoverSupport::ByName
+                                    , (
+                                        App::PossiblyMultiThreaded
+                                        ?
+                                        lock_free_in_memory_shared_chain::BoostSharedMemoryChainExtraDataProtectionStrategy::MutexProtected
+                                        :
+                                        lock_free_in_memory_shared_chain::BoostSharedMemoryChainExtraDataProtectionStrategy::Unsafe
+                                    )
+                                >>(
+                                    shared_chain_utils::makeSharedChainLocator(protocol, locator)
+                                    , [memoryName,memorySize]() {
+                                        return new lock_free_in_memory_shared_chain::LockFreeInBoostSharedMemoryChain<
+                                            ChainData
+                                            , lock_free_in_memory_shared_chain::BoostSharedMemoryChainFastRecoverSupport::ByName
+                                            , (
+                                                App::PossiblyMultiThreaded
+                                                ?
+                                                lock_free_in_memory_shared_chain::BoostSharedMemoryChainExtraDataProtectionStrategy::MutexProtected
+                                                :
+                                                lock_free_in_memory_shared_chain::BoostSharedMemoryChainExtraDataProtectionStrategy::Unsafe
+                                            )
+                                        >(memoryName, memorySize);
+                                    }
+                                )
+                                , f 
+                                , std::move(folder)
+                            );
+                        } else {
+                            return basic::simple_shared_chain::OneShotChainWriter<typename App::EnvironmentType,lock_free_in_memory_shared_chain::LockFreeInBoostSharedMemoryChain<
+                                ChainData
+                                , lock_free_in_memory_shared_chain::BoostSharedMemoryChainFastRecoverSupport::ByOffset
+                                , (
+                                    App::PossiblyMultiThreaded
+                                    ?
+                                    lock_free_in_memory_shared_chain::BoostSharedMemoryChainExtraDataProtectionStrategy::MutexProtected
+                                    :
+                                    lock_free_in_memory_shared_chain::BoostSharedMemoryChainExtraDataProtectionStrategy::Unsafe
+                                )
+                            >>::write(
+                                env
+                                , getChain<lock_free_in_memory_shared_chain::LockFreeInBoostSharedMemoryChain<
+                                    ChainData
+                                    , lock_free_in_memory_shared_chain::BoostSharedMemoryChainFastRecoverSupport::ByOffset
+                                    , (
+                                        App::PossiblyMultiThreaded
+                                        ?
+                                        lock_free_in_memory_shared_chain::BoostSharedMemoryChainExtraDataProtectionStrategy::MutexProtected
+                                        :
+                                        lock_free_in_memory_shared_chain::BoostSharedMemoryChainExtraDataProtectionStrategy::Unsafe
+                                    )
+                                >>(
+                                    shared_chain_utils::makeSharedChainLocator(protocol, locator)
+                                    , [memoryName,memorySize]() {
+                                        return new lock_free_in_memory_shared_chain::LockFreeInBoostSharedMemoryChain<
+                                            ChainData
+                                            , lock_free_in_memory_shared_chain::BoostSharedMemoryChainFastRecoverSupport::ByOffset
+                                            , (
+                                                App::PossiblyMultiThreaded
+                                                ?
+                                                lock_free_in_memory_shared_chain::BoostSharedMemoryChainExtraDataProtectionStrategy::MutexProtected
+                                                :
+                                                lock_free_in_memory_shared_chain::BoostSharedMemoryChainExtraDataProtectionStrategy::Unsafe
+                                            )
+                                        >(memoryName, memorySize);
+                                    }
+                                )
+                                , f 
+                                , std::move(folder)
+                            );
+                        }
+                    } else {
+                        throw new std::runtime_error("sharedChainCreator::oneShotWrite: Shared memory chain is not supported by the environment");
+                    }
+                }
+                break;
+            default:
+                throw std::runtime_error(std::string("sharedChainCreator::oneShotWrite: unknown protocol")+std::to_string(static_cast<int>(protocol)));
+                break;
+            }
+        }
+
+        template <class ChainData, class ChainItemFolder, class F>
+        bool oneShotWrite(
+            typename App::EnvironmentType *env
+            , std::string const &locatorStr
+            , F const &f
+            , ChainItemFolder &&folder = ChainItemFolder {}
+        ) {
+            auto parsed = shared_chain_utils::parseSharedChainLocator(locatorStr);
+            if (parsed) {
+                return oneShotWrite<ChainData,ChainItemFolder,F>(
+                    env, std::get<0>(*parsed), std::get<1>(*parsed), f, std::move(folder)
+                );
+            } else {
+                throw std::runtime_error(std::string("sharedChainCreator::oneShotWrite: malformed connection locator string '")+locatorStr+"'");
+            }
+        }
+
+        template <class ChainData>
+        bool tryOneShotWriteConstValue(
+            typename App::EnvironmentType *env
+            , SharedChainProtocol protocol
+            , ConnectionLocator const &locator
+            , std::string const &id
+            , ChainData &&data
+        ) {
+            switch (protocol) {
+            case SharedChainProtocol::Etcd:
+                {
+                    if constexpr (std::is_convertible_v<typename App::EnvironmentType *, etcd_shared_chain::EtcdChainComponent *>) {
+                        auto conf = shared_chain_utils::etcdChainConfigurationFromConnectionLocator(locator);
+                        return basic::simple_shared_chain::OneShotChainWriter<typename App::EnvironmentType,etcd_shared_chain::EtcdChain<ChainData>>::tryWriteConstValue(
+                            env
+                            , getChain<etcd_shared_chain::EtcdChain<ChainData>>(
+                                shared_chain_utils::makeSharedChainLocator(protocol, locator)
+                                , [&conf]() {
+                                    return new etcd_shared_chain::EtcdChain<ChainData>(conf);
+                                }
+                            )
+                            , id 
+                            , std::move(data)
+                        );
+                    } else {
+                        throw new std::runtime_error("sharedChainCreator::tryOneShotWriteConstValue: Etcd chain is not supported by the environment");
+                    }
+                }
+                break;
+            case SharedChainProtocol::Redis:
+                {
+                    if constexpr (std::is_convertible_v<typename App::EnvironmentType *, redis_shared_chain::RedisChainComponent *>) {
+                        auto conf = shared_chain_utils::redisChainConfigurationFromConnectionLocator(locator);
+                        return basic::simple_shared_chain::OneShotChainWriter<typename App::EnvironmentType,redis_shared_chain::RedisChain<ChainData>>::tryWriteConstValue(
+                            env
+                            , getChain<redis_shared_chain::RedisChain<ChainData>>(
+                                shared_chain_utils::makeSharedChainLocator(protocol, locator)
+                                , [&conf]() {
+                                    return new redis_shared_chain::RedisChain<ChainData>(conf);
+                                }
+                            )
+                            , id 
+                            , std::move(data)
+                        );
+                    } else {
+                        throw new std::runtime_error("sharedChainCreator::tryOneShotWriteConstValue: Redis chain is not supported by the environment");
+                    }
+                }
+                break;
+            case SharedChainProtocol::InMemoryWithLock:
+                {
+                    return basic::simple_shared_chain::OneShotChainWriter<typename App::EnvironmentType,etcd_shared_chain::InMemoryChain<ChainData>>::tryWriteConstValue(
+                        env
+                        , getChain<etcd_shared_chain::InMemoryChain<ChainData>>(
+                            shared_chain_utils::makeSharedChainLocator(protocol, locator)
+                            , []() {
+                                return new etcd_shared_chain::InMemoryChain<ChainData>();
+                            }
+                        )
+                        , id 
+                        , std::move(data)
+                    );
+                }
+                break;
+            case SharedChainProtocol::InMemoryLockFree:
+                {
+                    return basic::simple_shared_chain::OneShotChainWriter<typename App::EnvironmentType,lock_free_in_memory_shared_chain::LockFreeInMemoryChain<ChainData>>::tryWriteConstValue(
+                        env
+                        , getChain<lock_free_in_memory_shared_chain::LockFreeInMemoryChain<ChainData>>(
+                            shared_chain_utils::makeSharedChainLocator(protocol, locator)
+                            , []() {
+                                return new lock_free_in_memory_shared_chain::LockFreeInMemoryChain<ChainData>();
+                            }
+                        )
+                        , id 
+                        , std::move(data)
+                    );
+                }
+                break;
+            case SharedChainProtocol::InSharedMemory:
+                {
+                    if constexpr (std::is_convertible_v<typename App::EnvironmentType *, lock_free_in_memory_shared_chain::SharedMemoryChainComponent *>) {
+                        auto memoryName = locator.identifier();
+                        std::size_t memorySize = static_cast<std::size_t>(4*1024LL*1024LL*1024LL);
+                        auto sizeStr = locator.query("size","");
+                        if (sizeStr != "") {
+                            memorySize = static_cast<std::size_t>(std::stoull(sizeStr));
+                        }
+                        bool useName = (locator.query("useName", "false") == "true");
+                        if (useName) {
+                            return basic::simple_shared_chain::OneShotChainWriter<typename App::EnvironmentType,lock_free_in_memory_shared_chain::LockFreeInBoostSharedMemoryChain<
+                                ChainData
+                                , lock_free_in_memory_shared_chain::BoostSharedMemoryChainFastRecoverSupport::ByName
+                                , (
+                                    App::PossiblyMultiThreaded
+                                    ?
+                                    lock_free_in_memory_shared_chain::BoostSharedMemoryChainExtraDataProtectionStrategy::MutexProtected
+                                    :
+                                    lock_free_in_memory_shared_chain::BoostSharedMemoryChainExtraDataProtectionStrategy::Unsafe
+                                )
+                            >>::tryWriteConstValue(
+                                env
+                                , getChain<lock_free_in_memory_shared_chain::LockFreeInBoostSharedMemoryChain<
+                                    ChainData
+                                    , lock_free_in_memory_shared_chain::BoostSharedMemoryChainFastRecoverSupport::ByName
+                                    , (
+                                        App::PossiblyMultiThreaded
+                                        ?
+                                        lock_free_in_memory_shared_chain::BoostSharedMemoryChainExtraDataProtectionStrategy::MutexProtected
+                                        :
+                                        lock_free_in_memory_shared_chain::BoostSharedMemoryChainExtraDataProtectionStrategy::Unsafe
+                                    )
+                                >>(
+                                    shared_chain_utils::makeSharedChainLocator(protocol, locator)
+                                    , [memoryName,memorySize]() {
+                                        return new lock_free_in_memory_shared_chain::LockFreeInBoostSharedMemoryChain<
+                                            ChainData
+                                            , lock_free_in_memory_shared_chain::BoostSharedMemoryChainFastRecoverSupport::ByName
+                                            , (
+                                                App::PossiblyMultiThreaded
+                                                ?
+                                                lock_free_in_memory_shared_chain::BoostSharedMemoryChainExtraDataProtectionStrategy::MutexProtected
+                                                :
+                                                lock_free_in_memory_shared_chain::BoostSharedMemoryChainExtraDataProtectionStrategy::Unsafe
+                                            )
+                                        >(memoryName, memorySize);
+                                    }
+                                )
+                                , id 
+                                , std::move(data)
+                            );
+                        } else {
+                            return basic::simple_shared_chain::OneShotChainWriter<typename App::EnvironmentType,lock_free_in_memory_shared_chain::LockFreeInBoostSharedMemoryChain<
+                                ChainData
+                                , lock_free_in_memory_shared_chain::BoostSharedMemoryChainFastRecoverSupport::ByOffset
+                                , (
+                                    App::PossiblyMultiThreaded
+                                    ?
+                                    lock_free_in_memory_shared_chain::BoostSharedMemoryChainExtraDataProtectionStrategy::MutexProtected
+                                    :
+                                    lock_free_in_memory_shared_chain::BoostSharedMemoryChainExtraDataProtectionStrategy::Unsafe
+                                )
+                            >>::tryWriteConstValue(
+                                env
+                                , getChain<lock_free_in_memory_shared_chain::LockFreeInBoostSharedMemoryChain<
+                                    ChainData
+                                    , lock_free_in_memory_shared_chain::BoostSharedMemoryChainFastRecoverSupport::ByOffset
+                                    , (
+                                        App::PossiblyMultiThreaded
+                                        ?
+                                        lock_free_in_memory_shared_chain::BoostSharedMemoryChainExtraDataProtectionStrategy::MutexProtected
+                                        :
+                                        lock_free_in_memory_shared_chain::BoostSharedMemoryChainExtraDataProtectionStrategy::Unsafe
+                                    )
+                                >>(
+                                    shared_chain_utils::makeSharedChainLocator(protocol, locator)
+                                    , [memoryName,memorySize]() {
+                                        return new lock_free_in_memory_shared_chain::LockFreeInBoostSharedMemoryChain<
+                                            ChainData
+                                            , lock_free_in_memory_shared_chain::BoostSharedMemoryChainFastRecoverSupport::ByOffset
+                                            , (
+                                                App::PossiblyMultiThreaded
+                                                ?
+                                                lock_free_in_memory_shared_chain::BoostSharedMemoryChainExtraDataProtectionStrategy::MutexProtected
+                                                :
+                                                lock_free_in_memory_shared_chain::BoostSharedMemoryChainExtraDataProtectionStrategy::Unsafe
+                                            )
+                                        >(memoryName, memorySize);
+                                    }
+                                )
+                                , id 
+                                , std::move(data)
+                            );
+                        }
+                    } else {
+                        throw new std::runtime_error("sharedChainCreator::tryOneShotWriteConstValue: Shared memory chain is not supported by the environment");
+                    }
+                }
+                break;
+            default:
+                throw std::runtime_error(std::string("sharedChainCreator::tryOneShotWriteConstValue: unknown protocol")+std::to_string(static_cast<int>(protocol)));
+                break;
+            }
+        }
+
+        template <class ChainData>
+        bool tryOneShotWriteConstValue(
+            typename App::EnvironmentType *env
+            , std::string const &locatorStr
+            , std::string const &id
+            , ChainData &&data
+        ) {
+            auto parsed = shared_chain_utils::parseSharedChainLocator(locatorStr);
+            if (parsed) {
+                return tryOneShotWriteConstValue<ChainData>(
+                    env, std::get<0>(*parsed), std::get<1>(*parsed), id, std::move(data)
+                );
+            } else {
+                throw std::runtime_error(std::string("sharedChainCreator::tryOneShotWriteConstValue: malformed connection locator string '")+locatorStr+"'");
+            }
+        }
+
+        template <class ChainData>
+        void blockingOneShotWriteConstValue(
+            typename App::EnvironmentType *env
+            , SharedChainProtocol protocol
+            , ConnectionLocator const &locator
+            , std::string const &id
+            , ChainData &&data
+        ) {
+            switch (protocol) {
+            case SharedChainProtocol::Etcd:
+                {
+                    if constexpr (std::is_convertible_v<typename App::EnvironmentType *, etcd_shared_chain::EtcdChainComponent *>) {
+                        auto conf = shared_chain_utils::etcdChainConfigurationFromConnectionLocator(locator);
+                        basic::simple_shared_chain::OneShotChainWriter<typename App::EnvironmentType,etcd_shared_chain::EtcdChain<ChainData>>::blockingWriteConstValue(
+                            env
+                            , getChain<etcd_shared_chain::EtcdChain<ChainData>>(
+                                shared_chain_utils::makeSharedChainLocator(protocol, locator)
+                                , [&conf]() {
+                                    return new etcd_shared_chain::EtcdChain<ChainData>(conf);
+                                }
+                            )
+                            , id 
+                            , std::move(data)
+                        );
+                    } else {
+                        throw new std::runtime_error("sharedChainCreator::tryOneShotWriteConstValue: Etcd chain is not supported by the environment");
+                    }
+                }
+                break;
+            case SharedChainProtocol::Redis:
+                {
+                    if constexpr (std::is_convertible_v<typename App::EnvironmentType *, redis_shared_chain::RedisChainComponent *>) {
+                        auto conf = shared_chain_utils::redisChainConfigurationFromConnectionLocator(locator);
+                        basic::simple_shared_chain::OneShotChainWriter<typename App::EnvironmentType,redis_shared_chain::RedisChain<ChainData>>::blockingWriteConstValue(
+                            env
+                            , getChain<redis_shared_chain::RedisChain<ChainData>>(
+                                shared_chain_utils::makeSharedChainLocator(protocol, locator)
+                                , [&conf]() {
+                                    return new redis_shared_chain::RedisChain<ChainData>(conf);
+                                }
+                            )
+                            , id 
+                            , std::move(data)
+                        );
+                    } else {
+                        throw new std::runtime_error("sharedChainCreator::tryOneShotWriteConstValue: Redis chain is not supported by the environment");
+                    }
+                }
+                break;
+            case SharedChainProtocol::InMemoryWithLock:
+                {
+                    basic::simple_shared_chain::OneShotChainWriter<typename App::EnvironmentType,etcd_shared_chain::InMemoryChain<ChainData>>::blockingWriteConstValue(
+                        env
+                        , getChain<etcd_shared_chain::InMemoryChain<ChainData>>(
+                            shared_chain_utils::makeSharedChainLocator(protocol, locator)
+                            , []() {
+                                return new etcd_shared_chain::InMemoryChain<ChainData>();
+                            }
+                        )
+                        , id 
+                        , std::move(data)
+                    );
+                }
+                break;
+            case SharedChainProtocol::InMemoryLockFree:
+                {
+                    basic::simple_shared_chain::OneShotChainWriter<typename App::EnvironmentType,lock_free_in_memory_shared_chain::LockFreeInMemoryChain<ChainData>>::blockingWriteConstValue(
+                        env
+                        , getChain<lock_free_in_memory_shared_chain::LockFreeInMemoryChain<ChainData>>(
+                            shared_chain_utils::makeSharedChainLocator(protocol, locator)
+                            , []() {
+                                return new lock_free_in_memory_shared_chain::LockFreeInMemoryChain<ChainData>();
+                            }
+                        )
+                        , id 
+                        , std::move(data)
+                    );
+                }
+                break;
+            case SharedChainProtocol::InSharedMemory:
+                {
+                    if constexpr (std::is_convertible_v<typename App::EnvironmentType *, lock_free_in_memory_shared_chain::SharedMemoryChainComponent *>) {
+                        auto memoryName = locator.identifier();
+                        std::size_t memorySize = static_cast<std::size_t>(4*1024LL*1024LL*1024LL);
+                        auto sizeStr = locator.query("size","");
+                        if (sizeStr != "") {
+                            memorySize = static_cast<std::size_t>(std::stoull(sizeStr));
+                        }
+                        bool useName = (locator.query("useName", "false") == "true");
+                        if (useName) {
+                            basic::simple_shared_chain::OneShotChainWriter<typename App::EnvironmentType,lock_free_in_memory_shared_chain::LockFreeInBoostSharedMemoryChain<
+                                ChainData
+                                , lock_free_in_memory_shared_chain::BoostSharedMemoryChainFastRecoverSupport::ByName
+                                , (
+                                    App::PossiblyMultiThreaded
+                                    ?
+                                    lock_free_in_memory_shared_chain::BoostSharedMemoryChainExtraDataProtectionStrategy::MutexProtected
+                                    :
+                                    lock_free_in_memory_shared_chain::BoostSharedMemoryChainExtraDataProtectionStrategy::Unsafe
+                                )
+                            >>::blockingWriteConstValue(
+                                env
+                                , getChain<lock_free_in_memory_shared_chain::LockFreeInBoostSharedMemoryChain<
+                                    ChainData
+                                    , lock_free_in_memory_shared_chain::BoostSharedMemoryChainFastRecoverSupport::ByName
+                                    , (
+                                        App::PossiblyMultiThreaded
+                                        ?
+                                        lock_free_in_memory_shared_chain::BoostSharedMemoryChainExtraDataProtectionStrategy::MutexProtected
+                                        :
+                                        lock_free_in_memory_shared_chain::BoostSharedMemoryChainExtraDataProtectionStrategy::Unsafe
+                                    )
+                                >>(
+                                    shared_chain_utils::makeSharedChainLocator(protocol, locator)
+                                    , [memoryName,memorySize]() {
+                                        return new lock_free_in_memory_shared_chain::LockFreeInBoostSharedMemoryChain<
+                                            ChainData
+                                            , lock_free_in_memory_shared_chain::BoostSharedMemoryChainFastRecoverSupport::ByName
+                                            , (
+                                                App::PossiblyMultiThreaded
+                                                ?
+                                                lock_free_in_memory_shared_chain::BoostSharedMemoryChainExtraDataProtectionStrategy::MutexProtected
+                                                :
+                                                lock_free_in_memory_shared_chain::BoostSharedMemoryChainExtraDataProtectionStrategy::Unsafe
+                                            )
+                                        >(memoryName, memorySize);
+                                    }
+                                )
+                                , id 
+                                , std::move(data)
+                            );
+                        } else {
+                            basic::simple_shared_chain::OneShotChainWriter<typename App::EnvironmentType,lock_free_in_memory_shared_chain::LockFreeInBoostSharedMemoryChain<
+                                ChainData
+                                , lock_free_in_memory_shared_chain::BoostSharedMemoryChainFastRecoverSupport::ByOffset
+                                , (
+                                    App::PossiblyMultiThreaded
+                                    ?
+                                    lock_free_in_memory_shared_chain::BoostSharedMemoryChainExtraDataProtectionStrategy::MutexProtected
+                                    :
+                                    lock_free_in_memory_shared_chain::BoostSharedMemoryChainExtraDataProtectionStrategy::Unsafe
+                                )
+                            >>::blockingWriteConstValue(
+                                env
+                                , getChain<lock_free_in_memory_shared_chain::LockFreeInBoostSharedMemoryChain<
+                                    ChainData
+                                    , lock_free_in_memory_shared_chain::BoostSharedMemoryChainFastRecoverSupport::ByOffset
+                                    , (
+                                        App::PossiblyMultiThreaded
+                                        ?
+                                        lock_free_in_memory_shared_chain::BoostSharedMemoryChainExtraDataProtectionStrategy::MutexProtected
+                                        :
+                                        lock_free_in_memory_shared_chain::BoostSharedMemoryChainExtraDataProtectionStrategy::Unsafe
+                                    )
+                                >>(
+                                    shared_chain_utils::makeSharedChainLocator(protocol, locator)
+                                    , [memoryName,memorySize]() {
+                                        return new lock_free_in_memory_shared_chain::LockFreeInBoostSharedMemoryChain<
+                                            ChainData
+                                            , lock_free_in_memory_shared_chain::BoostSharedMemoryChainFastRecoverSupport::ByOffset
+                                            , (
+                                                App::PossiblyMultiThreaded
+                                                ?
+                                                lock_free_in_memory_shared_chain::BoostSharedMemoryChainExtraDataProtectionStrategy::MutexProtected
+                                                :
+                                                lock_free_in_memory_shared_chain::BoostSharedMemoryChainExtraDataProtectionStrategy::Unsafe
+                                            )
+                                        >(memoryName, memorySize);
+                                    }
+                                )
+                                , id 
+                                , std::move(data)
+                            );
+                        }
+                    } else {
+                        throw new std::runtime_error("sharedChainCreator::tryOneShotWriteConstValue: Shared memory chain is not supported by the environment");
+                    }
+                }
+                break;
+            default:
+                throw std::runtime_error(std::string("sharedChainCreator::tryOneShotWriteConstValue: unknown protocol")+std::to_string(static_cast<int>(protocol)));
+                break;
+            }
+        }
+
+        template <class ChainData>
+        void blockingOneShotWriteConstValue(
+            typename App::EnvironmentType *env
+            , std::string const &locatorStr
+            , std::string const &id
+            , ChainData &&data
+        ) {
+            auto parsed = shared_chain_utils::parseSharedChainLocator(locatorStr);
+            if (parsed) {
+                blockingOneShotWriteConstValue<ChainData>(
+                    env, std::get<0>(*parsed), std::get<1>(*parsed), id, std::move(data)
+                );
+            } else {
+                throw std::runtime_error(std::string("sharedChainCreator::tryOneShotWriteConstValue: malformed connection locator string '")+locatorStr+"'");
+            }
         }
     };
 
