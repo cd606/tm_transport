@@ -27,25 +27,9 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
 
     template <class T>
     using ActualNodeData = std::conditional_t<std::is_trivially_copyable_v<T>,T,std::ptrdiff_t>;
-
-    template <class T, BoostSharedMemoryChainFastRecoverSupport FRS>
-    struct BoostSharedMemoryStorageItem {};
-    
+   
     template <class T>
-    struct BoostSharedMemoryStorageItem<T, BoostSharedMemoryChainFastRecoverSupport::ByName> {
-        char id[36]; //for uuid, please notice that the end '\0' is not included
-        ActualNodeData<T> data;
-        std::atomic<std::ptrdiff_t> next;
-        BoostSharedMemoryStorageItem() : data(), next(0) {
-            std::memset(id, 0, 36);
-        }
-        BoostSharedMemoryStorageItem(std::string const &s, ActualNodeData<T> &&d) : data(std::move(d)), next(0) {
-            std::memset(id, 0, 36);
-            std::memcpy(id, s.c_str(), std::min<std::size_t>(36, s.length()));
-        }
-    };
-    template <class T>
-    struct BoostSharedMemoryStorageItem<T, BoostSharedMemoryChainFastRecoverSupport::ByOffset> {
+    struct BoostSharedMemoryStorageItem {
         ActualNodeData<T> data;
         std::atomic<std::ptrdiff_t> next;
         BoostSharedMemoryStorageItem() : data(), next(0) {
@@ -60,7 +44,8 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
     struct BoostSharedMemoryChainItem {};
     template <class T>
     struct BoostSharedMemoryChainItem<T, BoostSharedMemoryChainFastRecoverSupport::ByName> {
-        BoostSharedMemoryStorageItem<T, BoostSharedMemoryChainFastRecoverSupport::ByName> *ptr;
+        BoostSharedMemoryStorageItem<T> *ptr;
+        std::string id;
         ParsedNodeData<T> parsed;
         T const *actualData() const {
             if constexpr (std::is_trivially_copyable_v<T>) {
@@ -80,7 +65,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
     };
     template <class T>
     struct BoostSharedMemoryChainItem<T, BoostSharedMemoryChainFastRecoverSupport::ByOffset> {
-        BoostSharedMemoryStorageItem<T, BoostSharedMemoryChainFastRecoverSupport::ByOffset> *ptr;
+        BoostSharedMemoryStorageItem<T> *ptr;
         std::ptrdiff_t offset;
         ParsedNodeData<T> parsed;
         T const *actualData() const {
@@ -170,7 +155,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
 #else
         boost::interprocess::managed_shared_memory mem_;
 #endif
-        BoostSharedMemoryStorageItem<T,BoostSharedMemoryChainFastRecoverSupport::ByName> *head_;
+        BoostSharedMemoryStorageItem<T> *head_;
     public:
         using StorageIDType = std::string;
         using DataType = T;
@@ -179,10 +164,11 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         using ItemType = BoostSharedMemoryChainItem<T,BoostSharedMemoryChainFastRecoverSupport::ByName>;
         static constexpr bool SupportsExtraData = true;
     private:
-        static inline ItemType fromPtr(BoostSharedMemoryStorageItem<T,BoostSharedMemoryChainFastRecoverSupport::ByName> *ptr) {
+        static inline ItemType fromIDAndPtr(std::string const &id, BoostSharedMemoryStorageItem<T> *ptr) {
             if constexpr (std::is_trivially_copyable_v<T>) {
                 return ItemType {
                     ptr
+                    , id
                     , ParsedNodeData<T> {}
                 };
             } else {
@@ -190,6 +176,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                     if (ptr->data == 0) {
                         return ItemType {
                             ptr
+                            , id
                             , ParsedNodeData<T> {}
                         };
                     }
@@ -198,11 +185,13 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                     std::memcpy(&sz, dataPtr, sizeof(std::size_t));
                     return ItemType {
                         ptr
+                        , id
                         , basic::bytedata_utils::RunDeserializer<T>::apply(std::string_view {dataPtr+sizeof(std::size_t), sz})
                     };
                 } else {
                     return ItemType {
                         ptr
+                        , id
                         , ParsedNodeData<T> {}
                     };
                 }
@@ -218,20 +207,20 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             )
             , head_(nullptr)
         {
-            head_ = mem_.find_or_construct<BoostSharedMemoryStorageItem<T,BoostSharedMemoryChainFastRecoverSupport::ByName>>(boost::interprocess::unique_instance)();
+            head_ = mem_.find_or_construct<BoostSharedMemoryStorageItem<T>>(boost::interprocess::unique_instance)();
             if constexpr (!std::is_trivially_copyable_v<T>) {
                 head_->data = 0;
             }
         }
         ItemType head(void *) {
-            return fromPtr(head_);
+            return fromIDAndPtr("", head_);
         }
         ItemType loadUntil(void *env, StorageIDType const &id) {
             if (id == "" || id == "head") {
                 return head(env);
             }
-            return fromPtr(
-                mem_.find<BoostSharedMemoryStorageItem<T,BoostSharedMemoryChainFastRecoverSupport::ByName>>(id.c_str()).first
+            return fromIDAndPtr(
+                id, mem_.find<BoostSharedMemoryStorageItem<T>>(id.c_str()).first
             );
         }
         std::optional<ItemType> fetchNext(ItemType const &current) {
@@ -240,8 +229,10 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             }
             auto next = current.ptr->next.load(std::memory_order_acquire);
             if (next != 0) {
-                return fromPtr(
-                    reinterpret_cast<BoostSharedMemoryStorageItem<T,BoostSharedMemoryChainFastRecoverSupport::ByName> *>(reinterpret_cast<char *>(current.ptr)+next)
+                auto *p = reinterpret_cast<BoostSharedMemoryStorageItem<T> *>(reinterpret_cast<char *>(current.ptr)+next);
+                return fromIDAndPtr(
+                    mem_.get_instance_name(p)
+                    , p
                 );
             } else {
                 return std::nullopt;
@@ -419,19 +410,21 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         }
         ItemType formChainItem(StorageIDType const &id, T &&data) {
             if constexpr (std::is_trivially_copyable_v<T>) {
-                return fromPtr(
-                    mem_.construct<BoostSharedMemoryStorageItem<T,BoostSharedMemoryChainFastRecoverSupport::ByName>>(id.c_str())(id, std::move(data))
+                return fromIDAndPtr(
+                    id
+                    , mem_.construct<BoostSharedMemoryStorageItem<T>>(id.c_str())(std::move(data))
                 );
             } else {
                 auto enc = basic::bytedata_utils::RunSerializer<T>::apply(data);
                 std::size_t sz = enc.length();
-                auto *ptr = mem_.construct<BoostSharedMemoryStorageItem<T,BoostSharedMemoryChainFastRecoverSupport::ByName>>(id.c_str())(id, 0);
+                auto *ptr = mem_.construct<BoostSharedMemoryStorageItem<T>>(id.c_str())(0);
                 auto *dataPtr = mem_.construct<char>(boost::interprocess::anonymous_instance)[sz+sizeof(std::size_t)]();
                 std::memcpy(dataPtr, reinterpret_cast<char const *>(&sz), sizeof(std::size_t));
                 std::memcpy(dataPtr+sizeof(std::size_t), enc.data(), sz);
                 ptr->data = (dataPtr-reinterpret_cast<char *>(ptr));
                 return {
                     ptr
+                    , id
                     , std::move(data)
                 };
             }
@@ -447,13 +440,13 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             }
         }
         static StorageIDType extractStorageID(ItemType const &p) {
-            return std::string(p.ptr->id, 36);
+            return p.id;
         }
         static T const *extractData(ItemType const &p) {
             return p.actualData();
         }
         static std::string_view extractStorageIDStringView(ItemType const &p) {
-            return std::string_view {p.ptr->id, 36};
+            return std::string_view {p.id};
         }
     };
 
@@ -470,7 +463,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
 #else
         boost::interprocess::managed_shared_memory mem_;
 #endif
-        BoostSharedMemoryStorageItem<T,BoostSharedMemoryChainFastRecoverSupport::ByOffset> *head_;
+        BoostSharedMemoryStorageItem<T> *head_;
     public:
         using StorageIDType = std::ptrdiff_t;
         using DataType = T;
@@ -479,7 +472,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         using ItemType = BoostSharedMemoryChainItem<T,BoostSharedMemoryChainFastRecoverSupport::ByOffset>;
         static constexpr bool SupportsExtraData = true;
     private:
-        inline ItemType fromPtr(BoostSharedMemoryStorageItem<T,BoostSharedMemoryChainFastRecoverSupport::ByOffset> *ptr) const {
+        inline ItemType fromPtr(BoostSharedMemoryStorageItem<T> *ptr) const {
             if constexpr (std::is_trivially_copyable_v<T>) {
                 return ItemType {
                     ptr
@@ -522,7 +515,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             )
             , head_(nullptr)
         {
-            head_ = mem_.find_or_construct<BoostSharedMemoryStorageItem<T,BoostSharedMemoryChainFastRecoverSupport::ByOffset>>(boost::interprocess::unique_instance)();
+            head_ = mem_.find_or_construct<BoostSharedMemoryStorageItem<T>>(boost::interprocess::unique_instance)();
             if constexpr (!std::is_trivially_copyable_v<T>) {
                 head_->data = 0;
             }
@@ -534,7 +527,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         }
         ItemType loadUntil(void *env, StorageIDType const &id) {
             return fromPtr(
-                reinterpret_cast<BoostSharedMemoryStorageItem<T,BoostSharedMemoryChainFastRecoverSupport::ByOffset> *>(reinterpret_cast<char *>(head_)+id)
+                reinterpret_cast<BoostSharedMemoryStorageItem<T> *>(reinterpret_cast<char *>(head_)+id)
             );
         }
         ItemType loadUntil(void *env, std::string const &id) {
@@ -555,7 +548,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             auto next = current.ptr->next.load(std::memory_order_acquire);
             if (next != 0) {
                 return fromPtr(
-                    reinterpret_cast<BoostSharedMemoryStorageItem<T,BoostSharedMemoryChainFastRecoverSupport::ByOffset> *>(reinterpret_cast<char *>(current.ptr)+next)
+                    reinterpret_cast<BoostSharedMemoryStorageItem<T> *>(reinterpret_cast<char *>(current.ptr)+next)
                 );
             } else {
                 return std::nullopt;
@@ -734,12 +727,12 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         ItemType formChainItem(StorageIDType const &notUsed, T &&data) {
             if constexpr (std::is_trivially_copyable_v<T>) {
                 return fromPtr(
-                    mem_.construct<BoostSharedMemoryStorageItem<T,BoostSharedMemoryChainFastRecoverSupport::ByOffset>>(boost::interprocess::anonymous_instance)(std::move(data))
+                    mem_.construct<BoostSharedMemoryStorageItem<T>>(boost::interprocess::anonymous_instance)(std::move(data))
                 );
             } else {
                 auto enc = basic::bytedata_utils::RunSerializer<T>::apply(data);
                 std::size_t sz = enc.length();
-                auto *ptr = mem_.construct<BoostSharedMemoryStorageItem<T,BoostSharedMemoryChainFastRecoverSupport::ByOffset>>(boost::interprocess::anonymous_instance)(0);
+                auto *ptr = mem_.construct<BoostSharedMemoryStorageItem<T>>(boost::interprocess::anonymous_instance)(0);
                 auto *dataPtr = mem_.construct<char>(boost::interprocess::anonymous_instance)[sz+sizeof(std::size_t)]();
                 std::memcpy(dataPtr, reinterpret_cast<char const *>(&sz), sizeof(std::size_t));
                 std::memcpy(dataPtr+sizeof(std::size_t), enc.data(), sz);
