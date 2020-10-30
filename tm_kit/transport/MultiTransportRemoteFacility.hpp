@@ -159,15 +159,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                     try {
                         auto rawReq = component->rabbitmq_setRPCQueueClient(
                             locator
-                            , [this,env](std::string const &contentEncoding, basic::ByteDataWithID &&data) {
-                                bool isFinal = false;
-                                if (contentEncoding == "with_final") {
-                                    auto l = data.content.length();
-                                    if (l != 0) {
-                                        isFinal = (data.content[l-1] != (char) 0);
-                                        data.content.resize(l-1);                                
-                                    }
-                                }
+                            , [this,env](bool isFinal, basic::ByteDataWithID &&data) {
                                 if constexpr (std::is_same_v<Identity, void>) {
                                     auto result = basic::bytedata_utils::RunDeserializer<Output>::apply(data.content);
                                     if (!result) {
@@ -206,14 +198,14 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                         RequestSender req;
                         if constexpr (std::is_same_v<Identity,void>) {
                             req = [rawReq](basic::ByteDataWithID &&data) {
-                                rawReq("with_final", std::move(data));
+                                rawReq(std::move(data));
                             };
                         } else {
                             static_assert(std::is_convertible_v<Env *, ClientSideAbstractIdentityAttacherComponent<Identity,A> *>
                                         , "the client side identity attacher must be present");
                             auto *attacher = static_cast<ClientSideAbstractIdentityAttacherComponent<Identity,A> *>(env);
                             req = [attacher,rawReq](basic::ByteDataWithID &&data) {
-                                rawReq("with_final", basic::ByteDataWithID {
+                                rawReq(basic::ByteDataWithID {
                                     std::move(data.id)
                                     , attacher->attach_identity(basic::ByteData {std::move(data.content)}).content
                                 });
@@ -252,13 +244,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                             , [env]() {
                                 return Env::id_to_string(env->new_id());
                             }
-                            , [this,env](basic::ByteDataWithID &&data) {
-                                bool isFinal = false;
-                                auto l = data.content.length();
-                                if (l != 0) {
-                                    isFinal = (data.content[l-1] != (char) 0);
-                                    data.content.resize(l-1);                                
-                                }
+                            , [this,env](bool isFinal, basic::ByteDataWithID &&data) {
                                 if constexpr (std::is_same_v<Identity, void>) {
                                     auto result = basic::bytedata_utils::RunDeserializer<Output>::apply(data.content);
                                     if (!result) {

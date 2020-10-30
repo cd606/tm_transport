@@ -19,31 +19,6 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
     public:
         using M = infra::RealTimeApp<Env>;
     private:
-        struct OnOrderFacilityCommunicationInfo {
-            bool isFinal;
-        };
-
-        static std::tuple<
-            basic::ByteDataWithID
-            , std::optional<OnOrderFacilityCommunicationInfo>
-            >parseReplyData(basic::ByteDataWithID &&d) {
-            auto l = d.content.length();
-            if (l == 0) {
-                return {std::move(d), {OnOrderFacilityCommunicationInfo {false}}};
-            } else {
-                char lastByte = d.content[l-1];
-                d.content.resize(l-1);
-                return {std::move(d), {OnOrderFacilityCommunicationInfo {(lastByte != (char) 0)}}};
-            }
-        } 
-
-        static basic::ByteDataWithID createReplyData(basic::ByteDataWithID &&d, OnOrderFacilityCommunicationInfo const &info) {
-            auto l = d.content.length();
-            d.content.resize(l+1);
-            d.content[l] = (info.isFinal?(char) 1:(char) 0);
-            return std::move(d);
-        }
-
         static void sendRequest(Env *env, std::function<void(basic::ByteDataWithID &&)>requester, basic::ByteDataWithID &&req) {
             requester(std::move(req));
         }
@@ -118,10 +93,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 }
                 virtual void handle(typename M::template InnerData<basic::ByteDataWithID> &&data) override final {
                     if (env_) {
-                        OnOrderFacilityCommunicationInfo info;
-                        info.isFinal = data.timedData.finalFlag;
-                        auto wireData = createReplyData(std::move(data.timedData.value), info);
-                        (*replierPtr_)(info.isFinal, std::move(wireData));
+                        (*replierPtr_)(data.timedData.finalFlag, std::move(data.timedData.value));
                     }
                 }
             };
@@ -223,13 +195,12 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                             , [this]() {
                                 return Env::id_to_string(env_->new_id());
                             }
-                            , [this](basic::ByteDataWithID &&data) {
-                                auto parseRes = parseReplyData(std::move(data));
-                                auto result = basic::bytedata_utils::RunDeserializer<B>::apply(std::get<0>(parseRes).content);
+                            , [this](bool isFinal, basic::ByteDataWithID &&data) {
+                                auto result = basic::bytedata_utils::RunDeserializer<B>::apply(data.content);
                                 if (!result) {
                                     return;
                                 }
-                                this->publish(env_, typename M::template Key<B> {Env::id_from_string(std::get<0>(parseRes).id), std::move(*result)}, (std::get<1>(parseRes)?std::get<1>(parseRes)->isFinal:false));
+                                this->publish(env_, typename M::template Key<B> {Env::id_from_string(data.id), std::move(*result)}, isFinal);
                             }
                             , DefaultHookFactory<Env>::template supplyFacilityHookPair_ClientSide<A,B>(env_, hooks_));
                     }
@@ -485,9 +456,8 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                     , [env]() {
                         return Env::id_to_string(env->new_id());
                     }
-                    , [ret](basic::ByteDataWithID &&data) {
-                        auto parseRes = parseReplyData(std::move(data));
-                        auto val = basic::bytedata_utils::RunDeserializer<B>::apply(std::get<0>(parseRes).content);
+                    , [ret](bool isFinal, basic::ByteDataWithID &&data) {
+                        auto val = basic::bytedata_utils::RunDeserializer<B>::apply(data.content);
                         if (!val) {
                             return;
                         }
@@ -512,7 +482,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                     , [env]() {
                         return Env::id_to_string(env->new_id());
                     }
-                    , [](basic::ByteDataWithID &&data) {
+                    , [](bool isFinal, basic::ByteDataWithID &&data) {
                     }
                     , DefaultHookFactory<Env>::template supplyFacilityHookPair_ClientSideOutgoingOnly<A>(env, hooks)
                 );
@@ -545,17 +515,16 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                             , [this]() {
                                 return Env::id_to_string(env_->new_id());
                             }
-                            , [this](basic::ByteDataWithID &&data) {
-                                auto parseRes = parseReplyData(std::move(data));
+                            , [this](bool isFinal, basic::ByteDataWithID &&data) {
                                 auto processRes = static_cast<ClientSideAbstractIdentityAttacherComponent<Identity,A> *>(env_)->process_incoming_data(
-                                    basic::ByteData {std::move(std::get<0>(parseRes).content)}
+                                    basic::ByteData {std::move(data.content)}
                                 );
                                 if (processRes) {
                                     auto result = basic::bytedata_utils::RunDeserializer<B>::apply(processRes->content);
                                     if (!result) {
                                         return;
                                     }
-                                    this->publish(env_, typename M::template Key<B> {Env::id_from_string(std::get<0>(parseRes).id), std::move(*result)}, (std::get<1>(parseRes)?std::get<1>(parseRes)->isFinal:false));
+                                    this->publish(env_, typename M::template Key<B> {Env::id_from_string(data.id), std::move(*result)}, isFinal);
                                 }
                             }
                             , DefaultHookFactory<Env>::template supplyFacilityHookPair_ClientSide<A,B>(env_, hooks_)
@@ -813,10 +782,9 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                     , [env]() {
                         return Env::id_to_string(env->new_id());
                     }
-                    , [ret,env](basic::ByteDataWithID &&data) {
-                        auto parseRes = parseReplyData(std::move(data));
+                    , [ret,env](bool isFinal, basic::ByteDataWithID &&data) {
                         auto processRes = static_cast<ClientSideAbstractIdentityAttacherComponent<Identity,A> *>(env)->process_incoming_data(
-                            basic::ByteData {std::move(std::get<0>(parseRes).content)}
+                            basic::ByteData {std::move(data.content)}
                         );
                         if (processRes) {
                             auto val = basic::bytedata_utils::RunDeserializer<B>::apply(processRes->content);
@@ -844,7 +812,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                     , [env]() {
                         return Env::id_to_string(env->new_id());
                     }
-                    , [](basic::ByteDataWithID &&data) {
+                    , [](bool isFinal, basic::ByteDataWithID &&data) {
                     }
                     , DefaultHookFactory<Env>::template supplyFacilityHookPair_ClientSideOutgoingOnly<A>(env, hooks)
                 );

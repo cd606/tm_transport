@@ -70,12 +70,8 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
             env->HeartbeatAndAlertComponent::assignIdentity(HeartbeatAndAlertComponent {
                 static_cast<basic::real_time_clock::ClockComponent *>(env)
                 , identity
-                , std::bind(
-                    static_cast<rabbitmq::RabbitMQComponent *>(env)
-                        ->rabbitmq_getExchangePublisher(locator, realHook)
-                    , std::string("")
-                    , std::placeholders::_1
-                )
+                , static_cast<rabbitmq::RabbitMQComponent *>(env)
+                    ->rabbitmq_getExchangePublisher(locator, realHook)
             });
         }
     };

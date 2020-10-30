@@ -233,7 +233,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                             auto res = component->rabbitmq_addExchangeSubscriptionClient(
                                 x.connectionLocator
                                 , x.topicDescription
-                                , [this,env](std::string const &, basic::ByteDataWithTopic &&d) {
+                                , [this,env](basic::ByteDataWithTopic &&d) {
                                     auto t = basic::bytedata_utils::RunDeserializer<T>::apply(d.content);
                                     if (t) {
                                         this->ImporterParent::publish(M::template pureInnerData<basic::TypedDataWithTopic<T>>(env, {std::move(d.topic), std::move(*t)}));

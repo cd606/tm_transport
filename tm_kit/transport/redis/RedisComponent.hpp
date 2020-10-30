@@ -43,7 +43,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         //for RPC, host, queue and an RPC channel name (as identifier) are needed in the locator
         std::function<void(basic::ByteDataWithID &&)> redis_setRPCClient(ConnectionLocator const &locator,
                         std::function<std::string()> clientCommunicationIDCreator,
-                        std::function<void(basic::ByteDataWithID &&)> client,
+                        std::function<void(bool, basic::ByteDataWithID &&)> client,
                         std::optional<ByteDataHookPair> hookPair = std::nullopt); //the return value is the requester
         void redis_removeRPCClient(ConnectionLocator const &locator);
         std::function<void(bool, basic::ByteDataWithID &&)> redis_setRPCServer(ConnectionLocator const &locator,

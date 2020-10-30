@@ -59,7 +59,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         class OneExchangeSubscriptionConnection {
         private:
             AmqpClient::Channel::ptr_t channel_;
-            std::function<void(std::string const &, basic::ByteDataWithTopic &&)> callback_;
+            std::function<void(basic::ByteDataWithTopic &&)> callback_;
             std::optional<WireToUserHook> wireToUserHook_;
             std::thread th_;
             std::atomic<bool> running_;
@@ -70,13 +70,13 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                         if (wireToUserHook_) {
                             auto b = (wireToUserHook_->hook)(basic::ByteData {msg->Message()->Body()});
                             if (b) {
-                                callback_(msg->Message()->ContentEncoding(), {
+                                callback_({ 
                                     msg->RoutingKey()
                                     , std::move(b->content)
                                 });
                             }
                         } else {
-                            callback_(msg->Message()->ContentEncoding(), {
+                            callback_({
                                 msg->RoutingKey()
                                 , msg->Message()->Body()
                             });
@@ -85,7 +85,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 }
             }
         public:
-            OneExchangeSubscriptionConnection(ConnectionLocator const &l, std::string const &topic, std::function<void(std::string const &, basic::ByteDataWithTopic &&)> callback, std::optional<WireToUserHook> wireToUserHook)
+            OneExchangeSubscriptionConnection(ConnectionLocator const &l, std::string const &topic, std::function<void(basic::ByteDataWithTopic &&)> callback, std::optional<WireToUserHook> wireToUserHook)
                 : channel_(createChannel(l))
                 , callback_(callback)
                 , wireToUserHook_(wireToUserHook)
@@ -182,14 +182,13 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 } catch (std::system_error const &) {
                 }
             }
-            void publishOnExchange(std::string const &exchange, std::string const &contentEncoding, basic::ByteDataWithTopic &&data) {
+            void publishOnExchange(std::string const &exchange, basic::ByteDataWithTopic &&data) {
                 if (!running_) {
                     return;
                 }
                 {
                     std::lock_guard<std::mutex> _(mutex_);
                     auto msg = AmqpClient::BasicMessage::Create(data.content);
-                    msg->ContentEncoding(contentEncoding);
                     msg->DeliveryMode(AmqpClient::BasicMessage::dm_nonpersistent);
 #if !((SIMPLEAMQPCLIENT_VERSION_MAJOR >= 3) || (SIMPLEAMQPCLIENT_VERSION_MAJOR == 2 && SIMPLEAMQPCLIENT_VERSION_MINOR >= 6))
                     msg->Expiration("1000");
@@ -215,7 +214,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         private:
             AmqpClient::Channel::ptr_t channel_;
             std::string rpcQueue_, localQueue_;
-            std::function<void(std::string const &, basic::ByteDataWithID &&)> callback_;
+            std::function<void(bool, basic::ByteDataWithID &&)> callback_;
             std::optional<WireToUserHook> wireToUserHook_;
             std::thread th_;
             std::atomic<bool> running_;
@@ -226,19 +225,20 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                     AmqpClient::Envelope::ptr_t msg;
                     if (channel_->BasicConsumeMessage(localQueue_, msg, 1000)) {
                         std::string corrID = msg->Message()->CorrelationId();
+                        bool isFinal = (msg->Message()->ContentTypeIsSet() && msg->Message()->ContentType() == "final");
                         if (wireToUserHook_) {
                             auto d = (wireToUserHook_->hook)(basic::ByteData {msg->Message()->Body()});
                             if (d) {
-                                callback_(msg->Message()->ContentEncoding(), {corrID, std::move(d->content)});
+                                callback_(isFinal, {corrID, std::move(d->content)});
                             }
                         } else {
-                            callback_(msg->Message()->ContentEncoding(), {corrID, msg->Message()->Body()});
+                            callback_(isFinal, {corrID, msg->Message()->Body()});
                         }
                     }
                 }
             }
         public:
-            OneRPCQueueClientConnection(ConnectionLocator const &l, std::function<void(std::string const &, basic::ByteDataWithID &&)> callback, std::optional<WireToUserHook> wireToUserHook, OnePublishingConnection *publishing)
+            OneRPCQueueClientConnection(ConnectionLocator const &l, std::function<void(bool, basic::ByteDataWithID &&)> callback, std::optional<WireToUserHook> wireToUserHook, OnePublishingConnection *publishing)
                 : channel_(createChannel(l))
                 , rpcQueue_(l.identifier())
                 , localQueue_(channel_->DeclareQueue(""))
@@ -262,11 +262,10 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 } catch (std::system_error const &) {
                 }
             }
-            void sendRequest(std::string const &contentEncoding, basic::ByteDataWithID &&data) {
+            void sendRequest(basic::ByteDataWithID &&data) {
                 AmqpClient::BasicMessage::ptr_t msg = AmqpClient::BasicMessage::Create(std::move(data.content));
                 msg->CorrelationId(data.id);
                 msg->ReplyTo(localQueue_);
-                msg->ContentEncoding(contentEncoding);
                 msg->DeliveryMode(persistent_?AmqpClient::BasicMessage::dm_persistent:AmqpClient::BasicMessage::dm_nonpersistent);
 #if !((SIMPLEAMQPCLIENT_VERSION_MAJOR >= 3) || (SIMPLEAMQPCLIENT_VERSION_MAJOR == 2 && SIMPLEAMQPCLIENT_VERSION_MINOR >= 6))                
                 msg->Expiration("5000");
@@ -280,7 +279,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         private:
             AmqpClient::Channel::ptr_t channel_;
             std::string rpcQueue_;
-            std::function<void(std::string const &, basic::ByteDataWithID &&)> callback_;
+            std::function<void(basic::ByteDataWithID &&)> callback_;
             std::optional<WireToUserHook> wireToUserHook_;
             std::unordered_map<std::string, std::string> replyQueueMap_;
             std::thread th_;
@@ -300,16 +299,16 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                         if (wireToUserHook_) {
                             auto d = (wireToUserHook_->hook)(basic::ByteData {msg->Message()->Body()});
                             if (d) {
-                                callback_(msg->Message()->ContentEncoding(), {corrID, std::move(d->content)});
+                                callback_({corrID, std::move(d->content)});
                             }
                         } else {
-                            callback_(msg->Message()->ContentEncoding(), {corrID, msg->Message()->Body()});
+                            callback_({corrID, msg->Message()->Body()});
                         }
                     }                   
                 }
             }
         public:
-            OneRPCQueueServerConnection(ConnectionLocator const &l, std::function<void(std::string const &, basic::ByteDataWithID &&)> callback, std::optional<WireToUserHook> wireToUserHook, OnePublishingConnection *publishing)
+            OneRPCQueueServerConnection(ConnectionLocator const &l, std::function<void(basic::ByteDataWithID &&)> callback, std::optional<WireToUserHook> wireToUserHook, OnePublishingConnection *publishing)
                 : channel_(createChannel(l))
                 , rpcQueue_(l.identifier())
                 , callback_(callback)
@@ -343,7 +342,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 } catch (std::system_error const &) {
                 }
             }
-            void sendReply(bool isFinal, std::string const &contentEncoding, basic::ByteDataWithID &&data) {
+            void sendReply(bool isFinal, basic::ByteDataWithID &&data) {
                 std::string replyQueue;
                 {
                     std::lock_guard<std::mutex> _(mutex_);
@@ -359,7 +358,9 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 AmqpClient::BasicMessage::ptr_t msg = AmqpClient::BasicMessage::Create(std::move(data.content));
                 msg->CorrelationId(data.id);
                 msg->ReplyTo(rpcQueue_);
-                msg->ContentEncoding(contentEncoding);
+                if (isFinal) {
+                    msg->ContentType("final");
+                }
                 publishing_->publishOnQueue(replyQueue, msg);            
             }
         };
@@ -382,7 +383,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             }
             return iter->second.get();
         }
-        OneRPCQueueClientConnection *createRpcQueueClientConnection(ConnectionLocator const &l, std::function<void(std::string const &, basic::ByteDataWithID &&)> client, std::optional<WireToUserHook> wireToUserHook) {
+        OneRPCQueueClientConnection *createRpcQueueClientConnection(ConnectionLocator const &l, std::function<void(bool, basic::ByteDataWithID &&)> client, std::optional<WireToUserHook> wireToUserHook) {
             std::lock_guard<std::mutex> _(mutex_);
             auto iter = rpcQueueClientConnections_.find(l);
             if (iter != rpcQueueClientConnections_.end()) {
@@ -393,7 +394,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             ).first;
             return iter->second.get();
         }
-        OneRPCQueueServerConnection *createRpcQueueServerConnection(ConnectionLocator const &l, std::function<void(std::string const &, basic::ByteDataWithID &&)> handler, std::optional<WireToUserHook> wireToUserHook) {
+        OneRPCQueueServerConnection *createRpcQueueServerConnection(ConnectionLocator const &l, std::function<void(basic::ByteDataWithID &&)> handler, std::optional<WireToUserHook> wireToUserHook) {
             std::lock_guard<std::mutex> _(mutex_);
             auto iter = rpcQueueServerConnections_.find(l);
             if (iter != rpcQueueServerConnections_.end()) {
@@ -415,7 +416,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         }
         uint32_t addExchangeSubscriptionClient(ConnectionLocator const &locator,
             std::string const &topic,
-            std::function<void(std::string const &, basic::ByteDataWithTopic &&)> client,
+            std::function<void(basic::ByteDataWithTopic &&)> client,
             std::optional<WireToUserHook> wireToUserHook) {
             std::lock_guard<std::mutex> _(mutex_);
             exchangeSubscriptionConnections_.insert(
@@ -432,24 +433,24 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             std::lock_guard<std::mutex> _(mutex_);
             exchangeSubscriptionConnections_.erase(id);
         }
-        std::function<void(std::string const &, basic::ByteDataWithTopic &&)> getExchangePublisher(ConnectionLocator const &locator, std::optional<UserToWireHook> userToWireHook) {
+        std::function<void(basic::ByteDataWithTopic &&)> getExchangePublisher(ConnectionLocator const &locator, std::optional<UserToWireHook> userToWireHook) {
             auto *conn = publishingConnection(locator);
             auto id = locator.identifier();
             if (userToWireHook) {
                 auto hook = userToWireHook->hook;
-                return [id,conn,hook](std::string const &contentEncoding, basic::ByteDataWithTopic &&data) {
+                return [id,conn,hook](basic::ByteDataWithTopic &&data) {
                     auto x = hook(basic::ByteData {std::move(data.content)});
-                    conn->publishOnExchange(id, contentEncoding, {std::move(data.topic), std::move(x.content)});
+                    conn->publishOnExchange(id, {std::move(data.topic), std::move(x.content)});
                 };
             } else {
-                return [id,conn](std::string const &contentEncoding, basic::ByteDataWithTopic &&data) {
-                    conn->publishOnExchange(id, contentEncoding, std::move(data));
+                return [id,conn](basic::ByteDataWithTopic &&data) {
+                    conn->publishOnExchange(id, std::move(data));
                 };
             }
             
         }
-        std::function<void(std::string const &, basic::ByteDataWithID &&)> setRPCQueueClient(ConnectionLocator const &locator,
-            std::function<void(std::string const &, basic::ByteDataWithID &&)> client,
+        std::function<void(basic::ByteDataWithID &&)> setRPCQueueClient(ConnectionLocator const &locator,
+            std::function<void(bool, basic::ByteDataWithID &&)> client,
             std::optional<ByteDataHookPair> hookPair) {
             std::optional<WireToUserHook> wireToUserHook;
             if (hookPair) {
@@ -460,13 +461,13 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             auto *conn = createRpcQueueClientConnection(locator, client, wireToUserHook);
             if (hookPair && hookPair->userToWire) {
                 auto hook = hookPair->userToWire->hook;
-                return [conn,hook](std::string const &contentEncoding, basic::ByteDataWithID &&data) {
+                return [conn,hook](basic::ByteDataWithID &&data) {
                     auto x = hook(basic::ByteData {std::move(data.content)});
-                    conn->sendRequest(contentEncoding, {data.id, std::move(x.content)});
+                    conn->sendRequest({data.id, std::move(x.content)});
                 };
             } else {
-                return [conn](std::string const &contentEncoding, basic::ByteDataWithID &&data) {
-                    conn->sendRequest(contentEncoding, std::move(data));
+                return [conn](basic::ByteDataWithID &&data) {
+                    conn->sendRequest(std::move(data));
                 };
             }
         }
@@ -474,8 +475,8 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             std::lock_guard<std::mutex> _(mutex_);
             rpcQueueClientConnections_.erase(locator);
         }
-        std::function<void(bool, std::string const &, basic::ByteDataWithID &&)> setRPCQueueServer(ConnectionLocator const &locator,
-            std::function<void(std::string const &, basic::ByteDataWithID &&)> server,
+        std::function<void(bool, basic::ByteDataWithID &&)> setRPCQueueServer(ConnectionLocator const &locator,
+            std::function<void(basic::ByteDataWithID &&)> server,
             std::optional<ByteDataHookPair> hookPair) {
             std::optional<WireToUserHook> wireToUserHook;
             if (hookPair) {
@@ -486,13 +487,13 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             auto *conn = createRpcQueueServerConnection(locator, server, wireToUserHook);
             if (hookPair && hookPair->userToWire) {
                 auto hook = hookPair->userToWire->hook;
-                return [conn,hook](bool isFinal, std::string const &contentEncoding, basic::ByteDataWithID &&data) {
+                return [conn,hook](bool isFinal, basic::ByteDataWithID &&data) {
                     auto x = hook(basic::ByteData {std::move(data.content)});
-                    conn->sendReply(isFinal, contentEncoding, {data.id, std::move(x.content)});
+                    conn->sendReply(isFinal, {data.id, std::move(x.content)});
                 };
             } else {
-                return [conn](bool isFinal, std::string const &contentEncoding, basic::ByteDataWithID &&data) {
-                    conn->sendReply(isFinal, contentEncoding, std::move(data));
+                return [conn](bool isFinal, basic::ByteDataWithID &&data) {
+                    conn->sendReply(isFinal, std::move(data));
                 };
             }
         }
@@ -503,26 +504,26 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
 
     uint32_t RabbitMQComponent::rabbitmq_addExchangeSubscriptionClient(ConnectionLocator const &locator,
         std::string const &topic,
-        std::function<void(std::string const &, basic::ByteDataWithTopic &&)> client,
+        std::function<void(basic::ByteDataWithTopic &&)> client,
         std::optional<WireToUserHook> wireToUserHook) {
         return impl_->addExchangeSubscriptionClient(locator, topic, client, wireToUserHook);
     }
     void RabbitMQComponent::rabbitmq_removeExchangeSubscriptionClient(uint32_t id) {
         impl_->removeExchangeSubscriptionClient(id);
     }
-    std::function<void(std::string const &, basic::ByteDataWithTopic &&)> RabbitMQComponent::rabbitmq_getExchangePublisher(ConnectionLocator const &locator, std::optional<UserToWireHook> userToWireHook) {
+    std::function<void(basic::ByteDataWithTopic &&)> RabbitMQComponent::rabbitmq_getExchangePublisher(ConnectionLocator const &locator, std::optional<UserToWireHook> userToWireHook) {
         return impl_->getExchangePublisher(locator, userToWireHook);
     }
-    std::function<void(std::string const &, basic::ByteDataWithID &&)> RabbitMQComponent::rabbitmq_setRPCQueueClient(ConnectionLocator const &locator,
-        std::function<void(std::string const &, basic::ByteDataWithID &&)> client,
+    std::function<void(basic::ByteDataWithID &&)> RabbitMQComponent::rabbitmq_setRPCQueueClient(ConnectionLocator const &locator,
+        std::function<void(bool, basic::ByteDataWithID &&)> client,
         std::optional<ByteDataHookPair> hookPair) {
         return impl_->setRPCQueueClient(locator, client, hookPair);
     }
     void RabbitMQComponent::rabbitmq_removeRPCQueueClient(ConnectionLocator const &locator) {
         impl_->removeRPCQueueClient(locator);
     }
-    std::function<void(bool, std::string const &, basic::ByteDataWithID &&)> RabbitMQComponent::rabbitmq_setRPCQueueServer(ConnectionLocator const &locator,
-        std::function<void(std::string const &, basic::ByteDataWithID &&)> server,
+    std::function<void(bool, basic::ByteDataWithID &&)> RabbitMQComponent::rabbitmq_setRPCQueueServer(ConnectionLocator const &locator,
+        std::function<void(basic::ByteDataWithID &&)> server,
         std::optional<ByteDataHookPair> hookPair) {
         return impl_->setRPCQueueServer(locator, server, hookPair);
     }
