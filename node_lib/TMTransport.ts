@@ -507,7 +507,6 @@ export class MultiTransportFacilityClient {
                     , chunk[1]
                     , {
                         correlationId : chunk[0]
-                        , contentEncoding : 'with_final'
                         , replyTo: replyQueue.queue
                         , deliveryMode: (("persistent" in locator.properties && locator.properties.persistent === "true")?2:1)
                         , expiration: '5000'
@@ -519,8 +518,8 @@ export class MultiTransportFacilityClient {
             , objectMode : true
         });
         channel.consume(replyQueue.queue, function(msg) : void {
-            let isFinal = false;
-            let res : Buffer = null;
+            let isFinal = (msg.properties.contentType === 'final');
+            let res : Buffer = msg.content;
             let id = msg.properties.correlationId;
             let input : Buffer = null;
 
@@ -528,19 +527,7 @@ export class MultiTransportFacilityClient {
                 return;
             }
             input = inputMap.get(id);
-
-            if (msg.properties.contentEncoding == 'with_final') {
-                if (msg.content.byteLength > 0) {
-                    res = msg.content.slice(0, msg.content.byteLength-1);
-                    isFinal = (msg.content[msg.content.byteLength-1] != 0);
-                } else {
-                    res = null;
-                    isFinal = false;
-                }
-            } else {
-                res = msg.content;
-                isFinal = false;
-            }
+            
             if (res != null) {
                 if (isFinal) {
                     inputMap.delete(id);
@@ -581,13 +568,17 @@ export class MultiTransportFacilityClient {
         })
 
         let handleMessage = function(message : Buffer) : void {
-            let parsed = cbor.decode(message);
-            if (parsed.length != 2) {
+            let finalFlagAndParsed = cbor.decode(message);
+            if (finalFlagAndParsed.length != 2) {
                 return;
             }
 
-            let isFinal = false;
-            let res : Buffer = null;
+            let isFinal : boolean = finalFlagAndParsed[0];
+            let parsed = finalFlagAndParsed[1];
+            if (parsed.length != 2) {
+                return;
+            }
+            let res : Buffer = parsed[1];
             let id = parsed[0];
             let input : Buffer = null;
 
@@ -596,15 +587,7 @@ export class MultiTransportFacilityClient {
             }
             input = inputMap.get(id);
 
-            if (parsed[1].byteLength > 0) {
-                res = parsed[1].slice(0, parsed[1].byteLength-1);
-                isFinal = ((parsed[1])[parsed[1].byteLength-1] != 0);
-            } else {
-                res = null;
-                isFinal = false;
-            }
-
-            if (res != null) {
+             if (res != null) {
                 if (isFinal) {
                     inputMap.delete(id);
                 }
@@ -703,7 +686,7 @@ export class MultiTransportFacilityServer {
                 , exclusive : false
             }
         );
-        let replyMap = new Map<string, [string, string]>();
+        let replyMap = new Map<string, string>();
         let ret = new Stream.Duplex({
             write : function(chunk : [string, Buffer, boolean], _encoding, callback) {
                 if (!replyMap.has(chunk[0])) {
@@ -712,20 +695,27 @@ export class MultiTransportFacilityServer {
                 }
                 let replyInfo = replyMap.get(chunk[0]);
                 let outBuffer : Buffer = chunk[1];
-                if (replyInfo[1] == 'with_final') {
-                    outBuffer = Buffer.concat([chunk[1], Buffer.from([chunk[2]?1:0])]);
-                }
-                channel.sendToQueue(
-                    replyInfo[0]
-                    , outBuffer
-                    , {
-                        correlationId : chunk[0]
-                        , contentEncoding : replyInfo[1]
-                        , replyTo : serviceQueue.queue
-                    }
-                );
                 if (chunk[2]) {
+                    //is final
+                    channel.sendToQueue(
+                        replyInfo
+                        , outBuffer
+                        , {
+                            correlationId : chunk[0]
+                            , contentType : 'final'
+                            , replyTo : serviceQueue.queue
+                        }
+                    );
                     replyMap.delete(chunk[0]);
+                } else {
+                    channel.sendToQueue(
+                        replyInfo
+                        , outBuffer
+                        , {
+                            correlationId : chunk[0]
+                           , replyTo : serviceQueue.queue
+                        }
+                    );
                 }
                 callback();
             }
@@ -738,7 +728,7 @@ export class MultiTransportFacilityServer {
                 if (replyMap.has(id)) {
                     return;
                 }
-                replyMap.set(id, [msg.properties.replyTo as string, msg.properties.contentEncoding as string]);
+                replyMap.set(id, (msg.properties.replyTo as string));
                 ret.push(
                     [id, msg.content]
                 );
@@ -768,8 +758,7 @@ export class MultiTransportFacilityServer {
                     return;
                 }
                 let replyInfo = replyMap.get(id);
-                let outBuffer = Buffer.concat([data, Buffer.from([final?1:0])]);
-                publisher.send_command("PUBLISH", [replyInfo, cbor.encode([id, outBuffer])]);
+                publisher.send_command("PUBLISH", [replyInfo, cbor.encode([final,[id, data]])]);
                 if (final) {
                     replyMap.delete(id);
                 }
