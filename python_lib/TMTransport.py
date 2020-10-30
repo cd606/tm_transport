@@ -422,18 +422,12 @@ class MultiTransportFacilityClient:
                 async with queue.iterator() as queue_iter:
                     async for message in queue_iter:
                         async with message.process():
-                            isFinal = False
+                            isFinal = (message.content_type == 'final')
                             res = message.body
                             id = message.correlation_id
                             if id not in inputMap:
                                 continue
                             input = inputMap[id]
-
-                            if message.content_encoding == 'with_final':
-                                if len(res) == 0:
-                                    continue
-                                isFinal = (res[-1] != 0)
-                                res = res[:len(res)-1]
 
                             output = FacilityOutput()
                             output.id = id
@@ -458,7 +452,6 @@ class MultiTransportFacilityClient:
                         , reply_to=queue.name
                         , delivery_mode=aio_pika.DeliveryMode.NOT_PERSISTENT
                         , expiration=1000
-                        , content_encoding='with_final'
                     )
                     , routing_key = locator.identifier
                 )
@@ -483,15 +476,11 @@ class MultiTransportFacilityClient:
 
             async def readQueue():
                 async for message in channel.iter():
-                    isFinal = False
-                    id, res = cbor.loads(message)
+                    isFinal, idAndRes = cbor.loads(message)
+                    id, res = idAndRes
                     if id not in inputMap:
                         continue
                     input = inputMap[id]
-                    if len(res) == 0:
-                        continue
-                    isFinal = (res[-1] != 0)
-                    res = res[:len(res)-1]
 
                     output = FacilityOutput()
                     output.id = id
@@ -575,7 +564,7 @@ class MultiTransportFacilityServer:
                             id = message.correlation_id
                             if id in replyMap:
                                 continue
-                            replyMap[id] = (message.reply_to, message.content_encoding)
+                            replyMap[id] = message.reply_to
                             
                             qout.put_nowait((id,res))
 
@@ -585,21 +574,28 @@ class MultiTransportFacilityServer:
                 id, data, isFinal = await qin.get()
                 if id not in replyMap:
                     continue
-                replyTo, encoding = replyMap[id]
+                replyTo = replyMap[id]
                 if isFinal:
                     del replyMap[id]
-                outData = data
-                if encoding == 'with_final':
-                    outData = outData+(b'\x01' if isFinal else b'\x00')
-                await channel.default_exchange.publish(
-                    aio_pika.Message(
-                        outData
-                        , correlation_id=id
-                        , reply_to=locator.identifier
-                        , content_encoding=encoding
+                if isFinal:
+                    await channel.default_exchange.publish(
+                        aio_pika.Message(
+                            data
+                            , correlation_id=id
+                            , reply_to=locator.identifier
+                            , content_type='final'
+                        )
+                        , routing_key = replyTo
                     )
-                    , routing_key = replyTo
-                )
+                else:
+                    await channel.default_exchange.publish(
+                        aio_pika.Message(
+                            data
+                            , correlation_id=id
+                            , reply_to=locator.identifier
+                        )
+                        , routing_key = replyTo
+                    )
 
         ret.append(asyncio.create_task(taskcr()))
         return ret
@@ -639,10 +635,9 @@ class MultiTransportFacilityServer:
                 if id not in replyMap:
                     continue
                 replyTo = replyMap[id]
-                outData = data+(b'\x01' if isFinal else b'\x00')
                 if isFinal:
                     del replyMap[id]
-                await connection.publish(replyTo, cbor.dumps((id, outData)))
+                await connection.publish(replyTo, cbor.dumps((isFinal,(id, data))))
 
         ret.append(asyncio.create_task(taskcr()))
         return ret
