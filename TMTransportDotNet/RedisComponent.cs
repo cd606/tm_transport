@@ -22,7 +22,7 @@ namespace Dev.CD606.TM.Transport
                 {
                     return m;
                 }
-                m = ConnectionMultiplexer.Connect($"l.Host:{((l.Port==0)?6379:l.Port)}");
+                m = ConnectionMultiplexer.Connect($"{l.Host}:{((l.Port==0)?6379:l.Port)}");
                 multiplexers.Add(simplifiedLocator, m);
                 return m;
             }

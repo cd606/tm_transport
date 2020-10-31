@@ -24,7 +24,8 @@ namespace Dev.CD606.TM.Transport
         public static AbstractImporter<Env, ByteDataWithTopic> CreateImporter(string address, string topicStr, WireToUserHook hook = null)
         {
             var addr = TransportUtils.ParseAddress(address);
-            var topicSpec = TransportUtils.ParseTopic(addr.Item1, topicStr);
+            var changedTopic = (topicStr==null || topicStr.Equals(""))?TransportUtils.DefaultTopic(addr.Item1):topicStr;
+            var topicSpec = TransportUtils.ParseTopic(addr.Item1, changedTopic);
             return CreateImporter(addr.Item1, addr.Item2, topicSpec, hook);
         }
         public static AbstractImporter<Env, TypedDataWithTopic<T>> CreateTypedImporter<T>(Func<byte[],Option<T>> decoder, Transport transport, ConnectionLocator locator, TopicSpec topicSpec, WireToUserHook hook = null)
@@ -44,7 +45,8 @@ namespace Dev.CD606.TM.Transport
         public static AbstractImporter<Env, TypedDataWithTopic<T>> CreateTypedImporter<T>(Func<byte[],Option<T>> decoder, string address, string topicStr, WireToUserHook hook = null)
         {
             var addr = TransportUtils.ParseAddress(address);
-            var topicSpec = TransportUtils.ParseTopic(addr.Item1, topicStr);
+            var changedTopic = (topicStr==null || topicStr.Equals(""))?TransportUtils.DefaultTopic(addr.Item1):topicStr;
+            var topicSpec = TransportUtils.ParseTopic(addr.Item1, changedTopic);
             return CreateTypedImporter<T>(decoder, addr.Item1, addr.Item2, topicSpec, hook);
         }
     }
