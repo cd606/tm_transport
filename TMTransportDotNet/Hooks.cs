@@ -1,6 +1,8 @@
 using System;
+using System.Collections.Generic;
 using Here;
-using Dev.CD606.TM.Basic;
+using PeterO.Cbor;
+using Rebex.Security.Cryptography;
 
 namespace Dev.CD606.TM.Transport
 {
@@ -39,6 +41,25 @@ namespace Dev.CD606.TM.Transport
             this.identityAttacher = identityAttacher;
             this.processIncomingData = processIncomingData;
         }
+        public static ClientSideIdentityAttacher SimpleIdentityAttacher(string identity)
+        {
+            return new ClientSideIdentityAttacher(
+                (input) => CBORObject.NewArray().Add(identity).Add(input).EncodeToBytes()
+                , null
+            );
+        }
+        public static ClientSideIdentityAttacher SignatureBasedIdentityAttacher(byte[] privateKey)
+        {
+            var signer = new Ed25519();
+            signer.FromPrivateKey(privateKey);
+            return new ClientSideIdentityAttacher(
+                (input) => CBORObject.NewMap()
+                    .Add("signature", signer.SignMessage(input))
+                    .Add("data", input)
+                    .EncodeToBytes()
+                , null
+            );
+        }
     }
     public class ServerSideIdentityChecker<Identity>
     {
@@ -48,6 +69,60 @@ namespace Dev.CD606.TM.Transport
         {
             this.identityChecker = identityChecker;
             this.processOutgoingData = processOutgoingData;
+        }
+        public static ServerSideIdentityChecker<string> SimpleIdentityChecker()
+        {
+            return new ServerSideIdentityChecker<string>(
+                (data) => {
+                    var cborObj = CBORObject.DecodeFromBytes(data);
+                    if (cborObj.Type != CBORType.Array || cborObj.Count != 2)
+                    {
+                        return Option.None;
+                    }
+                    return (cborObj[0].AsString(), cborObj[1].ToObject<byte[]>());
+                }
+                , null
+            );
+        }
+        public static ServerSideIdentityChecker<string> SignatureBasedIdentityChecker(IDictionary<string,byte[]> publicKeys)
+        {
+            var verifiers = new Dictionary<string,Ed25519>();
+            foreach (var item in publicKeys.Keys)
+            {
+                var verifier = new Ed25519();
+                verifier.FromPublicKey(publicKeys[item]);
+                verifiers.Add(item, verifier);
+            }
+            return new ServerSideIdentityChecker<string>(
+                (input) => {
+                    var cborObj = CBORObject.DecodeFromBytes(input);
+                    if (cborObj.Type != CBORType.Map)
+                    {
+                        return Option.None;
+                    }
+                    var sig = cborObj["signature"];
+                    if (sig == null) 
+                    {
+                        return Option.None;
+                    }
+                    var sigBytes = sig.ToObject<byte[]>();
+                    var data = cborObj["data"];
+                    if (data == null)
+                    {
+                        return Option.None;
+                    }
+                    var dataBytes = data.ToObject<byte[]>();
+                    foreach (var item in verifiers.Keys)
+                    {
+                        if (verifiers[item].VerifyMessage(dataBytes, sigBytes))
+                        {
+                            return (item, dataBytes);
+                        }
+                    }
+                    return Option.None;
+                }
+                , null
+            );
         }
     }
 }

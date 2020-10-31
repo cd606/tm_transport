@@ -1,79 +1,30 @@
 ﻿using System;
 using System.Collections.Generic;
 using Here;
-using RabbitMQ.Client;
-using RabbitMQ.Client.Events;
+using StackExchange.Redis;
+using PeterO.Cbor;
 using Dev.CD606.TM.Infra;
 using Dev.CD606.TM.Infra.RealTimeApp;
 using Dev.CD606.TM.Basic;
 
 namespace Dev.CD606.TM.Transport
 {
-    public static class RabbitMQComponent<Env> where Env : ClockEnv
+    public static class RedisComponent<Env> where Env : ClockEnv
     {
-        //Because the .NET RabbitMQ connection factory requires some different SSL
-        //option fields than C++/Node API, the connection locator needs to be 
-        //somewhat different
-        private static Dictionary<ConnectionLocator,IConnection> connections = new Dictionary<ConnectionLocator, IConnection>();
-        private static object connectionsLock = new object(); 
-        private static IConnection constructConnection(ConnectionLocator locator)
+        private static Dictionary<ConnectionLocator, ConnectionMultiplexer> multiplexers = new Dictionary<ConnectionLocator, ConnectionMultiplexer>();
+        private static object multiplexerLock = new object();
+        private static ConnectionMultiplexer getMultiplexer(ConnectionLocator l)
         {
-            var simplifiedDictionary = new Dictionary<string,string>();
-            var s = locator.GetProperty("ssl", null);
-            if (s != null)
+            var simplifiedLocator = new ConnectionLocator(host: l.Host, port : l.Port);
+            lock (multiplexerLock)
             {
-                simplifiedDictionary.Add("ssl", s);
-            }
-            s = locator.GetProperty("vhost", null);
-            if (s != null)
-            {
-                simplifiedDictionary.Add("vhost", s);
-            }
-            s = locator.GetProperty("server_name", null);
-            if (s != null)
-            {
-                simplifiedDictionary.Add("server_name", s);
-            }
-            s = locator.GetProperty("client_cert", null);
-            if (s != null)
-            {
-                simplifiedDictionary.Add("client_cert", s);
-            }
-            var simplifiedLocator = new ConnectionLocator(
-                locator.Host, locator.Port, locator.Username, locator.Password, "", simplifiedDictionary
-            );
-            lock (connectionsLock)
-            {
-                if (connections.TryGetValue(simplifiedLocator, out IConnection conn))
+                if (multiplexers.TryGetValue(simplifiedLocator, out ConnectionMultiplexer m))
                 {
-                    return conn;
+                    return m;
                 }
-                if (locator.GetProperty("ssl", "false").Equals("true"))
-                {
-                    conn = new ConnectionFactory() {
-                        HostName = locator.Host
-                        , Port = (locator.Port==0?5672:locator.Port)
-                        , UserName = locator.Username
-                        , Password = locator.Password
-                        , VirtualHost = locator.GetProperty("vhost", "/")
-                        , Ssl = new SslOption(
-                            locator.GetProperty("server_name", "")
-                            , locator.GetProperty("client_cert", "")
-                        )
-                    }.CreateConnection();
-                }
-                else
-                {
-                    conn = new ConnectionFactory() {
-                        HostName = locator.Host
-                        , Port = (locator.Port==0?5672:locator.Port)
-                        , UserName = locator.Username
-                        , Password = locator.Password
-                        , VirtualHost = locator.GetProperty("vhost", "/")
-                    }.CreateConnection(); 
-                }
-                connections.Add(simplifiedLocator, conn);
-                return conn;
+                m = ConnectionMultiplexer.Connect($"l.Host:{((l.Port==0)?6379:l.Port)}");
+                multiplexers.Add(simplifiedLocator, m);
+                return m;
             }
         }
         class BinaryImporter : AbstractImporter<Env, ByteDataWithTopic>
@@ -93,45 +44,29 @@ namespace Dev.CD606.TM.Transport
             }
             public override void start(Env env)
             {
-                var connection = constructConnection(locator);
-                var channel = connection.CreateModel();
-                channel.ExchangeDeclare(
-                    exchange : locator.Identifier
-                    , type : ExchangeType.Topic
-                    , durable : locator.GetProperty("durable", "false").Equals("true")
-                    , autoDelete : locator.GetProperty("auto_delete", "false").Equals("true")
-                );
-                var queueName = channel.QueueDeclare().QueueName;
-                channel.QueueBind(
-                    queue : queueName
-                    , exchange : locator.Identifier
-                    , routingKey : topicSpec.ExactString
-                );
-                var consumer = new EventingBasicConsumer(channel);
-                consumer.Received += (model, ea) => {
-                    var b = ea.Body.ToArray();
-                    if (hook != null)
-                    {
-                        var processed = hook.hook(b);
-                        if (processed)
+                var multiplexer = getMultiplexer(locator);
+                multiplexer.GetSubscriber().Subscribe(
+                    new RedisChannel(topicSpec.ExactString, RedisChannel.PatternMode.Pattern)
+                    , (channel, message) => {
+                        var b = (byte[]) message;
+                        if (hook != null)
                         {
-                            b = processed.Value;
+                            var processed = hook.hook(b);
+                            if (processed)
+                            {
+                                b = processed.Value;
+                            }
+                            else
+                            {
+                                return;
+                            }
                         }
-                        else
-                        {
-                            return;
-                        }
+                        publish(InfraUtils.pureTimedDataWithEnvironment<Env, ByteDataWithTopic>(
+                            env
+                            , new ByteDataWithTopic((string) channel, b)
+                            , false
+                        ));
                     }
-                    publish(InfraUtils.pureTimedDataWithEnvironment<Env, ByteDataWithTopic>(
-                        env
-                        , new ByteDataWithTopic(ea.RoutingKey, b)
-                        , false
-                    ));
-                };
-                channel.BasicConsume(
-                    queue : queueName
-                    , autoAck : true
-                    , consumer : consumer
                 );
             }
         }
@@ -158,49 +93,33 @@ namespace Dev.CD606.TM.Transport
             }
             public override void start(Env env)
             {
-                var connection = constructConnection(locator);
-                var channel = connection.CreateModel();
-                channel.ExchangeDeclare(
-                    exchange : locator.Identifier
-                    , type : ExchangeType.Topic
-                    , durable : locator.GetProperty("durable", "false").Equals("true")
-                    , autoDelete : locator.GetProperty("auto_delete", "false").Equals("true")
-                );
-                var queueName = channel.QueueDeclare().QueueName;
-                channel.QueueBind(
-                    queue : queueName
-                    , exchange : locator.Identifier
-                    , routingKey : topicSpec.ExactString
-                );
-                var consumer = new EventingBasicConsumer(channel);
-                consumer.Received += (model, ea) => {
-                    var b = ea.Body.ToArray();
-                    if (hook != null)
-                    {
-                        var processed = hook.hook(b);
-                        if (processed)
+                var multiplexer = getMultiplexer(locator);
+                multiplexer.GetSubscriber().Subscribe(
+                    new RedisChannel(topicSpec.ExactString, RedisChannel.PatternMode.Pattern)
+                    , (channel, message) => {
+                        var b = (byte[]) message;
+                        if (hook != null)
                         {
-                            b = processed.Value;
+                            var processed = hook.hook(b);
+                            if (processed)
+                            {
+                                b = processed.Value;
+                            }
+                            else
+                            {
+                                return;
+                            }
                         }
-                        else
+                        var t = decoder(b);
+                        if (t.HasValue)
                         {
-                            return;
+                            publish(InfraUtils.pureTimedDataWithEnvironment<Env, TypedDataWithTopic<T>>(
+                                env
+                                , new TypedDataWithTopic<T>((string) channel, t.Value)
+                                , false
+                            ));
                         }
                     }
-                    var t = decoder(b);
-                    if (t.HasValue)
-                    {
-                        publish(InfraUtils.pureTimedDataWithEnvironment<Env, TypedDataWithTopic<T>>(
-                            env
-                            , new TypedDataWithTopic<T>(ea.RoutingKey, t.Value)
-                            , false
-                        ));
-                    }
-                };
-                channel.BasicConsume(
-                    queue : queueName
-                    , autoAck : true
-                    , consumer : consumer
                 );
             }
         }
@@ -212,38 +131,23 @@ namespace Dev.CD606.TM.Transport
         {
             private ConnectionLocator locator;
             private UserToWireHook hook;
-            private IModel channel;
+            private ISubscriber subscriber;
             public BinaryExporter(ConnectionLocator locator, UserToWireHook hook = null)
             {
                 this.locator = locator;
                 this.hook = hook;
-                this.channel = null;
+                this.subscriber = null;
             }
             public void start(Env env)
             {
-                var connection = constructConnection(locator);
-                channel = connection.CreateModel();
-                channel.ExchangeDeclare(
-                    exchange : locator.Identifier
-                    , type : ExchangeType.Topic
-                    , durable : locator.GetProperty("durable", "false").Equals("true")
-                    , autoDelete : locator.GetProperty("auto_delete", "false").Equals("true")
-                );
+                subscriber = getMultiplexer(locator).GetSubscriber();
             }
             public void handle(TimedDataWithEnvironment<Env,ByteDataWithTopic> data)
             {
-                var props = channel.CreateBasicProperties();
-                props.Expiration = "1000";
-                props.Persistent = false;
-                lock (this)
-                {
-                    channel.BasicPublish(
-                        exchange: locator.Identifier
-                        , routingKey: data.timedData.value.topic
-                        , basicProperties: props
-                        , body : (hook == null?data.timedData.value.content:hook.hook(data.timedData.value.content))
-                    );
-                }
+                subscriber.Publish(
+                    new RedisChannel(data.timedData.value.topic, RedisChannel.PatternMode.Literal)
+                    , (hook == null?data.timedData.value.content:hook.hook(data.timedData.value.content))
+                );
             }
         }
         public static AbstractExporter<Env, ByteDataWithTopic> CreateExporter(ConnectionLocator locator, UserToWireHook hook = null)
@@ -255,44 +159,29 @@ namespace Dev.CD606.TM.Transport
             private Func<T, byte[]> encoder;
             private ConnectionLocator locator;
             private UserToWireHook hook;
-            private IModel channel;
+            private ISubscriber subscriber;
             public TypedExporter(Func<T,byte[]> encoder, ConnectionLocator locator, UserToWireHook hook = null)
             {
                 this.encoder = encoder;
                 this.locator = locator;
                 this.hook = hook;
-                this.channel = null;
+                this.subscriber = null;
             }
             public void start(Env env)
             {
-                var connection = constructConnection(locator);
-                channel = connection.CreateModel();
-                channel.ExchangeDeclare(
-                    exchange : locator.Identifier
-                    , type : ExchangeType.Topic
-                    , durable : locator.GetProperty("durable", "false").Equals("true")
-                    , autoDelete : locator.GetProperty("auto_delete", "false").Equals("true")
-                );
+                subscriber = getMultiplexer(locator).GetSubscriber();
             }
             public void handle(TimedDataWithEnvironment<Env,TypedDataWithTopic<T>> data)
             {
-                var props = channel.CreateBasicProperties();
-                props.Expiration = "1000";
-                props.Persistent = false;
                 var b = encoder(data.timedData.value.content);
                 if (hook != null)
                 {
                     b = hook.hook(b);
                 }
-                lock (this)
-                {
-                    channel.BasicPublish(
-                        exchange: locator.Identifier
-                        , routingKey: data.timedData.value.topic
-                        , basicProperties: props
-                        , body : b
-                    );
-                }
+                subscriber.Publish(
+                    new RedisChannel(data.timedData.value.topic, RedisChannel.PatternMode.Literal)
+                    , b
+                );
             }
         }
         public static AbstractExporter<Env, TypedDataWithTopic<T>> CreateTypedExporter<T>(Func<T,byte[]> encoder, ConnectionLocator locator, UserToWireHook hook = null)
@@ -306,9 +195,8 @@ namespace Dev.CD606.TM.Transport
             private ConnectionLocator locator;
             private HookPair hookPair;
             private ClientSideIdentityAttacher identityAttacher;
-            private IModel channel;
-            private string replyQueue;
-            private bool persistent;
+            private ISubscriber subscriber;
+            private string myID;
             public ClientFacility(Func<InT,byte[]> encoder, Func<byte[],Option<OutT>> decoder, ConnectionLocator locator, HookPair hookPair = null, ClientSideIdentityAttacher identityAttacher = null)
             {
                 this.encoder = encoder;
@@ -316,19 +204,36 @@ namespace Dev.CD606.TM.Transport
                 this.locator = locator;
                 this.hookPair = hookPair;
                 this.identityAttacher = identityAttacher;
-                this.channel = null;
-                this.replyQueue = "";
-                this.persistent = locator.GetProperty("persistent","false").Equals("true");
+                this.subscriber = null;
+                this.myID = Guid.NewGuid().ToString();
             }
             public override void start(Env env)
             {
-                var connection = constructConnection(locator);
-                channel = connection.CreateModel();
-                replyQueue = channel.QueueDeclare().QueueName;
-                var consumer = new EventingBasicConsumer(channel);
-                consumer.Received += (model, ea) => {
-                    var finalFlag = ea.BasicProperties.ContentType.Equals("final");
-                    var b = ea.Body.ToArray();
+                subscriber = getMultiplexer(locator).GetSubscriber();
+                var channel = subscriber.Subscribe(
+                    new RedisChannel(myID, RedisChannel.PatternMode.Literal)
+                );
+                channel.OnMessage((message) => {
+                    var cborDecoded = CBORObject.DecodeFromBytes((byte[]) message.Message);
+                    if (cborDecoded.Type != CBORType.Array)
+                    {
+                        return;
+                    }
+                    if (cborDecoded.Count != 2)
+                    {
+                        return;
+                    }
+                    if (cborDecoded[1].Type != CBORType.Array)
+                    {
+                        return;
+                    }
+                    if (cborDecoded[1].Count != 2)
+                    {
+                        return;
+                    }
+                    var isFinal = cborDecoded[0].AsBoolean();
+                    var id = cborDecoded[1][0].AsString();
+                    var b = cborDecoded[1][1].ToObject<byte[]>();
                     if (hookPair != null && hookPair.wireToUserHook != null)
                     {
                         var processed = hookPair.wireToUserHook.hook(b);
@@ -360,26 +265,16 @@ namespace Dev.CD606.TM.Transport
                         publish(InfraUtils.pureTimedDataWithEnvironment<Env, Key<OutT>>(
                             env
                             , new Key<OutT>(
-                                ea.BasicProperties.CorrelationId
+                                id
                                 , t.Value
                             )
-                            , finalFlag
+                            , isFinal
                         ));
                     }
-                };
-                channel.BasicConsume(
-                    queue : replyQueue
-                    , autoAck : true
-                    , consumer : consumer
-                );
+                });
             }
             public override void handle(TimedDataWithEnvironment<Env,Key<InT>> data)
             {
-                var props = channel.CreateBasicProperties();
-                props.Expiration = "5000";
-                props.Persistent = persistent;
-                props.ReplyTo = replyQueue;
-                props.CorrelationId = data.timedData.value.id;
                 var b = encoder(data.timedData.value.key);
                 if (identityAttacher != null && identityAttacher.identityAttacher != null)
                 {
@@ -389,15 +284,15 @@ namespace Dev.CD606.TM.Transport
                 {
                     b = hookPair.userToWireHook.hook(b);
                 }
-                lock (this)
-                {
-                    channel.BasicPublish(
-                        exchange: ""
-                        , routingKey: locator.Identifier
-                        , basicProperties: props
-                        , body : b
-                    );
-                }
+                var cborObj = CBORObject.NewArray()
+                    .Add(myID)
+                    .Add(CBORObject.NewArray()
+                        .Add(data.timedData.value.id)
+                        .Add(b));
+                subscriber.Publish(
+                    new RedisChannel(locator.Identifier, RedisChannel.PatternMode.Literal)
+                    , cborObj.EncodeToBytes()
+                );
             }
         }
         public static AbstractOnOrderFacility<Env,InT,OutT> CreateFacility<InT,OutT>(Func<InT,byte[]> encoder, Func<byte[],Option<OutT>> decoder, ConnectionLocator locator, HookPair hookPair = null, ClientSideIdentityAttacher identityAttacher = null)
@@ -406,29 +301,50 @@ namespace Dev.CD606.TM.Transport
         }
         class WrapperDecoderImporter<Identity,InT> : AbstractImporter<Env,Key<(Identity,InT)>>
         {
-            private Func<(IModel,string)> connectionFunc;
+            private ConnectionLocator locator;
             private Func<byte[],Option<InT>> decoder;
             private HookPair hookPair;
             private ServerSideIdentityChecker<Identity> identityChecker;
             private Dictionary<string, string> replyMap;
             private object mapLock;
-            public WrapperDecoderImporter(Func<(IModel,string)> connectionFunc, Func<byte[],Option<InT>> decoder, Dictionary<string,string> replyMap, object mapLock, HookPair hookPair = null, ServerSideIdentityChecker<Identity> identityChecker = null)
+            private ISubscriber subscriber;
+            public WrapperDecoderImporter(ConnectionLocator locator, Func<byte[],Option<InT>> decoder, Dictionary<string,string> replyMap, object mapLock, HookPair hookPair = null, ServerSideIdentityChecker<Identity> identityChecker = null)
             {
-                this.connectionFunc = connectionFunc;
+                this.locator = locator;
                 this.decoder = decoder;
                 this.hookPair = hookPair;
                 this.identityChecker = identityChecker;
                 this.replyMap = replyMap;
                 this.mapLock = mapLock;
+                this.subscriber = null;
             }
             public override void start(Env env)
             {
-                var channelAndQueue = connectionFunc();
-                var channel = channelAndQueue.Item1;
-                var queue = channelAndQueue.Item2;
-                var consumer = new EventingBasicConsumer(channel);
-                consumer.Received += (model, ea) => {
-                    var b = ea.Body.ToArray();
+                subscriber = getMultiplexer(locator).GetSubscriber();
+                var channel = subscriber.Subscribe(
+                    new RedisChannel(locator.Identifier, RedisChannel.PatternMode.Literal)
+                );
+                channel.OnMessage((message) => {
+                    var cborDecoded = CBORObject.DecodeFromBytes((byte[]) message.Message);
+                    if (cborDecoded.Type != CBORType.Array)
+                    {
+                        return;
+                    }
+                    if (cborDecoded.Count != 2)
+                    {
+                        return;
+                    }
+                    if (cborDecoded[1].Type != CBORType.Array)
+                    {
+                        return;
+                    }
+                    if (cborDecoded[1].Count != 2)
+                    {
+                        return;
+                    }
+                    var replyTo = cborDecoded[0].AsString();
+                    var id = cborDecoded[1][0].AsString();
+                    var b = cborDecoded[1][1].ToObject<byte[]>();
                     if (hookPair != null && hookPair.wireToUserHook != null)
                     {
                         var b1 = hookPair.wireToUserHook.hook(b);
@@ -456,14 +372,13 @@ namespace Dev.CD606.TM.Transport
                     {
                         return;
                     }
-                    var id = ea.BasicProperties.CorrelationId;
                     lock (mapLock)
                     {
                         if (replyMap.ContainsKey(id))
                         {
                             return;
                         }
-                        replyMap.Add(id, ea.BasicProperties.ReplyTo);
+                        replyMap.Add(id, replyTo);
                     }
                     publish(new TimedDataWithEnvironment<Env, Key<(Identity, InT)>>(
                         env 
@@ -476,35 +391,51 @@ namespace Dev.CD606.TM.Transport
                             , false
                         )
                     ));
-                };
-                channel.BasicConsume(
-                    queue : queue
-                    , autoAck : true
-                    , consumer : consumer
-                );
+                });
             }
         }
         class WrapperDecoderImporterWithoutReply<Identity,InT> : AbstractImporter<Env,Key<(Identity,InT)>>
         {
-            private Func<(IModel,string)> connectionFunc;
+            private ConnectionLocator locator;
             private Func<byte[],Option<InT>> decoder;
             private HookPair hookPair;
             private ServerSideIdentityChecker<Identity> identityChecker;
-            public WrapperDecoderImporterWithoutReply(Func<(IModel,string)> connectionFunc, Func<byte[],Option<InT>> decoder, HookPair hookPair = null, ServerSideIdentityChecker<Identity> identityChecker = null)
+            private ISubscriber subscriber;
+            public WrapperDecoderImporterWithoutReply(ConnectionLocator locator, Func<byte[],Option<InT>> decoder, HookPair hookPair = null, ServerSideIdentityChecker<Identity> identityChecker = null)
             {
-                this.connectionFunc = connectionFunc;
+                this.locator = locator;
                 this.decoder = decoder;
                 this.hookPair = hookPair;
                 this.identityChecker = identityChecker;
+                this.subscriber = null;
             }
             public override void start(Env env)
             {
-                var channelAndQueue = connectionFunc();
-                var channel = channelAndQueue.Item1;
-                var queue = channelAndQueue.Item2;
-                var consumer = new EventingBasicConsumer(channel);
-                consumer.Received += (model, ea) => {
-                    var b = ea.Body.ToArray();
+                subscriber = getMultiplexer(locator).GetSubscriber();
+                var channel = subscriber.Subscribe(
+                    new RedisChannel(locator.Identifier, RedisChannel.PatternMode.Literal)
+                );
+                channel.OnMessage((message) => {
+                    var cborDecoded = CBORObject.DecodeFromBytes((byte[]) message.Message);
+                    if (cborDecoded.Type != CBORType.Array)
+                    {
+                        return;
+                    }
+                    if (cborDecoded.Count != 2)
+                    {
+                        return;
+                    }
+                    if (cborDecoded[1].Type != CBORType.Array)
+                    {
+                        return;
+                    }
+                    if (cborDecoded[1].Count != 2)
+                    {
+                        return;
+                    }
+                    var replyTo = cborDecoded[0].AsString();
+                    var id = cborDecoded[1][0].AsString();
+                    var b = cborDecoded[1][1].ToObject<byte[]>();
                     if (hookPair != null && hookPair.wireToUserHook != null)
                     {
                         var b1 = hookPair.wireToUserHook.hook(b);
@@ -532,7 +463,6 @@ namespace Dev.CD606.TM.Transport
                     {
                         return;
                     }
-                    var id = ea.BasicProperties.CorrelationId;
                     publish(new TimedDataWithEnvironment<Env, Key<(Identity, InT)>>(
                         env 
                         , new WithTime<Key<(Identity, InT)>>(
@@ -544,44 +474,39 @@ namespace Dev.CD606.TM.Transport
                             , false
                         )
                     ));
-                };
-                channel.BasicConsume(
-                    queue : queue
-                    , autoAck : true
-                    , consumer : consumer
-                );
+                });
             }
         }
         public class WrapperEncoderExporter<Identity, InT, OutT> : AbstractExporter<Env, KeyedData<(Identity,InT),OutT>>
         {
-            private Func<IModel> connectionFunc;
+            private ConnectionLocator locator;
             private Func<OutT,byte[]> encoder;
             private HookPair hookPair;
             private ServerSideIdentityChecker<Identity> identityChecker;
             private Dictionary<string, string> replyMap;
             private object mapLock;
-            private IModel channel;
+            private ISubscriber subscriber;
 
-            public WrapperEncoderExporter(Func<IModel> connectionFunc, Func<OutT,byte[]> encoder, Dictionary<string, string> replyMap, object mapLock, HookPair hookPair = null, ServerSideIdentityChecker<Identity> identityChecker = null)
+            public WrapperEncoderExporter(ConnectionLocator locator, Func<OutT,byte[]> encoder, Dictionary<string, string> replyMap, object mapLock, HookPair hookPair = null, ServerSideIdentityChecker<Identity> identityChecker = null)
             {
-                this.connectionFunc = connectionFunc;
+                this.locator = locator;
                 this.encoder = encoder;
                 this.hookPair = hookPair;
                 this.identityChecker = identityChecker;
                 this.replyMap = replyMap;
                 this.mapLock = mapLock;
-                this.channel = null;
+                this.subscriber = null;
             }
             public void start(Env env)
             {
-                channel = connectionFunc();
+                subscriber = getMultiplexer(locator).GetSubscriber();
             }
             public void handle(TimedDataWithEnvironment<Env, KeyedData<(Identity,InT),OutT>> data)
             {
-                string replyQueue = null;
+                string replyTo = null;
                 lock (mapLock)
                 {
-                    if (!replyMap.TryGetValue(data.timedData.value.key.id, out replyQueue))
+                    if (!replyMap.TryGetValue(data.timedData.value.key.id, out replyTo))
                     {
                         return;
                     }
@@ -589,12 +514,6 @@ namespace Dev.CD606.TM.Transport
                     {
                         replyMap.Remove(data.timedData.value.key.id);
                     }
-                }
-                var props = channel.CreateBasicProperties();
-                props.CorrelationId = data.timedData.value.key.id;
-                if (data.timedData.finalFlag)
-                {
-                    props.ContentType = "final";
                 }
                 var b = encoder(data.timedData.value.data);
                 if (identityChecker != null && identityChecker.processOutgoingData != null)
@@ -605,32 +524,23 @@ namespace Dev.CD606.TM.Transport
                 {
                     b = hookPair.userToWireHook.hook(b);
                 }
-                lock (this)
-                {
-                    channel.BasicPublish(
-                        exchange : ""
-                        , routingKey : replyQueue
-                        , body : b
-                    );
-                }
+                var cborObj = CBORObject.NewArray()
+                    .Add(data.timedData.finalFlag)
+                    .Add(CBORObject.NewArray()
+                        .Add(data.timedData.value.key.id)
+                        .Add(b));
+                subscriber.Publish(
+                    new RedisChannel(replyTo, RedisChannel.PatternMode.Literal)
+                    , cborObj.EncodeToBytes()
+                );
             }
         }
         public static void WrapOnOrderFacility<Identity,InT,OutT>(Runner<Env> r, AbstractOnOrderFacility<Env,(Identity,InT),OutT> facility, Func<byte[],Option<InT>> decoder, Func<OutT,byte[]> encoder, ConnectionLocator locator, HookPair hookPair = null, ServerSideIdentityChecker<Identity> identityChecker = null)
         {
             var dict = new Dictionary<string,string>();
             var mapLock = new object();
-            var connection = constructConnection(locator);
-            var channel = connection.CreateModel();
             var importer = new WrapperDecoderImporter<Identity,InT>(
-                connectionFunc: () => {
-                    var queue = channel.QueueDeclare(
-                        queue : locator.Identifier
-                        , durable : locator.GetProperty("durable", "false").Equals("true")
-                        , exclusive : locator.GetProperty("exclusive", "false").Equals("true")
-                        , autoDelete : locator.GetProperty("auto_delete", "false").Equals("true")
-                    ).QueueName;
-                    return (channel, queue);
-                }
+                locator : locator
                 , decoder : decoder
                 , replyMap : dict
                 , mapLock : mapLock
@@ -638,7 +548,7 @@ namespace Dev.CD606.TM.Transport
                 , identityChecker : identityChecker
             );
             var exporter = new WrapperEncoderExporter<Identity,InT,OutT>(
-                connectionFunc : () => channel
+                locator : locator
                 , encoder : encoder
                 , replyMap : dict
                 , mapLock : mapLock
@@ -649,18 +559,8 @@ namespace Dev.CD606.TM.Transport
         }
         public static void WrapOnOrderFacilityWithoutReply<Identity,InT,OutT>(Runner<Env> r, AbstractOnOrderFacility<Env,(Identity,InT),OutT> facility, Func<byte[],Option<InT>> decoder, ConnectionLocator locator, HookPair hookPair = null, ServerSideIdentityChecker<Identity> identityChecker = null)
         {
-            var connection = constructConnection(locator);
-            var channel = connection.CreateModel();
             var importer = new WrapperDecoderImporterWithoutReply<Identity,InT>(
-                connectionFunc: () => {
-                    var queue = channel.QueueDeclare(
-                        queue : locator.Identifier
-                        , durable : locator.GetProperty("durable", "false").Equals("true")
-                        , exclusive : locator.GetProperty("exclusive", "false").Equals("true")
-                        , autoDelete : locator.GetProperty("auto_delete", "false").Equals("true")
-                    ).QueueName;
-                    return (channel, queue);
-                }
+                locator : locator
                 , decoder : decoder
                 , hookPair : hookPair
                 , identityChecker : identityChecker
@@ -669,27 +569,48 @@ namespace Dev.CD606.TM.Transport
         }
         class SimpleWrapperDecoderImporter<InT> : AbstractImporter<Env,Key<InT>>
         {
-            private Func<(IModel,string)> connectionFunc;
+            private ConnectionLocator locator;
             private Func<byte[],Option<InT>> decoder;
             private HookPair hookPair;
             private Dictionary<string, string> replyMap;
             private object mapLock;
-            public SimpleWrapperDecoderImporter(Func<(IModel,string)> connectionFunc, Func<byte[],Option<InT>> decoder, Dictionary<string,string> replyMap, object mapLock, HookPair hookPair = null)
+            private ISubscriber subscriber;
+            public SimpleWrapperDecoderImporter(ConnectionLocator locator, Func<byte[],Option<InT>> decoder, Dictionary<string,string> replyMap, object mapLock, HookPair hookPair = null)
             {
-                this.connectionFunc = connectionFunc;
+                this.locator = locator;
                 this.decoder = decoder;
                 this.hookPair = hookPair;
                 this.replyMap = replyMap;
                 this.mapLock = mapLock;
+                this.subscriber = null;
             }
             public override void start(Env env)
             {
-                var channelAndQueue = connectionFunc();
-                var channel = channelAndQueue.Item1;
-                var queue = channelAndQueue.Item2;
-                var consumer = new EventingBasicConsumer(channel);
-                consumer.Received += (model, ea) => {
-                    var b = ea.Body.ToArray();
+                subscriber = getMultiplexer(locator).GetSubscriber();
+                var channel = subscriber.Subscribe(
+                    new RedisChannel(locator.Identifier, RedisChannel.PatternMode.Literal)
+                );
+                channel.OnMessage((message) => {
+                    var cborDecoded = CBORObject.DecodeFromBytes((byte[]) message.Message);
+                    if (cborDecoded.Type != CBORType.Array)
+                    {
+                        return;
+                    }
+                    if (cborDecoded.Count != 2)
+                    {
+                        return;
+                    }
+                    if (cborDecoded[1].Type != CBORType.Array)
+                    {
+                        return;
+                    }
+                    if (cborDecoded[1].Count != 2)
+                    {
+                        return;
+                    }
+                    var replyTo = cborDecoded[0].AsString();
+                    var id = cborDecoded[1][0].AsString();
+                    var b = cborDecoded[1][1].ToObject<byte[]>();
                     if (hookPair != null && hookPair.wireToUserHook != null)
                     {
                         var b1 = hookPair.wireToUserHook.hook(b);
@@ -707,14 +628,13 @@ namespace Dev.CD606.TM.Transport
                     {
                         return;
                     }
-                    var id = ea.BasicProperties.CorrelationId;
                     lock (mapLock)
                     {
                         if (replyMap.ContainsKey(id))
                         {
                             return;
                         }
-                        replyMap.Add(id, ea.BasicProperties.ReplyTo);
+                        replyMap.Add(id, replyTo);
                     }
                     publish(new TimedDataWithEnvironment<Env, Key<InT>>(
                         env 
@@ -727,33 +647,49 @@ namespace Dev.CD606.TM.Transport
                             , false
                         )
                     ));
-                };
-                channel.BasicConsume(
-                    queue : queue
-                    , autoAck : true
-                    , consumer : consumer
-                );
+                });
             }
         }
         class SimpleWrapperDecoderImporterWithoutReply<InT> : AbstractImporter<Env,Key<InT>>
         {
-            private Func<(IModel,string)> connectionFunc;
+            private ConnectionLocator locator;
             private Func<byte[],Option<InT>> decoder;
             private HookPair hookPair;
-            public SimpleWrapperDecoderImporterWithoutReply(Func<(IModel,string)> connectionFunc, Func<byte[],Option<InT>> decoder, HookPair hookPair = null)
+            private ISubscriber subscriber;
+            public SimpleWrapperDecoderImporterWithoutReply(ConnectionLocator locator, Func<byte[],Option<InT>> decoder, HookPair hookPair = null)
             {
-                this.connectionFunc = connectionFunc;
+                this.locator = locator;
                 this.decoder = decoder;
                 this.hookPair = hookPair;
+                this.subscriber = null;
             }
             public override void start(Env env)
             {
-                var channelAndQueue = connectionFunc();
-                var channel = channelAndQueue.Item1;
-                var queue = channelAndQueue.Item2;
-                var consumer = new EventingBasicConsumer(channel);
-                consumer.Received += (model, ea) => {
-                    var b = ea.Body.ToArray();
+                subscriber = getMultiplexer(locator).GetSubscriber();
+                var channel = subscriber.Subscribe(
+                    new RedisChannel(locator.Identifier, RedisChannel.PatternMode.Literal)
+                );
+                channel.OnMessage((message) => {
+                    var cborDecoded = CBORObject.DecodeFromBytes((byte[]) message.Message);
+                    if (cborDecoded.Type != CBORType.Array)
+                    {
+                        return;
+                    }
+                    if (cborDecoded.Count != 2)
+                    {
+                        return;
+                    }
+                    if (cborDecoded[1].Type != CBORType.Array)
+                    {
+                        return;
+                    }
+                    if (cborDecoded[1].Count != 2)
+                    {
+                        return;
+                    }
+                    var replyTo = cborDecoded[0].AsString();
+                    var id = cborDecoded[1][0].AsString();
+                    var b = cborDecoded[1][1].ToObject<byte[]>();
                     if (hookPair != null && hookPair.wireToUserHook != null)
                     {
                         var b1 = hookPair.wireToUserHook.hook(b);
@@ -771,7 +707,6 @@ namespace Dev.CD606.TM.Transport
                     {
                         return;
                     }
-                    var id = ea.BasicProperties.CorrelationId;
                     publish(new TimedDataWithEnvironment<Env, Key<InT>>(
                         env 
                         , new WithTime<Key<InT>>(
@@ -783,42 +718,37 @@ namespace Dev.CD606.TM.Transport
                             , false
                         )
                     ));
-                };
-                channel.BasicConsume(
-                    queue : queue
-                    , autoAck : true
-                    , consumer : consumer
-                );
+                });
             }
         }
         public class SimpleWrapperEncoderExporter<InT, OutT> : AbstractExporter<Env, KeyedData<InT,OutT>>
         {
-            private Func<IModel> connectionFunc;
+            private ConnectionLocator locator;
             private Func<OutT,byte[]> encoder;
             private HookPair hookPair;
             private Dictionary<string, string> replyMap;
             private object mapLock;
-            private IModel channel;
+            private ISubscriber subscriber;
 
-            public SimpleWrapperEncoderExporter(Func<IModel> connectionFunc, Func<OutT,byte[]> encoder, Dictionary<string, string> replyMap, object mapLock, HookPair hookPair = null)
+            public SimpleWrapperEncoderExporter(ConnectionLocator locator, Func<OutT,byte[]> encoder, Dictionary<string, string> replyMap, object mapLock, HookPair hookPair = null)
             {
-                this.connectionFunc = connectionFunc;
+                this.locator = locator;
                 this.encoder = encoder;
                 this.hookPair = hookPair;
                 this.replyMap = replyMap;
                 this.mapLock = mapLock;
-                this.channel = null;
+                this.subscriber = null;
             }
             public void start(Env env)
             {
-                channel = connectionFunc();
+                subscriber = getMultiplexer(locator).GetSubscriber();
             }
             public void handle(TimedDataWithEnvironment<Env, KeyedData<InT,OutT>> data)
             {
-                string replyQueue = null;
+                string replyTo = null;
                 lock (mapLock)
                 {
-                    if (!replyMap.TryGetValue(data.timedData.value.key.id, out replyQueue))
+                    if (!replyMap.TryGetValue(data.timedData.value.key.id, out replyTo))
                     {
                         return;
                     }
@@ -827,50 +757,35 @@ namespace Dev.CD606.TM.Transport
                         replyMap.Remove(data.timedData.value.key.id);
                     }
                 }
-                var props = channel.CreateBasicProperties();
-                props.CorrelationId = data.timedData.value.key.id;
-                if (data.timedData.finalFlag)
-                {
-                    props.ContentType = "final";
-                }
                 var b = encoder(data.timedData.value.data);
                 if (hookPair != null && hookPair.userToWireHook != null)
                 {
                     b = hookPair.userToWireHook.hook(b);
                 }
-                lock (this)
-                {
-                    channel.BasicPublish(
-                        exchange : ""
-                        , routingKey : replyQueue
-                        , body : b
-                    );
-                }
+                var cborObj = CBORObject.NewArray()
+                    .Add(data.timedData.finalFlag)
+                    .Add(CBORObject.NewArray()
+                        .Add(data.timedData.value.key.id)
+                        .Add(b));
+                subscriber.Publish(
+                    new RedisChannel(replyTo, RedisChannel.PatternMode.Literal)
+                    , cborObj.EncodeToBytes()
+                );
             }
         }
         public static void WrapOnOrderFacility<InT,OutT>(Runner<Env> r, AbstractOnOrderFacility<Env,InT,OutT> facility, Func<byte[],Option<InT>> decoder, Func<OutT,byte[]> encoder, ConnectionLocator locator, HookPair hookPair = null)
         {
             var dict = new Dictionary<string,string>();
             var mapLock = new object();
-            var connection = constructConnection(locator);
-            var channel = connection.CreateModel();
             var importer = new SimpleWrapperDecoderImporter<InT>(
-                connectionFunc: () => {
-                    var queue = channel.QueueDeclare(
-                        queue : locator.Identifier
-                        , durable : locator.GetProperty("durable", "false").Equals("true")
-                        , exclusive : locator.GetProperty("exclusive", "false").Equals("true")
-                        , autoDelete : locator.GetProperty("auto_delete", "false").Equals("true")
-                    ).QueueName;
-                    return (channel, queue);
-                }
+                locator : locator
                 , decoder : decoder
                 , replyMap : dict
                 , mapLock : mapLock
                 , hookPair : hookPair
             );
             var exporter = new SimpleWrapperEncoderExporter<InT,OutT>(
-                connectionFunc : () => channel
+                locator : locator
                 , encoder : encoder
                 , replyMap : dict
                 , mapLock : mapLock
@@ -880,18 +795,8 @@ namespace Dev.CD606.TM.Transport
         }
         public static void WrapOnOrderFacilityWithoutReply<InT,OutT>(Runner<Env> r, AbstractOnOrderFacility<Env,InT,OutT> facility, Func<byte[],Option<InT>> decoder, ConnectionLocator locator, HookPair hookPair = null)
         {
-            var connection = constructConnection(locator);
-            var channel = connection.CreateModel();
             var importer = new SimpleWrapperDecoderImporterWithoutReply<InT>(
-                connectionFunc: () => {
-                    var queue = channel.QueueDeclare(
-                        queue : locator.Identifier
-                        , durable : locator.GetProperty("durable", "false").Equals("true")
-                        , exclusive : locator.GetProperty("exclusive", "false").Equals("true")
-                        , autoDelete : locator.GetProperty("auto_delete", "false").Equals("true")
-                    ).QueueName;
-                    return (channel, queue);
-                }
+                locator : locator
                 , decoder : decoder
                 , hookPair : hookPair
             );

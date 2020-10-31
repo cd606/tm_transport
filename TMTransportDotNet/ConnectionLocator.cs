@@ -16,6 +16,15 @@ namespace Dev.CD606.TM.Transport
         public ConnectionLocator()
         {
         }
+        public ConnectionLocator(string host, int port=0, string username="", string password="", string identifier="", Dictionary<string,string> properties=null)
+        {
+            this.host = host;
+            this.port = port;
+            this.username = username;
+            this.password = password;
+            this.identifier = identifier;
+            this.properties = (properties == null)?new Dictionary<string, string>():properties;
+        }
         public ConnectionLocator(string locatorStr)
         {
             var idx = locatorStr.IndexOf('[');
@@ -116,6 +125,50 @@ namespace Dev.CD606.TM.Transport
                 return defaultValue;
             }
         }
+        public override bool Equals(object o)
+        {
+            if (ReferenceEquals(this, o))
+            {
+                return true;
+            }
+            if (!(o is ConnectionLocator))
+            {
+                return false;
+            }
+            var l = o as ConnectionLocator;
+            if (!(host.Equals(l.host) && port==l.port && username.Equals(l.username) && password.Equals(l.password) && identifier.Equals(l.identifier)))
+            {
+                return false;
+            }
+            if (properties == null)
+            {
+                return l.properties == null;
+            }
+            if (l.properties == null)
+            {
+                return false;
+            }
+            if (properties.Count != l.properties.Count)
+            {
+                return false;
+            }
+            foreach (var item in properties.Keys)
+            {
+                if (!l.properties.TryGetValue(item, out string v))
+                {
+                    return false;
+                }
+                if (!properties[item].Equals(v))
+                {
+                    return false;
+                }
+            }
+            return true;
+        }
+        public override int GetHashCode()
+        {
+            return host.GetHashCode()^port.GetHashCode()^username.GetHashCode()^password.GetHashCode()^identifier.GetHashCode()^properties.GetHashCode();
+        }
     }
 
     public enum Transport 
@@ -137,6 +190,20 @@ namespace Dev.CD606.TM.Transport
         public TopicMatchType MatchType {get; set;}
         public string ExactString {get; set;}
         public Regex RegEX {get; set;}
+        public bool Match(string topic)
+        {
+            switch (MatchType)
+            {
+                case TopicMatchType.MatchAll:
+                    return true;
+                case TopicMatchType.MatchExact:
+                    return (topic.Equals(ExactString));
+                case TopicMatchType.MatchRE:
+                    return RegEX.IsMatch(topic);
+                default:
+                    return false;
+            }
+        }
     }
 
     public static class TransportUtils
