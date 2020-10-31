@@ -203,12 +203,15 @@ namespace Dev.CD606.TM.Transport
                 var props = channel.CreateBasicProperties();
                 props.Expiration = "1000";
                 props.Persistent = false;
-                channel.BasicPublish(
-                    exchange: locator.Identifier
-                    , routingKey: data.timedData.value.topic
-                    , basicProperties: props
-                    , body : (hook == null?data.timedData.value.content:hook.hook(data.timedData.value.content))
-                );
+                lock (this)
+                {
+                    channel.BasicPublish(
+                        exchange: locator.Identifier
+                        , routingKey: data.timedData.value.topic
+                        , basicProperties: props
+                        , body : (hook == null?data.timedData.value.content:hook.hook(data.timedData.value.content))
+                    );
+                }
             }
         }
         public static AbstractExporter<Env, ByteDataWithTopic> createExporter(ConnectionLocator locator, UserToWireHook hook = null)
@@ -250,12 +253,15 @@ namespace Dev.CD606.TM.Transport
                 {
                     b = hook.hook(b);
                 }
-                channel.BasicPublish(
-                    exchange: locator.Identifier
-                    , routingKey: data.timedData.value.topic
-                    , basicProperties: props
-                    , body : b
-                );
+                lock (this)
+                {
+                    channel.BasicPublish(
+                        exchange: locator.Identifier
+                        , routingKey: data.timedData.value.topic
+                        , basicProperties: props
+                        , body : b
+                    );
+                }
             }
         }
         public static AbstractExporter<Env, TypedDataWithTopic<T>> createTypedExporter<T>(Func<T,byte[]> encoder, ConnectionLocator locator, UserToWireHook hook = null)
@@ -353,12 +359,15 @@ namespace Dev.CD606.TM.Transport
                 {
                     b = hookPair.userToWireHook.hook(b);
                 }
-                channel.BasicPublish(
-                    exchange: ""
-                    , routingKey: locator.Identifier
-                    , basicProperties: props
-                    , body : b
-                );
+                lock (this)
+                {
+                    channel.BasicPublish(
+                        exchange: ""
+                        , routingKey: locator.Identifier
+                        , basicProperties: props
+                        , body : b
+                    );
+                }
             }
         }
         public static AbstractOnOrderFacility<Env,InT,OutT> createFacility<InT,OutT>(Func<InT,byte[]> encoder, Func<byte[],Option<OutT>> decoder, ConnectionLocator locator, HookPair hookPair = null, ClientSideIdentityAttacher identityAttacher = null)
@@ -566,11 +575,14 @@ namespace Dev.CD606.TM.Transport
                 {
                     b = hookPair.userToWireHook.hook(b);
                 }
-                channel.BasicPublish(
-                    exchange : ""
-                    , routingKey : replyQueue
-                    , body : b
-                );
+                lock (this)
+                {
+                    channel.BasicPublish(
+                        exchange : ""
+                        , routingKey : replyQueue
+                        , body : b
+                    );
+                }
             }
         }
         public static void wrapOnOrderFacility<Identity,InT,OutT>(Runner<Env> r, AbstractOnOrderFacility<Env,(Identity,InT),OutT> facility, Func<byte[],Option<InT>> decoder, Func<OutT,byte[]> encoder, ConnectionLocator locator, HookPair hookPair = null, ServerSideIdentityChecker<Identity> identityChecker = null)
@@ -624,6 +636,238 @@ namespace Dev.CD606.TM.Transport
                 , decoder : decoder
                 , hookPair : hookPair
                 , identityChecker : identityChecker
+            );
+            r.placeOrderWithFacilityAndForget(r.importItem(importer), facility);
+        }
+        class SimpleWrapperDecoderImporter<InT> : AbstractImporter<Env,Key<InT>>
+        {
+            private Func<(IModel,string)> connectionFunc;
+            private Func<byte[],Option<InT>> decoder;
+            private HookPair hookPair;
+            private Dictionary<string, string> replyMap;
+            private object mapLock;
+            public SimpleWrapperDecoderImporter(Func<(IModel,string)> connectionFunc, Func<byte[],Option<InT>> decoder, Dictionary<string,string> replyMap, object mapLock, HookPair hookPair = null)
+            {
+                this.connectionFunc = connectionFunc;
+                this.decoder = decoder;
+                this.hookPair = hookPair;
+                this.replyMap = replyMap;
+                this.mapLock = mapLock;
+            }
+            public override void start(Env env)
+            {
+                var channelAndQueue = connectionFunc();
+                var channel = channelAndQueue.Item1;
+                var queue = channelAndQueue.Item2;
+                var consumer = new EventingBasicConsumer(channel);
+                consumer.Received += (model, ea) => {
+                    var b = ea.Body.ToArray();
+                    if (hookPair != null && hookPair.wireToUserHook != null)
+                    {
+                        var b1 = hookPair.wireToUserHook.hook(b);
+                        if (b1.HasValue)
+                        {
+                            b = b1.Value;
+                        }
+                        else
+                        {
+                            return;
+                        }
+                    }
+                    var decoded = decoder(b);
+                    if (decoded.HasNoValue)
+                    {
+                        return;
+                    }
+                    var id = ea.BasicProperties.CorrelationId;
+                    lock (mapLock)
+                    {
+                        if (replyMap.ContainsKey(id))
+                        {
+                            return;
+                        }
+                        replyMap.Add(id, ea.BasicProperties.ReplyTo);
+                    }
+                    publish(new TimedDataWithEnvironment<Env, Key<InT>>(
+                        env 
+                        , new WithTime<Key<InT>>(
+                            env.now()
+                            , new Key<InT>(
+                                id 
+                                , decoded.Value
+                            )
+                            , false
+                        )
+                    ));
+                };
+                channel.BasicConsume(
+                    queue : queue
+                    , autoAck : true
+                    , consumer : consumer
+                );
+            }
+        }
+        class SimpleWrapperDecoderImporterWithoutReply<InT> : AbstractImporter<Env,Key<InT>>
+        {
+            private Func<(IModel,string)> connectionFunc;
+            private Func<byte[],Option<InT>> decoder;
+            private HookPair hookPair;
+            public SimpleWrapperDecoderImporterWithoutReply(Func<(IModel,string)> connectionFunc, Func<byte[],Option<InT>> decoder, HookPair hookPair = null)
+            {
+                this.connectionFunc = connectionFunc;
+                this.decoder = decoder;
+                this.hookPair = hookPair;
+            }
+            public override void start(Env env)
+            {
+                var channelAndQueue = connectionFunc();
+                var channel = channelAndQueue.Item1;
+                var queue = channelAndQueue.Item2;
+                var consumer = new EventingBasicConsumer(channel);
+                consumer.Received += (model, ea) => {
+                    var b = ea.Body.ToArray();
+                    if (hookPair != null && hookPair.wireToUserHook != null)
+                    {
+                        var b1 = hookPair.wireToUserHook.hook(b);
+                        if (b1.HasValue)
+                        {
+                            b = b1.Value;
+                        }
+                        else
+                        {
+                            return;
+                        }
+                    }
+                    var decoded = decoder(b);
+                    if (decoded.HasNoValue)
+                    {
+                        return;
+                    }
+                    var id = ea.BasicProperties.CorrelationId;
+                    publish(new TimedDataWithEnvironment<Env, Key<InT>>(
+                        env 
+                        , new WithTime<Key<InT>>(
+                            env.now()
+                            , new Key<InT>(
+                                id 
+                                , decoded.Value
+                            )
+                            , false
+                        )
+                    ));
+                };
+                channel.BasicConsume(
+                    queue : queue
+                    , autoAck : true
+                    , consumer : consumer
+                );
+            }
+        }
+        public class SimpleWrapperEncoderExporter<InT, OutT> : AbstractExporter<Env, KeyedData<InT,OutT>>
+        {
+            private Func<IModel> connectionFunc;
+            private Func<OutT,byte[]> encoder;
+            private HookPair hookPair;
+            private Dictionary<string, string> replyMap;
+            private object mapLock;
+            private IModel channel;
+
+            public SimpleWrapperEncoderExporter(Func<IModel> connectionFunc, Func<OutT,byte[]> encoder, Dictionary<string, string> replyMap, object mapLock, HookPair hookPair = null)
+            {
+                this.connectionFunc = connectionFunc;
+                this.encoder = encoder;
+                this.hookPair = hookPair;
+                this.replyMap = replyMap;
+                this.mapLock = mapLock;
+                this.channel = null;
+            }
+            public void start(Env env)
+            {
+                channel = connectionFunc();
+            }
+            public void handle(TimedDataWithEnvironment<Env, KeyedData<InT,OutT>> data)
+            {
+                string replyQueue = null;
+                lock (mapLock)
+                {
+                    if (!replyMap.TryGetValue(data.timedData.value.key.id, out replyQueue))
+                    {
+                        return;
+                    }
+                    if (data.timedData.finalFlag)
+                    {
+                        replyMap.Remove(data.timedData.value.key.id);
+                    }
+                }
+                var props = channel.CreateBasicProperties();
+                props.CorrelationId = data.timedData.value.key.id;
+                if (data.timedData.finalFlag)
+                {
+                    props.ContentType = "final";
+                }
+                var b = encoder(data.timedData.value.data);
+                if (hookPair != null && hookPair.userToWireHook != null)
+                {
+                    b = hookPair.userToWireHook.hook(b);
+                }
+                lock (this)
+                {
+                    channel.BasicPublish(
+                        exchange : ""
+                        , routingKey : replyQueue
+                        , body : b
+                    );
+                }
+            }
+        }
+        public static void wrapOnOrderFacility<InT,OutT>(Runner<Env> r, AbstractOnOrderFacility<Env,InT,OutT> facility, Func<byte[],Option<InT>> decoder, Func<OutT,byte[]> encoder, ConnectionLocator locator, HookPair hookPair = null)
+        {
+            var dict = new Dictionary<string,string>();
+            var mapLock = new object();
+            var factory = constructConnectionFactory(locator);
+            var connection = factory.CreateConnection();
+            var channel = connection.CreateModel();
+            var importer = new SimpleWrapperDecoderImporter<InT>(
+                connectionFunc: () => {
+                    var queue = channel.QueueDeclare(
+                        queue : locator.Identifier
+                        , durable : locator.GetProperty("durable", "false").Equals("true")
+                        , exclusive : locator.GetProperty("exclusive", "false").Equals("true")
+                        , autoDelete : locator.GetProperty("auto_delete", "false").Equals("true")
+                    ).QueueName;
+                    return (channel, queue);
+                }
+                , decoder : decoder
+                , replyMap : dict
+                , mapLock : mapLock
+                , hookPair : hookPair
+            );
+            var exporter = new SimpleWrapperEncoderExporter<InT,OutT>(
+                connectionFunc : () => channel
+                , encoder : encoder
+                , replyMap : dict
+                , mapLock : mapLock
+                , hookPair : hookPair
+            );
+            r.placeOrderWithFacility(r.importItem(importer), facility, r.exporterAsSink(exporter));
+        }
+        public static void wrapOnOrderFacilityWithoutReply<InT,OutT>(Runner<Env> r, AbstractOnOrderFacility<Env,InT,OutT> facility, Func<byte[],Option<InT>> decoder, ConnectionLocator locator, HookPair hookPair = null)
+        {
+            var factory = constructConnectionFactory(locator);
+            var connection = factory.CreateConnection();
+            var channel = connection.CreateModel();
+            var importer = new SimpleWrapperDecoderImporterWithoutReply<InT>(
+                connectionFunc: () => {
+                    var queue = channel.QueueDeclare(
+                        queue : locator.Identifier
+                        , durable : locator.GetProperty("durable", "false").Equals("true")
+                        , exclusive : locator.GetProperty("exclusive", "false").Equals("true")
+                        , autoDelete : locator.GetProperty("auto_delete", "false").Equals("true")
+                    ).QueueName;
+                    return (channel, queue);
+                }
+                , decoder : decoder
+                , hookPair : hookPair
             );
             r.placeOrderWithFacilityAndForget(r.importItem(importer), facility);
         }
