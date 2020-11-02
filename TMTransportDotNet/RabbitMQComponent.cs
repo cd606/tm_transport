@@ -610,6 +610,7 @@ namespace Dev.CD606.TM.Transport
                     channel.BasicPublish(
                         exchange : ""
                         , routingKey : replyQueue
+                        , basicProperties: props
                         , body : b
                     );
                 }
@@ -843,6 +844,7 @@ namespace Dev.CD606.TM.Transport
                     channel.BasicPublish(
                         exchange : ""
                         , routingKey : replyQueue
+                        , basicProperties: props
                         , body : b
                     );
                 }
