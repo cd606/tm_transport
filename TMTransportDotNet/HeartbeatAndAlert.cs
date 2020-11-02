@@ -13,6 +13,11 @@ namespace Dev.CD606.TM.Transport
 {
     public class Heartbeat : FromCbor<Heartbeat>, ToCbor
     {
+        public class DetailedStatus
+        {
+            public string status {get; set;}
+            public string info {get; set;}
+        }
         public string uuid_str {get; set;}
         public long timestamp {get; set;}
         public string host {get; set;}
@@ -20,7 +25,7 @@ namespace Dev.CD606.TM.Transport
         public string sender_description {get; set;}
         public Dictionary<string, List<string>> broadcast_channels {get; set;}
         public Dictionary<string, string> facility_channels {get; set;}
-        public Dictionary<string, (string, string)> details {get; set;}
+        public Dictionary<string, DetailedStatus> details {get; set;}
         public CBORObject asCborObject()
         {
             var ret = CBORObject.NewMap()
@@ -49,7 +54,7 @@ namespace Dev.CD606.TM.Transport
             o = CBORObject.NewMap();
             foreach (var c in details)
             {
-                o.Add(c.Key, CBORObject.NewMap().Add("status", c.Value.Item1).Add("info", c.Value.Item2));
+                o.Add(c.Key, CBORObject.NewMap().Add("status", c.Value.status).Add("info", c.Value.info));
             }
             ret.Add("details", o);
             return ret;
@@ -81,11 +86,11 @@ namespace Dev.CD606.TM.Transport
                 {
                     h.facility_channels.Add(c.AsString(), ch[c].AsString());
                 }
-                h.details = new Dictionary<string, (string, string)>();
+                h.details = new Dictionary<string, DetailedStatus>();
                 ch = o["details"];
                 foreach (var c in ch.Keys)
                 {
-                    h.details.Add(c.AsString(), (ch[c]["status"].AsString(), ch[c]["info"].AsString()));
+                    h.details.Add(c.AsString(), new DetailedStatus() {status = ch[c]["status"].AsString(), info = ch[c]["info"].AsString()});
                 }
                 return h;
             }
