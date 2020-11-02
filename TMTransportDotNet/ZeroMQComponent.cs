@@ -16,7 +16,7 @@ namespace Dev.CD606.TM.Transport
         {
             if (l.Host.Equals("inproc") || l.Host.Equals("ipc"))
             {
-                return new PublisherSocket($"@{l.Host}://{l.Identifier}");
+                throw new Exception("inproc/ipc URLs are not supported in NetMQ (pure DotNet ZeroMQ implementation)");
             }
             else
             {
@@ -27,7 +27,7 @@ namespace Dev.CD606.TM.Transport
         {
             if (l.Host.Equals("inproc") || l.Host.Equals("ipc"))
             {
-                return new SubscriberSocket($">{l.Host}://{l.Identifier}");
+                throw new Exception("inproc/ipc URLs are not supported in NetMQ (pure DotNet ZeroMQ implementation)");
             }
             else
             {
@@ -183,16 +183,11 @@ namespace Dev.CD606.TM.Transport
             {
                 lock(this)
                 {
-                    var msg = new NetMQ.Msg();
-                    msg.Put(
+                    socket.SendFrame(
                         CBORObject.NewArray()
                             .Add(data.timedData.value.topic)
                             .Add(data.timedData.value.content)
                             .EncodeToBytes()
-                        , 0
-                    );
-                    socket.TrySend(
-                        ref msg, TimeSpan.FromMilliseconds(100), false
                     );
                 }
             }
@@ -227,16 +222,11 @@ namespace Dev.CD606.TM.Transport
                 }
                 lock(this)
                 {
-                    var msg = new NetMQ.Msg();
-                    msg.Put(
+                    socket.SendFrame(
                         CBORObject.NewArray()
                             .Add(data.timedData.value.topic)
                             .Add(b)
                             .EncodeToBytes()
-                        , 0
-                    );
-                    socket.TrySend(
-                        ref msg, TimeSpan.FromMilliseconds(100), false
                     );
                 }
             }
