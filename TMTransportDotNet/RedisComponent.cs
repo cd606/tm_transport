@@ -334,17 +334,18 @@ namespace Dev.CD606.TM.Transport
                     {
                         return;
                     }
-                    if (cborDecoded[1].Type != CBORType.Array)
-                    {
-                        return;
-                    }
-                    if (cborDecoded[1].Count != 2)
-                    {
-                        return;
-                    }
                     var replyTo = cborDecoded[0].AsString();
-                    var id = cborDecoded[1][0].AsString();
-                    var b = cborDecoded[1][1].ToObject<byte[]>();
+                    cborDecoded = CBORObject.DecodeFromBytes(cborDecoded[1].ToObject<byte[]>());
+                    if (cborDecoded.Type != CBORType.Array)
+                    {
+                        return;
+                    }
+                    if (cborDecoded.Count != 2)
+                    {
+                        return;
+                    }
+                    var id = cborDecoded[0].AsString();
+                    var b = cborDecoded[1].ToObject<byte[]>();
                     if (hookPair != null && hookPair.wireToUserHook != null)
                     {
                         var b1 = hookPair.wireToUserHook.hook(b);
@@ -425,17 +426,18 @@ namespace Dev.CD606.TM.Transport
                     {
                         return;
                     }
-                    if (cborDecoded[1].Type != CBORType.Array)
-                    {
-                        return;
-                    }
-                    if (cborDecoded[1].Count != 2)
-                    {
-                        return;
-                    }
                     var replyTo = cborDecoded[0].AsString();
-                    var id = cborDecoded[1][0].AsString();
-                    var b = cborDecoded[1][1].ToObject<byte[]>();
+                    cborDecoded = CBORObject.DecodeFromBytes(cborDecoded[1].ToObject<byte[]>());
+                    if (cborDecoded.Type != CBORType.Array)
+                    {
+                        return;
+                    }
+                    if (cborDecoded.Count != 2)
+                    {
+                        return;
+                    }
+                    var id = cborDecoded[0].AsString();
+                    var b = cborDecoded[1].ToObject<byte[]>();
                     if (hookPair != null && hookPair.wireToUserHook != null)
                     {
                         var b1 = hookPair.wireToUserHook.hook(b);
@@ -600,17 +602,18 @@ namespace Dev.CD606.TM.Transport
                     {
                         return;
                     }
-                    if (cborDecoded[1].Type != CBORType.Array)
-                    {
-                        return;
-                    }
-                    if (cborDecoded[1].Count != 2)
-                    {
-                        return;
-                    }
                     var replyTo = cborDecoded[0].AsString();
-                    var id = cborDecoded[1][0].AsString();
-                    var b = cborDecoded[1][1].ToObject<byte[]>();
+                    cborDecoded = CBORObject.DecodeFromBytes(cborDecoded[1].ToObject<byte[]>());
+                    if (cborDecoded.Type != CBORType.Array)
+                    {
+                        return;
+                    }
+                    if (cborDecoded.Count != 2)
+                    {
+                        return;
+                    }
+                    var id = cborDecoded[0].AsString();
+                    var b = cborDecoded[1].ToObject<byte[]>();
                     if (hookPair != null && hookPair.wireToUserHook != null)
                     {
                         var b1 = hookPair.wireToUserHook.hook(b);
@@ -679,17 +682,18 @@ namespace Dev.CD606.TM.Transport
                     {
                         return;
                     }
-                    if (cborDecoded[1].Type != CBORType.Array)
-                    {
-                        return;
-                    }
-                    if (cborDecoded[1].Count != 2)
-                    {
-                        return;
-                    }
                     var replyTo = cborDecoded[0].AsString();
-                    var id = cborDecoded[1][0].AsString();
-                    var b = cborDecoded[1][1].ToObject<byte[]>();
+                    cborDecoded = CBORObject.DecodeFromBytes(cborDecoded[1].ToObject<byte[]>());
+                    if (cborDecoded.Type != CBORType.Array)
+                    {
+                        return;
+                    }
+                    if (cborDecoded.Count != 2)
+                    {
+                        return;
+                    }
+                    var id = cborDecoded[0].AsString();
+                    var b = cborDecoded[1].ToObject<byte[]>();
                     if (hookPair != null && hookPair.wireToUserHook != null)
                     {
                         var b1 = hookPair.wireToUserHook.hook(b);
