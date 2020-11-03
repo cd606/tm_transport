@@ -11,6 +11,8 @@ namespace Dev.CD606.TM.Transport
         {
             switch(transport)
             {
+                case Transport.Multicast:
+                    return MulticastComponent<Env>.CreateExporter(locator, hook);
                 case Transport.RabbitMQ:
                     return RabbitMQComponent<Env>.CreateExporter(locator, hook);
                 case Transport.Redis:
@@ -30,6 +32,8 @@ namespace Dev.CD606.TM.Transport
         {
             switch(transport)
             {
+                case Transport.Multicast:
+                    return MulticastComponent<Env>.CreateTypedExporter<T>(encoder, locator, hook);
                 case Transport.RabbitMQ:
                     return RabbitMQComponent<Env>.CreateTypedExporter<T>(encoder, locator, hook);
                 case Transport.Redis:
