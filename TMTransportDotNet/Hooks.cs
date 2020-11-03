@@ -2,7 +2,6 @@ using System;
 using System.Collections.Generic;
 using Here;
 using PeterO.Cbor;
-using Rebex.Security.Cryptography;
 
 namespace Dev.CD606.TM.Transport
 {
@@ -50,11 +49,22 @@ namespace Dev.CD606.TM.Transport
         }
         public static ClientSideIdentityAttacher SignatureBasedIdentityAttacher(byte[] privateKey)
         {
-            var signer = new Ed25519();
-            signer.FromPrivateKey(privateKey);
+            byte[] realPrivateKey;
+            if (privateKey.Length == 64)
+            {
+                realPrivateKey = privateKey;
+            }
+            else if (privateKey.Length == 32)
+            {
+                realPrivateKey = Sodium.PublicKeyAuth.GenerateKeyPair(privateKey).PrivateKey;
+            }
+            else
+            {
+                throw new Exception("Privatey key for signature must be either 64-byte long (a fully derived private key) or 32-byte long (a secret key)");
+            }
             return new ClientSideIdentityAttacher(
                 (input) => CBORObject.NewMap()
-                    .Add("signature", signer.SignMessage(input))
+                    .Add("signature", Sodium.PublicKeyAuth.SignDetached(input, realPrivateKey))
                     .Add("data", input)
                     .EncodeToBytes()
                 , null
@@ -86,13 +96,6 @@ namespace Dev.CD606.TM.Transport
         }
         public static ServerSideIdentityChecker<string> SignatureBasedIdentityChecker(IDictionary<string,byte[]> publicKeys)
         {
-            var verifiers = new Dictionary<string,Ed25519>();
-            foreach (var item in publicKeys.Keys)
-            {
-                var verifier = new Ed25519();
-                verifier.FromPublicKey(publicKeys[item]);
-                verifiers.Add(item, verifier);
-            }
             return new ServerSideIdentityChecker<string>(
                 (input) => {
                     var cborObj = CBORObject.DecodeFromBytes(input);
@@ -112,11 +115,11 @@ namespace Dev.CD606.TM.Transport
                         return Option.None;
                     }
                     var dataBytes = data.ToObject<byte[]>();
-                    foreach (var item in verifiers.Keys)
+                    foreach (var item in publicKeys)
                     {
-                        if (verifiers[item].VerifyMessage(dataBytes, sigBytes))
+                        if (Sodium.PublicKeyAuth.VerifyDetached(sigBytes, dataBytes, item.Value))
                         {
-                            return (item, dataBytes);
+                            return (item.Key, dataBytes);
                         }
                     }
                     return Option.None;
