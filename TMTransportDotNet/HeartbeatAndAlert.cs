@@ -1,7 +1,4 @@
-using System;
 using System.Collections.Generic;
-using Here;
-using PeterO.Cbor;
 using Dev.CD606.TM.Basic;
 
 namespace Dev.CD606.TM.Transport
