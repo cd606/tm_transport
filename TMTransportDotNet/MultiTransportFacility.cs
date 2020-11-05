@@ -1,4 +1,5 @@
 using System;
+using System.Threading.Tasks;
 using Here;
 using Dev.CD606.TM.Infra.RealTimeApp;
 using Dev.CD606.TM.Basic;
@@ -24,6 +25,51 @@ namespace Dev.CD606.TM.Transport
         {
             var parsedAddr = TransportUtils.ParseAddress(address);
             return CreateFacility(encoder, decoder, parsedAddr.Item1, parsedAddr.Item2, hookPair, identityAttacher);
+        }
+        class OneShotClient<InT,OutT> : IHandler<Env,KeyedData<InT,OutT>>
+        {
+            private TaskCompletionSource<OutT> promise;
+            public OneShotClient(TaskCompletionSource<OutT> promise)
+            {
+                this.promise = promise;
+            }
+            public void handle(TimedDataWithEnvironment<Env,KeyedData<InT,OutT>> data)
+            {
+                this.promise.SetResult(data.timedData.value.data);
+            }
+        }
+        public static Task<OutT> OneShot<InT,OutT>(Env env, Key<InT> input, Func<InT,byte[]> encoder, Func<byte[],Option<OutT>> decoder, string address, HookPair hookPair = null, ClientSideIdentityAttacher identityAttacher = null)
+        {
+            var facility = CreateFacility<InT,OutT>(encoder, decoder, address, hookPair, identityAttacher);
+            var promise = new TaskCompletionSource<OutT>();
+            facility.start(env);
+            facility.placeRequest(
+                new TimedDataWithEnvironment<Env, Key<InT>>(
+                    env 
+                    , new WithTime<Key<InT>>(
+                        env.now()
+                        , input 
+                        , true
+                    )
+                )
+                , new OneShotClient<InT,OutT>(promise)
+            );
+            return promise.Task;
+        }
+        public static void OneShotNoReply<InT,OutT>(Env env, Key<InT> input, Func<InT,byte[]> encoder, Func<byte[],Option<OutT>> decoder, string address, HookPair hookPair = null, ClientSideIdentityAttacher identityAttacher = null)
+        {
+            var facility = CreateFacility<InT,OutT>(encoder, decoder, address, hookPair, identityAttacher);
+            facility.start(env);
+            facility.placeRequestAndForget(
+                new TimedDataWithEnvironment<Env, Key<InT>>(
+                    env 
+                    , new WithTime<Key<InT>>(
+                        env.now()
+                        , input 
+                        , true
+                    )
+                )
+            );
         }
         public class DynamicFacility<InT,OutT> : AbstractOnOrderFacility<Env,InT,OutT>
         {
