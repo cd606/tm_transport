@@ -327,7 +327,8 @@ namespace Dev.CD606.TM.Transport
                 replyQueue = channel.QueueDeclare().QueueName;
                 var consumer = new EventingBasicConsumer(channel);
                 consumer.Received += (model, ea) => {
-                    var finalFlag = ea.BasicProperties.ContentType.Equals("final");
+                    var finalFlag = 
+                        (ea.BasicProperties != null && ea.BasicProperties.ContentType != null && ea.BasicProperties.ContentType.Equals("final"));
                     var b = ea.Body.ToArray();
                     if (hookPair != null && hookPair.wireToUserHook != null)
                     {
