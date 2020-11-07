@@ -69,7 +69,7 @@ namespace Dev.CD606.TM.Transport
             if (config.duplicateFromRedis)
             {
                 var redisReply = redisClient.StringGet(h);
-                if (!redisReply.IsNullOrEmpty)
+                if (!redisReply.IsNull)
                 {
                     var parsed = CborDecoder<(long,T,string)>.Decode(CBORObject.DecodeFromBytes(redisReply));
                     if (parsed.HasValue)
@@ -193,7 +193,7 @@ namespace Dev.CD606.TM.Transport
             {
                 var key = config.chainPrefix+":"+id;
                 var r = redisClient.StringGet(key);
-                if (!r.IsNullOrEmpty)
+                if (!r.IsNull)
                 {
                     var data = CborDecoder<(long,T,string)>.Decode(CBORObject.DecodeFromBytes(r));
                     if (data.HasValue)
@@ -290,7 +290,7 @@ namespace Dev.CD606.TM.Transport
                 {
                     var key = config.chainPrefix+":"+current.nextID;
                     var r = redisClient.StringGet(key);
-                    if (!r.IsNullOrEmpty)
+                    if (!r.IsNull)
                     {
                         var nextData = CborDecoder<(long,T,string)>.Decode(CBORObject.DecodeFromBytes(r));
                         if (nextData.HasValue)
@@ -308,7 +308,7 @@ namespace Dev.CD606.TM.Transport
                 {
                     var key = config.chainPrefix+":"+current.id;
                     var r = redisClient.StringGet(key);
-                    if (!r.IsNullOrEmpty)
+                    if (!r.IsNull)
                     {
                         var data = CborDecoder<(long,T,string)>.Decode(CBORObject.DecodeFromBytes(r));
                         if (data.HasValue)
@@ -317,7 +317,7 @@ namespace Dev.CD606.TM.Transport
                             {
                                 key = config.chainPrefix+":"+data.Value.Item3;
                                 r = redisClient.StringGet(key);
-                                if (!r.IsNullOrEmpty)
+                                if (!r.IsNull)
                                 {
                                     var nextData = CborDecoder<(long,T,string)>.Decode(CBORObject.DecodeFromBytes(r));
                                     if (nextData.HasValue)
