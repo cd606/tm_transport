@@ -6,6 +6,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <PackageReference Include="dotnet-etcd" Version="4.1.1" />
     <PackageReference Include="NetMQ" Version="4.0.1.6" />
     <PackageReference Include="RabbitMQ.Client" Version="6.2.1" />
     <PackageReference Include="Sodium.Core" Version="1.2.3" />
