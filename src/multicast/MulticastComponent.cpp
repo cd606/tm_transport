@@ -31,7 +31,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
 
             inline void callClient(ClientCB const &c, basic::ByteDataWithTopic &&d) {
                 if (c.hook) {
-                    auto b = (c.hook->hook)(basic::ByteData {std::move(d.content)});
+                    auto b = (c.hook->hook)(basic::ByteDataView {std::string_view(d.content)});
                     if (b) {
                         c.cb({std::move(d.topic), std::move(b->content)});
                     }

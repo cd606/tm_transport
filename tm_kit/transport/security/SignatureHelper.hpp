@@ -51,7 +51,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             Verifier &operator=(Verifier &&);
             void addKey(std::string const &name, PublicKey const &publicKey);
             void addKeys(PublicKeyMap const &keys);
-            std::optional<std::tuple<std::string,basic::ByteData>> verify(basic::ByteData &&);
+            std::optional<std::tuple<std::string,basic::ByteData>> verify(basic::ByteDataView const &);
         };
     };
 } } } } } 

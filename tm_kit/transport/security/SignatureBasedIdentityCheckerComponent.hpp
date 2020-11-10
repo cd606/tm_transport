@@ -44,7 +44,7 @@ namespace dev { namespace cd606 { namespace tm {namespace transport {namespace s
             verifier_.addKey(name, publicKey);
         }
         virtual std::optional<std::tuple<std::string,dev::cd606::tm::basic::ByteData>> check_identity(dev::cd606::tm::basic::ByteData &&d) override final {
-            return verifier_.verify(std::move(d));
+            return verifier_.verify(dev::cd606::tm::basic::byteDataView(d));
         }
         virtual basic::ByteData process_outgoing_data(std::string const &identity, basic::ByteData &&d) override final {
             return std::move(d);

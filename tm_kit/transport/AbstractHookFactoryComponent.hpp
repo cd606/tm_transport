@@ -24,6 +24,14 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
     class DefaultHookFactory {
     public:
         template <class DataT>
+        static constexpr bool HasOutgoingHookFactory() {
+            return std::is_convertible_v<Env *, AbstractOutgoingHookFactoryComponent<DataT> *>;
+        }
+        template <class DataT>
+        static constexpr bool HasIncomingHookFactory() {
+            return std::is_convertible_v<Env *, AbstractIncomingHookFactoryComponent<DataT> *>;
+        }
+        template <class DataT>
         static std::optional<UserToWireHook> outgoingHook(Env *env) {
             if constexpr (std::is_convertible_v<Env *, AbstractOutgoingHookFactoryComponent<DataT> *>) {
                 return static_cast<AbstractOutgoingHookFactoryComponent<DataT> *>(env)->defaultHook();
@@ -35,6 +43,27 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
         static std::optional<WireToUserHook> incomingHook(Env *env) {
             if constexpr (std::is_convertible_v<Env *, AbstractIncomingHookFactoryComponent<DataT> *>) {
                 return static_cast<AbstractIncomingHookFactoryComponent<DataT> *>(env)->defaultHook();
+            } else {
+                return std::nullopt;
+            }
+        }
+
+        template <class DataT>
+        static std::optional<ByteDataHookPair> supplyFacilityHookPair_SingleType(Env *env, std::optional<ByteDataHookPair> hooks) {
+            std::optional<UserToWireHook> userToWire = std::nullopt;
+            if (hooks && hooks->userToWire) {
+                userToWire = hooks->userToWire;
+            } else {
+                userToWire = DefaultHookFactory<Env>::template outgoingHook<DataT>(env);
+            }
+            std::optional<WireToUserHook> wireToUser = std::nullopt;
+            if (hooks && hooks->wireToUser) {
+                wireToUser = hooks->wireToUser;
+            } else {
+                wireToUser = DefaultHookFactory<Env>::template incomingHook<DataT>(env);
+            }
+            if (userToWire || wireToUser) {
+                return ByteDataHookPair {userToWire, wireToUser};
             } else {
                 return std::nullopt;
             }

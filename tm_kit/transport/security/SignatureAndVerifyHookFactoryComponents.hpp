@@ -41,8 +41,8 @@ public:
             verifier->addKey(k.first, k.second);
         }
         return WireToUserHook { 
-            [verifier](basic::ByteData &&d) -> std::optional<basic::ByteData> {
-                auto res = verifier->verify(std::move(d));
+            [verifier](basic::ByteDataView const &d) -> std::optional<basic::ByteData> {
+                auto res = verifier->verify(d);
                 if (res) {
                     return std::move(std::get<1>(*res));
                 } else {

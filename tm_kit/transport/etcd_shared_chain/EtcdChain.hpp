@@ -6,6 +6,8 @@
 #include <tm_kit/basic/ByteData.hpp>
 #include <tm_kit/basic/SerializationHelperMacros.hpp>
 
+#include <tm_kit/transport/ByteDataHook.hpp>
+
 #ifdef _MSC_VER
 #include <winsock2.h>
 #undef min
@@ -140,6 +142,8 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         redisContext *redisCtx_;
         std::mutex redisMutex_;
 
+        std::optional<ByteDataHookPair> hookPair_;
+
         void runWatchThread() {
             watchThreadRunning_ = true;
 
@@ -200,19 +204,73 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 }
             }
         }
+
+        std::optional<std::tuple<ChainRedisStorage<T>,std::size_t>> parseRedisData(redisReply *r) {
+            if (hookPair_ && hookPair_->wireToUser) {
+                auto parsed = hookPair_->wireToUser->hook(basic::ByteDataView {std::string_view(r->str, r->len)});
+                if (!parsed) {
+                    return std::nullopt;
+                }
+                return basic::bytedata_utils::RunCBORDeserializer<ChainRedisStorage<T>>::apply(
+                    std::string_view(parsed->content), 0
+                );
+            } else {
+                return basic::bytedata_utils::RunCBORDeserializer<ChainRedisStorage<T>>::apply(
+                    std::string_view(r->str, r->len), 0
+                );
+            }
+        }
+        template <class X>
+        std::optional<basic::CBOR<X>> parseEtcdData(std::string const &v) {
+            if (hookPair_ && hookPair_->wireToUser) {
+                auto parsed = hookPair_->wireToUser->hook(basic::ByteDataView {std::string_view(v)});
+                if (!parsed) {
+                    return std::nullopt;
+                }
+                return basic::bytedata_utils::RunDeserializer<basic::CBOR<X>>::apply(
+                    std::string_view(parsed->content)
+                );
+            } else {
+                return basic::bytedata_utils::RunDeserializer<basic::CBOR<X>>::apply(
+                    std::string_view(v)
+                );
+            }
+        }
+        template <class X>
+        std::string serialize(X &&x) {
+            if (hookPair_ && hookPair_->userToWire) {
+                return hookPair_->userToWire->hook(
+                    basic::ByteData {basic::bytedata_utils::RunSerializer<basic::CBOR<X>>::apply({std::move(x)})}
+                ).content;
+            } else {
+                return basic::bytedata_utils::RunSerializer<basic::CBOR<X>>::apply({std::move(x)});
+            }
+        }
+        template <class X>
+        std::string serialize2(X const &x) {
+            if (hookPair_ && hookPair_->userToWire) {
+                return hookPair_->userToWire->hook(
+                    basic::ByteData {basic::bytedata_utils::RunSerializer<basic::CBOR<X>>::apply({x})}
+                ).content;
+            } else {
+                return basic::bytedata_utils::RunSerializer<basic::CBOR<X>>::apply({x});
+            }
+        }
+
     public:
         using StorageIDType = std::string;
         using DataType = T;
         using ItemType = ChainItem<T>;
         using MapData = ChainStorage<T>;
         static constexpr bool SupportsExtraData = true;
-        EtcdChain(EtcdChainConfiguration const &config) :
+        EtcdChain(EtcdChainConfiguration const &config, std::optional<ByteDataHookPair> hookPair = std::nullopt) :
             configuration_(config) 
             , updateTriggerFunc_()
             , channel_(config.etcdChannel?config.etcdChannel:(EtcdChainConfiguration().InsecureEtcdServerAddr().etcdChannel))
             , stub_(etcdserverpb::KV::NewStub(channel_))
             , latestModRevision_(0), watchThreadRunning_(false), watchThread_()
             , redisCtx_(nullptr), redisMutex_()
+            , hookPair_(hookPair)
         {
             if (configuration_.useWatchThread) {
                 watchThread_ = std::thread(&EtcdChain::runWatchThread, this);
@@ -272,9 +330,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 }
                 if (r != nullptr) {
                     if (r->type == REDIS_REPLY_STRING) {
-                        auto data = basic::bytedata_utils::RunCBORDeserializer<ChainRedisStorage<T>>::apply(
-                            std::string_view(r->str, r->len), 0
-                        );
+                        auto data = parseRedisData(r);
                         if (data && std::get<1>(*data) == r->len) {
                             freeReplyObject((void *) r);
                             auto const &s = std::get<0>(*data);
@@ -318,7 +374,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 auto const &kv = rsp.kvs(0);
                 return ItemType {kv.mod_revision(), configuration_.headKey, T{}, kv.value()};
             } else {
-                static const std::string emptyHeadDataStr = basic::bytedata_utils::RunSerializer<basic::CBOR<MapData>>::apply({MapData {}}); 
+                static const std::string emptyHeadDataStr = serialize<MapData>(MapData {}); 
 
                 etcdserverpb::TxnRequest txn;
                 auto *cmp = txn.add_compare();
@@ -352,7 +408,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                         throw EtcdChainException("head error for "+headKeyStr+", etcd service probably down");
                     }
                     auto &kv = rsp.kvs(0);
-                    auto mapData = basic::bytedata_utils::RunDeserializer<basic::CBOR<MapData>>::apply(
+                    auto mapData = parseEtcdData<MapData>(
                         kv.value()
                     );
                     if (mapData) {
@@ -366,7 +422,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                         throw EtcdChainException("head error for "+headKeyStr+", etcd service probably down");
                     }
                     auto &kv = rsp.kvs(0);
-                    auto mapData = basic::bytedata_utils::RunDeserializer<basic::CBOR<MapData>>::apply(
+                    auto mapData = parseEtcdData<MapData>(
                         kv.value()
                     );
                     if (mapData) {
@@ -392,9 +448,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 }
                 if (r != nullptr) {
                     if (r->type == REDIS_REPLY_STRING) {
-                        auto data = basic::bytedata_utils::RunCBORDeserializer<ChainRedisStorage<T>>::apply(
-                            std::string_view(r->str, r->len), 0
-                        );
+                        auto data = parseRedisData(r);
                         if (data && std::get<1>(*data) == r->len) {
                             freeReplyObject((void *) r);
                             auto &s = std::get<0>(*data);
@@ -429,7 +483,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                         throw EtcdChainException("LoadUntil Error! No record for "+configuration_.dataPrefix+":"+id);
                     }
                     auto const &dataKV = txnResp.responses(1).response_range().kvs(0);
-                    auto data = basic::bytedata_utils::RunDeserializer<basic::CBOR<T>>::apply(
+                    auto data = parseEtcdData<T>(
                         dataKV.value()
                     );
                     if (data) {
@@ -459,7 +513,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 }
 
                 auto &kv = rangeResp.kvs(0);
-                auto mapData = basic::bytedata_utils::RunDeserializer<basic::CBOR<MapData>>::apply(
+                auto mapData = parseEtcdData<MapData>(
                     kv.value()
                 );
                 if (mapData) {
@@ -490,9 +544,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                     }
                     if (r != nullptr) {
                         if (r->type == REDIS_REPLY_STRING) {
-                            auto nextData = basic::bytedata_utils::RunCBORDeserializer<ChainRedisStorage<T>>::apply(
-                                std::string_view(r->str, r->len), 0
-                            );
+                            auto nextData = parseRedisData(r);
                             if (nextData && std::get<1>(*nextData) == r->len) {
                                 freeReplyObject((void *) r);
                                 auto &nextS = std::get<0>(*nextData);
@@ -512,9 +564,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                     }
                     if (r != nullptr) {
                         if (r->type == REDIS_REPLY_STRING) {
-                            auto data = basic::bytedata_utils::RunCBORDeserializer<ChainRedisStorage<T>>::apply(
-                                std::string_view(r->str, r->len), 0
-                            );
+                            auto data = parseRedisData(r);
                             if (data && std::get<1>(*data) == r->len) {
                                 freeReplyObject((void *) r);
                                 r = nullptr;
@@ -529,9 +579,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                                     }
                                     if (r != nullptr) {
                                         if (r->type == REDIS_REPLY_STRING) {
-                                            auto nextData = basic::bytedata_utils::RunCBORDeserializer<ChainRedisStorage<T>>::apply(
-                                                std::string_view(r->str, r->len), 0
-                                            );
+                                            auto nextData = parseRedisData(r);
                                             if (nextData && std::get<1>(*nextData) == r->len) {
                                                 freeReplyObject((void *) r);
                                                 auto &nextS = std::get<0>(*nextData);
@@ -591,7 +639,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                             throw EtcdChainException("FetchNext Error! No record for "+configuration_.dataPrefix+":"+nextID);
                         }
                         auto const &dataKV = txnResp.responses(1).response_range().kvs(0);
-                        auto data = basic::bytedata_utils::RunDeserializer<basic::CBOR<T>>::apply(
+                        auto data = parseEtcdData<T>(
                             dataKV.value()
                         );
                         if (data) {
@@ -625,7 +673,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                         throw EtcdChainException("FetchNext Error! No record for "+configuration_.chainPrefix+":"+current.id);
                     }
                     auto &kv = rangeResp.kvs(0);
-                    auto mapData = basic::bytedata_utils::RunDeserializer<basic::CBOR<MapData>>::apply(
+                    auto mapData = parseEtcdData<MapData>(
                         kv.value()
                     );
                     if (mapData) {
@@ -648,7 +696,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                     }
 
                     auto &kv2 = rangeResp2.kvs(0);
-                    auto mapData = basic::bytedata_utils::RunDeserializer<basic::CBOR<MapData>>::apply(
+                    auto mapData = parseEtcdData<MapData>(
                         kv2.value()
                     );
                     if (mapData) {
@@ -713,7 +761,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 action = txn.add_success();
                 put = action->mutable_request_put();
                 put->set_key(newDataKey);
-                put->set_value(basic::bytedata_utils::RunSerializer<basic::CBOR<T>>::apply(basic::CBOR<T> {std::move(toBeWritten.data)})); 
+                put->set_value(serialize<T>(std::move(toBeWritten.data))); 
                 action = txn.add_success();
                 put = action->mutable_request_put();
                 put->set_key(newChainKey);
@@ -750,11 +798,11 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 auto *action = txn.add_success();
                 auto *put = action->mutable_request_put();
                 put->set_key(currentChainKey);
-                put->set_value(basic::bytedata_utils::RunSerializer<basic::CBOR<MapData>>::apply(basic::CBOR<MapData> {MapData {current.data, toBeWritten.id}})); 
+                put->set_value(serialize<MapData>(MapData {current.data, toBeWritten.id})); 
                 action = txn.add_success();
                 put = action->mutable_request_put();
                 put->set_key(newChainKey);
-                put->set_value(basic::bytedata_utils::RunSerializer<basic::CBOR<MapData>>::apply(basic::CBOR<MapData> {MapData {std::move(toBeWritten.data), ""}})); 
+                put->set_value(serialize<MapData>(MapData {std::move(toBeWritten.data), ""})); 
                 
                 etcdserverpb::TxnResponse txnResp;
                 grpc::ClientContext txnCtx;
@@ -777,11 +825,9 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             duplicateToRedis(nullptr, rev, id, data, nextID, configuration_.redisTTLSeconds);
         }
         void duplicateToRedis(redisContext *ctx, int64_t rev, std::string const &id, T const &data, std::string const &nextID, uint16_t ttlSeconds) {
-            std::string redisS = basic::bytedata_utils::RunSerializer<basic::CBOR<ChainRedisStorage<T>>>::apply(
-                basic::CBOR<ChainRedisStorage<T>> {
-                    ChainRedisStorage<T> {
-                        rev, data, nextID
-                    }
+            std::string redisS = serialize<ChainRedisStorage<T>>(
+                ChainRedisStorage<T> {
+                    rev, data, nextID
                 }
             );
             std::string currentChainKey = configuration_.chainPrefix+":"+id;
@@ -820,8 +866,8 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             etcdserverpb::PutRequest put;
             put.set_key(configuration_.extraDataPrefix+":"+key);
             put.set_value(
-                basic::bytedata_utils::RunSerializer<basic::CBOR<ExtraData>>::apply(
-                    basic::CBOR<ExtraData> {data}
+                serialize2<ExtraData>(
+                    data
                 )
             );
             etcdserverpb::PutResponse putResp;
@@ -842,7 +888,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             if (rangeResp.kvs_size() == 0) {
                 return std::nullopt;
             }
-            auto d = basic::bytedata_utils::RunDeserializer<basic::CBOR<ExtraData>>::apply(
+            auto d = parseEtcdData<ExtraData>(
                 rangeResp.kvs(0).value()
             );
             if (d) {

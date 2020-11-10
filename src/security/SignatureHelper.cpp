@@ -56,11 +56,11 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             std::lock_guard<std::mutex> _(mutex_);
             publicKeys_.insert({name, publicKey});
         }
-        std::optional<std::tuple<std::string,basic::ByteData>> verify(basic::ByteData &&data) {       
+        std::optional<std::tuple<std::string,basic::ByteData>> verify(basic::ByteDataView const &data) {       
             auto res = basic::bytedata_utils::RunCBORDeserializerWithNameList<
                 std::tuple<basic::ByteData, basic::ByteData>
                 , 2
-            >::apply(std::string_view {data.content}, 0, {"signature", "data"});
+            >::apply(data.content, 0, {"signature", "data"});
             if (!res) {
                 return std::nullopt;
             }
@@ -114,8 +114,8 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             impl_->addKey(k.first, k.second);
         }
     }
-    std::optional<std::tuple<std::string,basic::ByteData>> SignatureHelper::Verifier::verify(basic::ByteData &&data) {
-        return impl_->verify(std::move(data));
+    std::optional<std::tuple<std::string,basic::ByteData>> SignatureHelper::Verifier::verify(basic::ByteDataView const &data) {
+        return impl_->verify(data);
     }
 } } } } }
 

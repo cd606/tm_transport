@@ -4,6 +4,7 @@
 #include <tm_kit/basic/simple_shared_chain/ChainReader.hpp>
 #include <tm_kit/basic/simple_shared_chain/ChainWriter.hpp>
 #include <tm_kit/basic/ByteData.hpp>
+#include <tm_kit/transport/ByteDataHook.hpp>
 #include <atomic>
 
 #ifdef _MSC_VER
@@ -25,30 +26,30 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         ByName, ByOffset
     };
 
-    template <class T>
-    using ActualNodeData = std::conditional_t<std::is_trivially_copyable_v<T>,T,std::ptrdiff_t>;
+    template <class T, bool ForceSeparate=false>
+    using ActualNodeData = std::conditional_t<(!ForceSeparate && std::is_trivially_copyable_v<T>),T,std::ptrdiff_t>;
    
-    template <class T>
+    template <class T, bool ForceSeparate=false>
     struct BoostSharedMemoryStorageItem {
-        ActualNodeData<T> data;
+        ActualNodeData<T,ForceSeparate> data;
         std::atomic<std::ptrdiff_t> next;
         BoostSharedMemoryStorageItem() : data(), next(0) {
         }
-        BoostSharedMemoryStorageItem(ActualNodeData<T> &&d) : data(std::move(d)), next(0) {
+        BoostSharedMemoryStorageItem(ActualNodeData<T,ForceSeparate> &&d) : data(std::move(d)), next(0) {
         }
     };
     
-    template <class T>
-    using ParsedNodeData = std::conditional_t<std::is_trivially_copyable_v<T>,basic::VoidStruct,std::optional<T>>;
-    template <class T, BoostSharedMemoryChainFastRecoverSupport FRS>
+    template <class T, bool ForceSeparate=false>
+    using ParsedNodeData = std::conditional_t<(!ForceSeparate && std::is_trivially_copyable_v<T>),basic::VoidStruct,std::optional<T>>;
+    template <class T, BoostSharedMemoryChainFastRecoverSupport FRS, bool ForceSeparate=false>
     struct BoostSharedMemoryChainItem {};
-    template <class T>
-    struct BoostSharedMemoryChainItem<T, BoostSharedMemoryChainFastRecoverSupport::ByName> {
-        BoostSharedMemoryStorageItem<T> *ptr;
+    template <class T, bool ForceSeparate>
+    struct BoostSharedMemoryChainItem<T, BoostSharedMemoryChainFastRecoverSupport::ByName, ForceSeparate> {
+        BoostSharedMemoryStorageItem<T,ForceSeparate> *ptr;
         std::string id;
-        ParsedNodeData<T> parsed;
+        ParsedNodeData<T,ForceSeparate> parsed;
         T const *actualData() const {
-            if constexpr (std::is_trivially_copyable_v<T>) {
+            if constexpr (!ForceSeparate && std::is_trivially_copyable_v<T>) {
                 if (ptr) {
                     return &(ptr->data);
                 } else {
@@ -63,13 +64,13 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             }
         }
     };
-    template <class T>
-    struct BoostSharedMemoryChainItem<T, BoostSharedMemoryChainFastRecoverSupport::ByOffset> {
-        BoostSharedMemoryStorageItem<T> *ptr;
+    template <class T, bool ForceSeparate>
+    struct BoostSharedMemoryChainItem<T, BoostSharedMemoryChainFastRecoverSupport::ByOffset, ForceSeparate> {
+        BoostSharedMemoryStorageItem<T, ForceSeparate> *ptr;
         std::ptrdiff_t offset;
-        ParsedNodeData<T> parsed;
+        ParsedNodeData<T, ForceSeparate> parsed;
         T const *actualData() const {
-            if constexpr (std::is_trivially_copyable_v<T>) {
+            if constexpr (!ForceSeparate && std::is_trivially_copyable_v<T>) {
                 if (ptr) {
                     return &(ptr->data);
                 } else {
@@ -139,14 +140,16 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         class T
         , BoostSharedMemoryChainFastRecoverSupport FRS
         , BoostSharedMemoryChainExtraDataProtectionStrategy EDPS = BoostSharedMemoryChainExtraDataProtectionStrategy::DontSupportExtraData
+        , bool ForceSeparate=false
     >
     class LockFreeInBoostSharedMemoryChain {};
 
-    template <class T, BoostSharedMemoryChainExtraDataProtectionStrategy EDPS>
+    template <class T, BoostSharedMemoryChainExtraDataProtectionStrategy EDPS, bool ForceSeparate>
     class LockFreeInBoostSharedMemoryChain<
         T
         , BoostSharedMemoryChainFastRecoverSupport::ByName
         , EDPS 
+        , ForceSeparate
     > : public LockFreeInBoostSharedMemoryChainBase<T,BoostSharedMemoryChainFastRecoverSupport::ByName> {
     private:
         IPCMutexWrapper<EDPS> mutex_;
@@ -155,21 +158,22 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
 #else
         boost::interprocess::managed_shared_memory mem_;
 #endif
-        BoostSharedMemoryStorageItem<T> *head_;
+        BoostSharedMemoryStorageItem<T, ForceSeparate> *head_;
+        std::optional<ByteDataHookPair> hookPair_;
     public:
         using StorageIDType = std::string;
         using DataType = T;
         static constexpr BoostSharedMemoryChainFastRecoverSupport FastRecoverySupport = BoostSharedMemoryChainFastRecoverSupport::ByName;
         static constexpr BoostSharedMemoryChainExtraDataProtectionStrategy ExtraDataProtectionStrategy = EDPS;
-        using ItemType = BoostSharedMemoryChainItem<T,BoostSharedMemoryChainFastRecoverSupport::ByName>;
+        using ItemType = BoostSharedMemoryChainItem<T,BoostSharedMemoryChainFastRecoverSupport::ByName,ForceSeparate>;
         static constexpr bool SupportsExtraData = true;
     private:
-        static inline ItemType fromIDAndPtr(std::string const &id, BoostSharedMemoryStorageItem<T> *ptr) {
-            if constexpr (std::is_trivially_copyable_v<T>) {
+        inline ItemType fromIDAndPtr(std::string const &id, BoostSharedMemoryStorageItem<T, ForceSeparate> *ptr) {
+            if constexpr (!ForceSeparate && std::is_trivially_copyable_v<T>) {
                 return ItemType {
                     ptr
                     , id
-                    , ParsedNodeData<T> {}
+                    , ParsedNodeData<T, ForceSeparate> {}
                 };
             } else {
                 if (ptr) {
@@ -177,28 +181,55 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                         return ItemType {
                             ptr
                             , id
-                            , ParsedNodeData<T> {}
+                            , ParsedNodeData<T, ForceSeparate> {}
                         };
                     }
                     char const *dataPtr = reinterpret_cast<char const *>(ptr)+ptr->data;
                     std::size_t sz;
                     std::memcpy(&sz, dataPtr, sizeof(std::size_t));
-                    return ItemType {
-                        ptr
-                        , id
-                        , basic::bytedata_utils::RunDeserializer<T>::apply(std::string_view {dataPtr+sizeof(std::size_t), sz})
-                    };
+                    if constexpr (ForceSeparate) {
+                        if (hookPair_ && hookPair_->wireToUser) {
+                            auto parsed = hookPair_->wireToUser->hook(
+                                basic::ByteDataView {std::string_view {dataPtr+sizeof(std::size_t), sz}}
+                            );
+                            if (parsed) {
+                                return ItemType {
+                                    ptr
+                                    , id
+                                    , basic::bytedata_utils::RunDeserializer<T>::apply(std::string_view {parsed->content})
+                                };
+                            } else {
+                                return ItemType {
+                                    ptr
+                                    , id
+                                    , ParsedNodeData<T, ForceSeparate> {}
+                                };
+                            }
+                        } else {
+                            return ItemType {
+                                ptr
+                                , id
+                                , basic::bytedata_utils::RunDeserializer<T>::apply(std::string_view {dataPtr+sizeof(std::size_t), sz})
+                            };
+                        }
+                    } else {
+                        return ItemType {
+                            ptr
+                            , id
+                            , basic::bytedata_utils::RunDeserializer<T>::apply(std::string_view {dataPtr+sizeof(std::size_t), sz})
+                        };
+                    }
                 } else {
                     return ItemType {
                         ptr
                         , id
-                        , ParsedNodeData<T> {}
+                        , ParsedNodeData<T, ForceSeparate> {}
                     };
                 }
             };
         }
     public:
-        LockFreeInBoostSharedMemoryChain(std::string const &name, std::size_t sharedMemorySize) :
+        LockFreeInBoostSharedMemoryChain(std::string const &name, std::size_t sharedMemorySize, std::optional<ByteDataHookPair> hookPair=std::nullopt) :
             mutex_(name) 
             , mem_(
                 boost::interprocess::open_or_create
@@ -206,9 +237,10 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 , sharedMemorySize
             )
             , head_(nullptr)
+            , hookPair_(ForceSeparate?hookPair:std::nullopt)
         {
-            head_ = mem_.find_or_construct<BoostSharedMemoryStorageItem<T>>(boost::interprocess::unique_instance)();
-            if constexpr (!std::is_trivially_copyable_v<T>) {
+            head_ = mem_.find_or_construct<BoostSharedMemoryStorageItem<T, ForceSeparate>>(boost::interprocess::unique_instance)();
+            if constexpr (ForceSeparate || !std::is_trivially_copyable_v<T>) {
                 head_->data = 0;
             }
         }
@@ -220,7 +252,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 return head(env);
             }
             return fromIDAndPtr(
-                id, mem_.find<BoostSharedMemoryStorageItem<T>>(id.c_str()).first
+                id, mem_.find<BoostSharedMemoryStorageItem<T, ForceSeparate>>(id.c_str()).first
             );
         }
         std::optional<ItemType> fetchNext(ItemType const &current) {
@@ -229,7 +261,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             }
             auto next = current.ptr->next.load(std::memory_order_acquire);
             if (next != 0) {
-                auto *p = reinterpret_cast<BoostSharedMemoryStorageItem<T> *>(reinterpret_cast<char *>(current.ptr)+next);
+                auto *p = reinterpret_cast<BoostSharedMemoryStorageItem<T, ForceSeparate> *>(reinterpret_cast<char *>(current.ptr)+next);
                 return fromIDAndPtr(
                     mem_.get_instance_name(p)
                     , p
@@ -262,7 +294,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         template <class ExtraData>
         void saveExtraData(std::string const &key, ExtraData const &data) {
             static_assert(EDPS != BoostSharedMemoryChainExtraDataProtectionStrategy::DontSupportExtraData, "LockFreeInBoostSharedMemoryChain supports storing extra data only if enabled in template signature");
-            if constexpr (std::is_trivially_copyable_v<ExtraData>) {
+            if constexpr (!ForceSeparate && std::is_trivially_copyable_v<ExtraData>) {
                 if constexpr (EDPS == BoostSharedMemoryChainExtraDataProtectionStrategy::LockFreeAndWasteMemory) {
                     auto *dataPtr = mem_.construct<ExtraData>(boost::interprocess::anonymous_instance)(data);
                     auto *loc = mem_.find_or_construct<std::atomic<std::ptrdiff_t>>(key.c_str())(0);
@@ -282,7 +314,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         template <class ExtraData>
         std::optional<ExtraData> loadExtraData(std::string const &key) {
             static_assert(EDPS != BoostSharedMemoryChainExtraDataProtectionStrategy::DontSupportExtraData, "LockFreeInBoostSharedMemoryChain supports loading extra data only if enabled in template signature");
-            if constexpr (std::is_trivially_copyable_v<ExtraData>) {
+            if constexpr (!ForceSeparate && std::is_trivially_copyable_v<ExtraData>) {
                 if constexpr (EDPS == BoostSharedMemoryChainExtraDataProtectionStrategy::LockFreeAndWasteMemory) {
                     auto *loc = mem_.find<std::atomic<std::ptrdiff_t>>(key.c_str()).first;
                     if (loc) {
@@ -313,14 +345,24 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             } else {
                 auto b = loadExtraBytes(key);
                 if (b) {
-                    return basic::bytedata_utils::RunDeserializer<ExtraData>::apply(b->content);
+                    return basic::bytedata_utils::RunDeserializer<ExtraData>::apply(std::string_view {b->content});
                 } else {
                     return std::nullopt;
                 }
             }
         }
-        void saveExtraBytes(std::string const &key, basic::ByteData const &data) {
+        void saveExtraBytes(std::string const &key, basic::ByteData &&data) {
             static_assert(EDPS != BoostSharedMemoryChainExtraDataProtectionStrategy::DontSupportExtraData, "LockFreeInBoostSharedMemoryChain supports storing extra data only if enabled in template signature");
+            if constexpr (ForceSeparate) {
+                if (hookPair_ && hookPair_->userToWire) {
+                    saveExtraBytes_internal(key, hookPair_->userToWire->hook(std::move(data)));
+                } else {
+                    saveExtraBytes_internal(key, std::move(data));
+                }
+            }
+        }
+    private:
+        void saveExtraBytes_internal(std::string const &key, basic::ByteData &&data) {
             if constexpr (EDPS == BoostSharedMemoryChainExtraDataProtectionStrategy::LockFreeAndWasteMemory) {
                 std::size_t sz = data.content.length();
                 auto *dataPtr = mem_.construct<char>(boost::interprocess::anonymous_instance)[sz+sizeof(std::size_t)]();
@@ -362,8 +404,35 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 std::memcpy(dataPtr, data.content.data(), sz);
             }
         }
-        std::optional<basic::ByteDataView> loadExtraBytes(std::string const &key) {
+    public:
+        std::optional<basic::ByteData> loadExtraBytes(std::string const &key) {
             static_assert(EDPS != BoostSharedMemoryChainExtraDataProtectionStrategy::DontSupportExtraData, "LockFreeInBoostSharedMemoryChain supports loading extra data only if enabled in template signature");
+            if constexpr (ForceSeparate) {
+                auto b = loadExtraBytes_internal(key);
+                if (hookPair_ && hookPair_->wireToUser) {
+                    if (b) {
+                        return hookPair_->wireToUser->hook(*b);
+                    } else {
+                        return std::nullopt;
+                    }
+                } else {
+                    if (b) {
+                        return basic::ByteData {std::string(b->content)};
+                    } else {
+                        return std::nullopt;
+                    }
+                }
+            } else {
+                auto b = loadExtraBytes_internal(key);
+                if (b) {
+                    return basic::ByteData {std::string(b->content)};
+                } else {
+                    return std::nullopt;
+                }
+            }
+        }
+    private:
+        std::optional<basic::ByteDataView> loadExtraBytes_internal(std::string const &key) {
             if constexpr (EDPS == BoostSharedMemoryChainExtraDataProtectionStrategy::LockFreeAndWasteMemory) {
                 auto *loc = mem_.find<std::atomic<std::ptrdiff_t>>(key.c_str()).first;
                 if (loc) {
@@ -400,6 +469,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 return std::nullopt;
             }
         }
+    public:
         template <class Env>
         static StorageIDType newStorageID() {
             return Env::id_to_string(Env::new_id());
@@ -409,15 +479,26 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             return newStorageID<Env>();
         }
         ItemType formChainItem(StorageIDType const &id, T &&data) {
-            if constexpr (std::is_trivially_copyable_v<T>) {
+            if constexpr (!ForceSeparate && std::is_trivially_copyable_v<T>) {
                 return fromIDAndPtr(
                     id
-                    , mem_.construct<BoostSharedMemoryStorageItem<T>>(id.c_str())(std::move(data))
+                    , mem_.construct<BoostSharedMemoryStorageItem<T, ForceSeparate>>(id.c_str())(std::move(data))
                 );
             } else {
-                auto enc = basic::bytedata_utils::RunSerializer<T>::apply(data);
+                std::string enc;
+                if constexpr (ForceSeparate) {
+                    if (hookPair_ && hookPair_->userToWire) {
+                        enc = hookPair_->userToWire->hook(
+                            basic::ByteData {basic::bytedata_utils::RunSerializer<T>::apply(data)}
+                        ).content;
+                    } else {
+                        enc = basic::bytedata_utils::RunSerializer<T>::apply(data);
+                    }
+                } else {
+                    enc = basic::bytedata_utils::RunSerializer<T>::apply(data);
+                }
                 std::size_t sz = enc.length();
-                auto *ptr = mem_.construct<BoostSharedMemoryStorageItem<T>>(id.c_str())(0);
+                auto *ptr = mem_.construct<BoostSharedMemoryStorageItem<T, ForceSeparate>>(id.c_str())(0);
                 auto *dataPtr = mem_.construct<char>(boost::interprocess::anonymous_instance)[sz+sizeof(std::size_t)]();
                 std::memcpy(dataPtr, reinterpret_cast<char const *>(&sz), sizeof(std::size_t));
                 std::memcpy(dataPtr+sizeof(std::size_t), enc.data(), sz);
@@ -431,7 +512,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         }
         void destroyItem(ItemType &&p) {
             if (p.ptr) {
-                if constexpr (!std::is_trivially_copyable_v<T>) {
+                if constexpr (ForceSeparate || !std::is_trivially_copyable_v<T>) {
                     if (p.ptr->data != 0) {
                         mem_.destroy_ptr(reinterpret_cast<char *>(p.ptr)+p.ptr->data);
                     }
@@ -450,11 +531,12 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         }
     };
 
-    template <class T, BoostSharedMemoryChainExtraDataProtectionStrategy EDPS>
+    template <class T, BoostSharedMemoryChainExtraDataProtectionStrategy EDPS, bool ForceSeparate>
     class LockFreeInBoostSharedMemoryChain<
         T
         , BoostSharedMemoryChainFastRecoverSupport::ByOffset
         , EDPS 
+        , ForceSeparate
     > : public LockFreeInBoostSharedMemoryChainBase<T,BoostSharedMemoryChainFastRecoverSupport::ByOffset> {
     private:
         IPCMutexWrapper<EDPS> mutex_;
@@ -463,7 +545,8 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
 #else
         boost::interprocess::managed_shared_memory mem_;
 #endif
-        BoostSharedMemoryStorageItem<T> *head_;
+        BoostSharedMemoryStorageItem<T, ForceSeparate> *head_;
+        std::optional<ByteDataHookPair> hookPair_;
     public:
         using StorageIDType = std::ptrdiff_t;
         using DataType = T;
@@ -472,12 +555,12 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         using ItemType = BoostSharedMemoryChainItem<T,BoostSharedMemoryChainFastRecoverSupport::ByOffset>;
         static constexpr bool SupportsExtraData = true;
     private:
-        inline ItemType fromPtr(BoostSharedMemoryStorageItem<T> *ptr) const {
-            if constexpr (std::is_trivially_copyable_v<T>) {
+        inline ItemType fromPtr(BoostSharedMemoryStorageItem<T, ForceSeparate> *ptr) const {
+            if constexpr (!ForceSeparate && std::is_trivially_copyable_v<T>) {
                 return ItemType {
                     ptr
                     , reinterpret_cast<char const *>(ptr)-reinterpret_cast<char const *>(head_)
-                    , ParsedNodeData<T> {}
+                    , ParsedNodeData<T, ForceSeparate> {}
                 };
             } else {
                 if (ptr) {
@@ -485,28 +568,55 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                         return ItemType {
                             ptr
                             , reinterpret_cast<char const *>(ptr)-reinterpret_cast<char const *>(head_)
-                            , ParsedNodeData<T> {}
+                            , ParsedNodeData<T, ForceSeparate> {}
                         };
                     }
                     char const *dataPtr = reinterpret_cast<char const *>(ptr)+ptr->data;
                     std::size_t sz;
                     std::memcpy(&sz, dataPtr, sizeof(std::size_t));
-                    return ItemType {
-                        ptr
-                        , reinterpret_cast<char const *>(ptr)-reinterpret_cast<char const *>(head_)
-                        , basic::bytedata_utils::RunDeserializer<T>::apply(std::string_view {dataPtr+sizeof(std::size_t), sz})
-                    };
+                    if constexpr (ForceSeparate) {
+                        if (hookPair_ && hookPair_->wireToUser) {
+                            auto parsed = hookPair_->wireToUser->hook(
+                                basic::ByteDataView {std::string_view {dataPtr+sizeof(std::size_t), sz}}
+                            );
+                            if (parsed) {
+                                return ItemType {
+                                    ptr
+                                    , reinterpret_cast<char const *>(ptr)-reinterpret_cast<char const *>(head_)
+                                    , basic::bytedata_utils::RunDeserializer<T>::apply(std::string_view {parsed->content})
+                                };
+                            } else {
+                                return ItemType {
+                                    ptr
+                                    , reinterpret_cast<char const *>(ptr)-reinterpret_cast<char const *>(head_)
+                                    , ParsedNodeData<T, ForceSeparate> {}
+                                };
+                            }
+                        } else {
+                            return ItemType {
+                                ptr
+                                , reinterpret_cast<char const *>(ptr)-reinterpret_cast<char const *>(head_)
+                                , basic::bytedata_utils::RunDeserializer<T>::apply(std::string_view {dataPtr+sizeof(std::size_t), sz})
+                            };
+                        }
+                    } else {
+                        return ItemType {
+                            ptr
+                            , reinterpret_cast<char const *>(ptr)-reinterpret_cast<char const *>(head_)
+                            , basic::bytedata_utils::RunDeserializer<T>::apply(std::string_view {dataPtr+sizeof(std::size_t), sz})
+                        };
+                    }
                 } else {
                     return ItemType {
                         ptr
                         , reinterpret_cast<char const *>(ptr)-reinterpret_cast<char const *>(head_)
-                        , ParsedNodeData<T> {}
+                        , ParsedNodeData<T, ForceSeparate> {}
                     };
                 }
             }
         }
     public:
-        LockFreeInBoostSharedMemoryChain(std::string const &name, std::size_t sharedMemorySize) :
+        LockFreeInBoostSharedMemoryChain(std::string const &name, std::size_t sharedMemorySize, std::optional<ByteDataHookPair> hookPair=std::nullopt) :
             mutex_(name) 
             , mem_(
                 boost::interprocess::open_or_create
@@ -514,9 +624,10 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 , sharedMemorySize
             )
             , head_(nullptr)
+            , hookPair_(ForceSeparate?hookPair:std::nullopt)
         {
-            head_ = mem_.find_or_construct<BoostSharedMemoryStorageItem<T>>(boost::interprocess::unique_instance)();
-            if constexpr (!std::is_trivially_copyable_v<T>) {
+            head_ = mem_.find_or_construct<BoostSharedMemoryStorageItem<T, ForceSeparate>>(boost::interprocess::unique_instance)();
+            if constexpr (ForceSeparate || !std::is_trivially_copyable_v<T>) {
                 head_->data = 0;
             }
         }
@@ -527,7 +638,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         }
         ItemType loadUntil(void *env, StorageIDType const &id) {
             return fromPtr(
-                reinterpret_cast<BoostSharedMemoryStorageItem<T> *>(reinterpret_cast<char *>(head_)+id)
+                reinterpret_cast<BoostSharedMemoryStorageItem<T, ForceSeparate> *>(reinterpret_cast<char *>(head_)+id)
             );
         }
         ItemType loadUntil(void *env, std::string const &id) {
@@ -548,7 +659,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             auto next = current.ptr->next.load(std::memory_order_acquire);
             if (next != 0) {
                 return fromPtr(
-                    reinterpret_cast<BoostSharedMemoryStorageItem<T> *>(reinterpret_cast<char *>(current.ptr)+next)
+                    reinterpret_cast<BoostSharedMemoryStorageItem<T, ForceSeparate> *>(reinterpret_cast<char *>(current.ptr)+next)
                 );
             } else {
                 return std::nullopt;
@@ -578,7 +689,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         template <class ExtraData>
         void saveExtraData(std::string const &key, ExtraData const &data) {
             static_assert(EDPS != BoostSharedMemoryChainExtraDataProtectionStrategy::DontSupportExtraData, "LockFreeInBoostSharedMemoryChain supports storing extra data only if enabled in template signature");
-            if constexpr (std::is_trivially_copyable_v<ExtraData>) {
+            if constexpr (!ForceSeparate && std::is_trivially_copyable_v<ExtraData>) {
                 if constexpr (EDPS == BoostSharedMemoryChainExtraDataProtectionStrategy::LockFreeAndWasteMemory) {
                     auto *dataPtr = mem_.construct<ExtraData>(boost::interprocess::anonymous_instance)(data);
                     auto *loc = mem_.find_or_construct<std::atomic<std::ptrdiff_t>>(key.c_str())(0);
@@ -598,7 +709,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         template <class ExtraData>
         std::optional<ExtraData> loadExtraData(std::string const &key) {
             static_assert(EDPS != BoostSharedMemoryChainExtraDataProtectionStrategy::DontSupportExtraData, "LockFreeInBoostSharedMemoryChain supports loading extra data only if enabled in template signature");
-            if constexpr (std::is_trivially_copyable_v<ExtraData>) {
+            if constexpr (!ForceSeparate && std::is_trivially_copyable_v<ExtraData>) {
                 if constexpr (EDPS == BoostSharedMemoryChainExtraDataProtectionStrategy::LockFreeAndWasteMemory) {
                     auto *loc = mem_.find<std::atomic<std::ptrdiff_t>>(key.c_str()).first;
                     if (loc) {
@@ -635,8 +746,18 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 }
             }
         }
-        void saveExtraBytes(std::string const &key, basic::ByteData const &data) {
+        void saveExtraBytes(std::string const &key, basic::ByteData &&data) {
             static_assert(EDPS != BoostSharedMemoryChainExtraDataProtectionStrategy::DontSupportExtraData, "LockFreeInBoostSharedMemoryChain supports storing extra data only if enabled in template signature");
+            if constexpr (ForceSeparate) {
+                if (hookPair_ && hookPair_->userToWire) {
+                    saveExtraBytes_internal(key, hookPair_->userToWire->hook(std::move(data)));
+                } else {
+                    saveExtraBytes_internal(key, std::move(data));
+                }
+            }
+        }
+    private:
+        void saveExtraBytes_internal(std::string const &key, basic::ByteData &&data) {
             if constexpr (EDPS == BoostSharedMemoryChainExtraDataProtectionStrategy::LockFreeAndWasteMemory) {
                 std::size_t sz = data.content.length();
                 auto *dataPtr = mem_.construct<char>(boost::interprocess::anonymous_instance)[sz+sizeof(std::size_t)]();
@@ -678,8 +799,35 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 std::memcpy(dataPtr, data.content.data(), sz);
             }
         }
-        std::optional<basic::ByteDataView> loadExtraBytes(std::string const &key) {
+    public:
+        std::optional<basic::ByteData> loadExtraBytes(std::string const &key) {
             static_assert(EDPS != BoostSharedMemoryChainExtraDataProtectionStrategy::DontSupportExtraData, "LockFreeInBoostSharedMemoryChain supports loading extra data only if enabled in template signature");
+            if constexpr (ForceSeparate) {
+                auto b = loadExtraBytes_internal(key);
+                if (hookPair_ && hookPair_->wireToUser) {
+                    if (b) {
+                        return hookPair_->wireToUser->hook(*b);
+                    } else {
+                        return std::nullopt;
+                    }
+                } else {
+                    if (b) {
+                        return basic::ByteData {std::string(b->content)};
+                    } else {
+                        return std::nullopt;
+                    }
+                }
+            } else {
+                auto b = loadExtraBytes_internal(key);
+                if (b) {
+                    return basic::ByteData {std::string(b->content)};
+                } else {
+                    return std::nullopt;
+                }
+            }
+        }
+    private:
+        std::optional<basic::ByteDataView> loadExtraBytes_internal(std::string const &key) {
             if constexpr (EDPS == BoostSharedMemoryChainExtraDataProtectionStrategy::LockFreeAndWasteMemory) {
                 auto *loc = mem_.find<std::atomic<std::ptrdiff_t>>(key.c_str()).first;
                 if (loc) {
@@ -716,6 +864,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 return std::nullopt;
             }
         }
+    public:
         template <class Env>
         static StorageIDType newStorageID() {
             return 0;
@@ -725,14 +874,25 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             return "";
         }
         ItemType formChainItem(StorageIDType const &notUsed, T &&data) {
-            if constexpr (std::is_trivially_copyable_v<T>) {
+            if constexpr (!ForceSeparate && std::is_trivially_copyable_v<T>) {
                 return fromPtr(
-                    mem_.construct<BoostSharedMemoryStorageItem<T>>(boost::interprocess::anonymous_instance)(std::move(data))
+                    mem_.construct<BoostSharedMemoryStorageItem<T, ForceSeparate>>(boost::interprocess::anonymous_instance)(std::move(data))
                 );
             } else {
-                auto enc = basic::bytedata_utils::RunSerializer<T>::apply(data);
+                std::string enc;
+                if constexpr (ForceSeparate) {
+                    if (hookPair_ && hookPair_->userToWire) {
+                        enc = hookPair_->userToWire->hook(
+                            basic::ByteData {basic::bytedata_utils::RunSerializer<T>::apply(data)}
+                        ).content;
+                    } else {
+                        enc = basic::bytedata_utils::RunSerializer<T>::apply(data);
+                    }
+                } else {
+                    enc = basic::bytedata_utils::RunSerializer<T>::apply(data);
+                }
                 std::size_t sz = enc.length();
-                auto *ptr = mem_.construct<BoostSharedMemoryStorageItem<T>>(boost::interprocess::anonymous_instance)(0);
+                auto *ptr = mem_.construct<BoostSharedMemoryStorageItem<T, ForceSeparate>>(boost::interprocess::anonymous_instance)(0);
                 auto *dataPtr = mem_.construct<char>(boost::interprocess::anonymous_instance)[sz+sizeof(std::size_t)]();
                 std::memcpy(dataPtr, reinterpret_cast<char const *>(&sz), sizeof(std::size_t));
                 std::memcpy(dataPtr+sizeof(std::size_t), enc.data(), sz);
@@ -749,7 +909,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         }
         void destroyItem(ItemType &&p) {
             if (p.ptr) {
-                if constexpr (!std::is_trivially_copyable_v<T>) {
+                if constexpr (ForceSeparate || !std::is_trivially_copyable_v<T>) {
                     if (p.ptr->data != 0) {
                         mem_.destroy_ptr(reinterpret_cast<char const *>(p.ptr)+p.ptr->data);
                     }

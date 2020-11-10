@@ -31,7 +31,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
 
             inline void callClient(ClientCB const &c, basic::ByteDataWithTopic &&d) {
                 if (c.hook) {
-                    auto b = (c.hook->hook)(basic::ByteData {std::move(d.content)});
+                    auto b = (c.hook->hook)(basic::ByteDataView {std::string_view(d.content)});
                     if (b) {
                         c.cb({std::move(d.topic), std::move(b->content)});
                     }
@@ -226,7 +226,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                     }             
 
                     if (wireToUserHook_) {
-                        auto d = (wireToUserHook_->hook)(basic::ByteData {std::move(std::get<1>(std::get<0>(*parseRes)).content)});
+                        auto d = (wireToUserHook_->hook)(basic::ByteDataView {std::string_view(std::get<1>(std::get<0>(*parseRes)).content)});
                         if (d) {
                             callback_(std::get<0>(std::get<0>(*parseRes)), {std::move(std::get<1>(std::get<0>(*parseRes)).id), std::move(d->content)});
                         }
@@ -335,7 +335,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                         replyTopicMap_[std::get<0>(*innerParseRes).id] = std::get<0>(*parseRes).topic;
                     }
                     if (wireToUserHook_) {
-                        auto d = (wireToUserHook_->hook)(basic::ByteData {std::move(std::get<0>(*innerParseRes).content)});
+                        auto d = (wireToUserHook_->hook)(basic::ByteDataView {std::string_view(std::get<0>(*innerParseRes).content)});
                         if (d) {
                             callback_({std::move(std::get<0>(*innerParseRes).id), std::move(d->content)});
                         }

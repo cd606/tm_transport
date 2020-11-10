@@ -5,6 +5,7 @@
 #include <tm_kit/basic/simple_shared_chain/ChainWriter.hpp>
 #include <tm_kit/basic/ByteData.hpp>
 #include <tm_kit/basic/SerializationHelperMacros.hpp>
+#include <tm_kit/transport/ByteDataHook.hpp>
 
 #ifdef _MSC_VER
 #include <winsock2.h>
@@ -73,14 +74,53 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         const RedisChainConfiguration configuration_;
         redisContext *redisCtx_;
         std::mutex redisMutex_;
+        std::optional<ByteDataHookPair> hookPair_;
+
+        template <class X>
+        std::optional<std::tuple<X,std::size_t>> parseRedisData(redisReply *r) {
+            if (hookPair_ && hookPair_->wireToUser) {
+                auto parsed = hookPair_->wireToUser->hook(basic::ByteDataView {std::string_view(r->str, r->len)});
+                if (!parsed) {
+                    return std::nullopt;
+                }
+                return basic::bytedata_utils::RunCBORDeserializer<X>::apply(
+                    std::string_view(parsed->content), 0
+                );
+            } else {
+                return basic::bytedata_utils::RunCBORDeserializer<X>::apply(
+                    std::string_view(r->str, r->len), 0
+                );
+            }
+        }
+        template <class X>
+        std::string serialize(X &&x) {
+            if (hookPair_ && hookPair_->userToWire) {
+                return hookPair_->userToWire->hook(
+                    basic::ByteData {basic::bytedata_utils::RunSerializer<basic::CBOR<X>>::apply({std::move(x)})}
+                ).content;
+            } else {
+                return basic::bytedata_utils::RunSerializer<basic::CBOR<X>>::apply({std::move(x)});
+            }
+        }
+        template <class X>
+        std::string serialize2(X const &x) {
+            if (hookPair_ && hookPair_->userToWire) {
+                return hookPair_->userToWire->hook(
+                    basic::ByteData {basic::bytedata_utils::RunSerializer<basic::CBOR<X>>::apply({x})}
+                ).content;
+            } else {
+                return basic::bytedata_utils::RunSerializer<basic::CBOR<X>>::apply({x});
+            }
+        }
     public:
         using StorageIDType = std::string;
         using DataType = T;
         using ItemType = ChainItem<T>;
         static constexpr bool SupportsExtraData = true;
-        RedisChain(RedisChainConfiguration const &configuration) :
+        RedisChain(RedisChainConfiguration const &configuration, std::optional<ByteDataHookPair> hookPair=std::nullopt) :
             configuration_(configuration)
             , redisCtx_(nullptr), redisMutex_()
+            , hookPair_(hookPair)
         {
             auto idx = configuration_.redisServerAddr.find(':');
             {
@@ -147,9 +187,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 throw RedisChainException("loadUntil: Redis chain fetch error for "+dataKey);
             }
             std::size_t l = r->len;
-            auto data = basic::bytedata_utils::RunCBORDeserializer<T>::apply(
-                std::string_view(r->str, r->len), 0
-            );
+            auto data = parseRedisData<T>(r);
             freeReplyObject((void *) r);
             if (!data || std::get<1>(*data) != l) {
                 throw RedisChainException("loadUntil: Redis chain parse error for "+dataKey);
@@ -210,9 +248,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 throw RedisChainException("fetchNext: Redis chain fetch error for "+dataKey);
             }
             std::size_t l = r->len;
-            auto data = basic::bytedata_utils::RunCBORDeserializer<T>::apply(
-                std::string_view(r->str, r->len), 0
-            );
+            auto data = parseRedisData<T>(r);
             freeReplyObject((void *) r);
             if (!data || std::get<1>(*data) != l) {
                 throw RedisChainException("fetchNext: Redis chain parse error for "+dataKey);
@@ -258,7 +294,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             std::string currentChainKey = configuration_.chainPrefix+":"+current.id;
             std::string newDataKey = configuration_.dataPrefix+":"+toBeWritten.id;
             std::string newChainKey = configuration_.chainPrefix+":"+toBeWritten.id;
-            std::string newData = basic::bytedata_utils::RunSerializer<basic::CBOR<T>>::apply(basic::CBOR<T> {std::move(toBeWritten.data)});
+            std::string newData = serialize<T>(std::move(toBeWritten.data));
             redisReply *r = nullptr;
             {
                 std::lock_guard<std::mutex> _(redisMutex_);
@@ -282,9 +318,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         template <class ExtraData>
         void saveExtraData(std::string const &key, ExtraData const &data) {
             std::string dataKey = configuration_.extraDataPrefix+":"+key;
-            std::string dataStr = basic::bytedata_utils::RunSerializer<basic::CBOR<ExtraData>>::apply(
-                basic::CBOR<ExtraData> {data}
-            );
+            std::string dataStr = serialize2<ExtraData>(data);
             redisReply *r = nullptr;
             {
                 std::lock_guard<std::mutex> _(redisMutex_);
@@ -311,9 +345,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 freeReplyObject((void *) r);
                 return std::nullopt;
             }
-            auto data = basic::bytedata_utils::RunCBORDeserializer<ExtraData>::apply(
-                std::string_view {r->str, r->len}, 0
-            );
+            auto data = parseRedisData<ExtraData>(r);
             std::size_t l = r->len;
             freeReplyObject((void *) r);
             if (!data || std::get<1>(*data) != l) {
