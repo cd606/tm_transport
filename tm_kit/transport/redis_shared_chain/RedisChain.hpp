@@ -77,19 +77,27 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         std::optional<ByteDataHookPair> hookPair_;
 
         template <class X>
-        std::optional<std::tuple<X,std::size_t>> parseRedisData(redisReply *r) {
+        std::optional<X> parseRedisData(redisReply *r) {
             if (hookPair_ && hookPair_->wireToUser) {
                 auto parsed = hookPair_->wireToUser->hook(basic::ByteDataView {std::string_view(r->str, r->len)});
                 if (!parsed) {
                     return std::nullopt;
                 }
-                return basic::bytedata_utils::RunCBORDeserializer<X>::apply(
+                auto x = basic::bytedata_utils::RunCBORDeserializer<X>::apply(
                     std::string_view(parsed->content), 0
                 );
+                if (!x || std::get<1>(*x) != parsed->content.length()) {
+                    return std::nullopt;
+                }
+                return {std::move(std::get<0>(*x))};
             } else {
-                return basic::bytedata_utils::RunCBORDeserializer<X>::apply(
+                auto x = basic::bytedata_utils::RunCBORDeserializer<X>::apply(
                     std::string_view(r->str, r->len), 0
                 );
+                if (!x || std::get<1>(*x) != r->len) {
+                    return std::nullopt;
+                }
+                return {std::move(std::get<0>(*x))};
             }
         }
         template <class X>
@@ -189,7 +197,6 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             std::size_t l = r->len;
             auto data = parseRedisData<T>(r);
             freeReplyObject((void *) r);
-            bool parseError = (!data || std::get<1>(*data) != l);
             r = nullptr;
             {
                 std::lock_guard<std::mutex> _(redisMutex_);
@@ -205,11 +212,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             }
             std::string nextID {r->str, r->len};
             freeReplyObject((void *) r);
-            if (parseError) {
-                return ItemType {id, std::nullopt, std::move(nextID)};
-            } else {
-                return ItemType {id, {std::move(std::get<0>(*data))}, std::move(nextID)};
-            }
+            return ItemType {id, std::move(data), std::move(nextID)};
         }
         std::optional<ItemType> fetchNext(ItemType const &current) {
             std::string nextID = current.nextID;
@@ -252,7 +255,6 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             std::size_t l = r->len;
             auto data = parseRedisData<T>(r);
             freeReplyObject((void *) r);
-            bool parseError = (!data || std::get<1>(*data) != l);
             r = nullptr;
             {
                 std::lock_guard<std::mutex> _(redisMutex_);
@@ -268,11 +270,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             }
             std::string nextNextID {r->str, r->len};
             freeReplyObject((void *) r);
-            if (parseError) {
-                return ItemType {nextID, std::nullopt, std::move(nextNextID)};
-            } else {
-                return ItemType {nextID, {std::move(std::get<0>(*data))}, std::move(nextNextID)};
-            }
+            return ItemType {nextID, std::move(data), std::move(nextNextID)};
         }
         bool idIsAlreadyOnChain(std::string const &id) {
             std::string chainKey = configuration_.chainPrefix+":"+id;
@@ -353,12 +351,8 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 return std::nullopt;
             }
             auto data = parseRedisData<ExtraData>(r);
-            std::size_t l = r->len;
             freeReplyObject((void *) r);
-            if (!data || std::get<1>(*data) != l) {
-                return std::nullopt;
-            }
-            return std::get<0>(*data);
+            return data;
         }
         template <class Env>
         static StorageIDType newStorageID() {

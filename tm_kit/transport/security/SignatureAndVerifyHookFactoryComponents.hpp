@@ -53,6 +53,48 @@ public:
     }
 };
 
+template <class T>
+class SignatureWithNameHookFactoryComponent : public AbstractOutgoingHookFactoryComponent<T> {
+private:
+    std::string name_;
+    SignatureHelper::PrivateKey signKey_;
+public:
+    SignatureWithNameHookFactoryComponent() : name_(), signKey_() {}
+    SignatureWithNameHookFactoryComponent(std::string const &name, SignatureHelper::PrivateKey const &signKey)
+        : name_(name), signKey_(signKey) {}
+    virtual ~SignatureWithNameHookFactoryComponent() {}
+    virtual UserToWireHook defaultHook() override final {
+        auto signer = std::make_shared<SignatureHelper::Signer>(signKey_);
+        return UserToWireHook { 
+            [this,signer](basic::ByteData &&d) {
+                return signer->signWithName(name_, std::move(d));
+            }
+        };
+    }
+};
+
+template <class T>
+class VerifyUsingNameTagHookFactoryComponent : public AbstractIncomingHookFactoryComponent<T> {
+private:
+    SignatureHelper::PublicKeyMap verifyKeys_;
+public:
+    VerifyUsingNameTagHookFactoryComponent() : verifyKeys_() {}
+    VerifyUsingNameTagHookFactoryComponent(SignatureHelper::PublicKeyMap const &verifyKeys)
+        : verifyKeys_(verifyKeys) {}
+    virtual ~VerifyUsingNameTagHookFactoryComponent() {}
+    virtual WireToUserHook defaultHook() override final {
+        auto verifier = std::make_shared<SignatureHelper::Verifier>();
+        for (auto const &k : verifyKeys_) {
+            verifier->addKey(k.first, k.second);
+        }
+        return WireToUserHook { 
+            [verifier](basic::ByteDataView const &d) -> std::optional<basic::ByteData> {
+                return verifier->verifyDataTaggedWithName(d);
+            } 
+        };
+    }
+};
+
 } } } } }
 
 #endif

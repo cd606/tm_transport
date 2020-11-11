@@ -37,6 +37,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             Signer(Signer &&);
             Signer &operator=(Signer &&);
             basic::ByteData sign(basic::ByteData &&);
+            basic::ByteData signWithName(std::string const &, basic::ByteData &&);
         };
 
         class Verifier {
@@ -52,6 +53,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             void addKey(std::string const &name, PublicKey const &publicKey);
             void addKeys(PublicKeyMap const &keys);
             std::optional<std::tuple<std::string,basic::ByteData>> verify(basic::ByteDataView const &);
+            std::optional<basic::ByteData> verifyDataTaggedWithName(basic::ByteDataView const &);
         };
     };
 } } } } } 

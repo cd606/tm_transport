@@ -552,7 +552,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         using DataType = T;
         static constexpr BoostSharedMemoryChainFastRecoverSupport FastRecoverySupport = BoostSharedMemoryChainFastRecoverSupport::ByOffset;
         static constexpr BoostSharedMemoryChainExtraDataProtectionStrategy ExtraDataProtectionStrategy = EDPS;
-        using ItemType = BoostSharedMemoryChainItem<T,BoostSharedMemoryChainFastRecoverSupport::ByOffset>;
+        using ItemType = BoostSharedMemoryChainItem<T,BoostSharedMemoryChainFastRecoverSupport::ByOffset,ForceSeparate>;
         static constexpr bool SupportsExtraData = true;
     private:
         inline ItemType fromPtr(BoostSharedMemoryStorageItem<T, ForceSeparate> *ptr) const {

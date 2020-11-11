@@ -869,6 +869,10 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                                                 :
                                                 lock_free_in_memory_shared_chain::BoostSharedMemoryChainExtraDataProtectionStrategy::Unsafe
                                             )
+                                            , (
+                                                DefaultHookFactory<typename App::EnvironmentType>::template HasOutgoingHookFactory<ChainData>()
+                                                && DefaultHookFactory<typename App::EnvironmentType>::template HasIncomingHookFactory<ChainData>()
+                                            )
                                         >(memoryName, memorySize, DefaultHookFactory<typename App::EnvironmentType>::template supplyFacilityHookPair_SingleType<ChainData>(
                                             env, hookPair
                                         ));
@@ -920,6 +924,10 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                                                 lock_free_in_memory_shared_chain::BoostSharedMemoryChainExtraDataProtectionStrategy::MutexProtected
                                                 :
                                                 lock_free_in_memory_shared_chain::BoostSharedMemoryChainExtraDataProtectionStrategy::Unsafe
+                                            )
+                                            , (
+                                                DefaultHookFactory<typename App::EnvironmentType>::template HasOutgoingHookFactory<ChainData>()
+                                                && DefaultHookFactory<typename App::EnvironmentType>::template HasIncomingHookFactory<ChainData>()
                                             )
                                         >(memoryName, memorySize, DefaultHookFactory<typename App::EnvironmentType>::template supplyFacilityHookPair_SingleType<ChainData>(
                                             env, hookPair

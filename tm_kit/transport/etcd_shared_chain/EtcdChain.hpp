@@ -212,19 +212,27 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             }
         }
 
-        std::optional<std::tuple<ChainRedisStorage<T>,std::size_t>> parseRedisData(redisReply *r) {
+        std::optional<ChainRedisStorage<T>> parseRedisData(redisReply *r) {
             if (hookPair_ && hookPair_->wireToUser) {
                 auto parsed = hookPair_->wireToUser->hook(basic::ByteDataView {std::string_view(r->str, r->len)});
                 if (!parsed) {
                     return std::nullopt;
                 }
-                return basic::bytedata_utils::RunCBORDeserializer<ChainRedisStorage<T>>::apply(
+                auto x = basic::bytedata_utils::RunCBORDeserializer<ChainRedisStorage<T>>::apply(
                     std::string_view(parsed->content), 0
                 );
+                if (!x || std::get<1>(*x) != parsed->content.length()) {
+                    return std::nullopt;
+                }
+                return {std::move(std::get<0>(*x))};
             } else {
-                return basic::bytedata_utils::RunCBORDeserializer<ChainRedisStorage<T>>::apply(
+                auto x = basic::bytedata_utils::RunCBORDeserializer<ChainRedisStorage<T>>::apply(
                     std::string_view(r->str, r->len), 0
                 );
+                if (!x || std::get<1>(*x) != r->len) {
+                    return std::nullopt;
+                }
+                return {std::move(std::get<0>(*x))};
             }
         }
         template <class X>
@@ -341,9 +349,9 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 if (r != nullptr) {
                     if (r->type == REDIS_REPLY_STRING) {
                         auto data = parseRedisData(r);
-                        if (data && std::get<1>(*data) == r->len) {
+                        if (data) {
                             freeReplyObject((void *) r);
-                            auto const &s = std::get<0>(*data);
+                            auto const &s = *data;
                             return ItemType {s.revision, configuration_.headKey, {std::move(s.data)}, s.nextID};
                         }
                     }
@@ -459,9 +467,9 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 if (r != nullptr) {
                     if (r->type == REDIS_REPLY_STRING) {
                         auto data = parseRedisData(r);
-                        if (data && std::get<1>(*data) == r->len) {
+                        if (data) {
                             freeReplyObject((void *) r);
-                            auto &s = std::get<0>(*data);
+                            auto &s = *data;
                             return ItemType {s.revision, id, {std::move(s.data)}, s.nextID};
                         }
                     }
@@ -560,9 +568,9 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                     if (r != nullptr) {
                         if (r->type == REDIS_REPLY_STRING) {
                             auto nextData = parseRedisData(r);
-                            if (nextData && std::get<1>(*nextData) == r->len) {
+                            if (nextData) {
                                 freeReplyObject((void *) r);
-                                auto &nextS = std::get<0>(*nextData);
+                                auto &nextS = *nextData;
                                 return ItemType {nextS.revision, current.nextID, {std::move(nextS.data)}, nextS.nextID};
                             }
                         }
@@ -580,10 +588,10 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                     if (r != nullptr) {
                         if (r->type == REDIS_REPLY_STRING) {
                             auto data = parseRedisData(r);
-                            if (data && std::get<1>(*data) == r->len) {
+                            if (data) {
                                 freeReplyObject((void *) r);
                                 r = nullptr;
-                                auto const &s = std::get<0>(*data);
+                                auto const &s = *data;
                                 if (s.nextID != "") {
                                     key = configuration_.chainPrefix+":"+s.nextID;
                                     {
@@ -595,9 +603,9 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                                     if (r != nullptr) {
                                         if (r->type == REDIS_REPLY_STRING) {
                                             auto nextData = parseRedisData(r);
-                                            if (nextData && std::get<1>(*nextData) == r->len) {
+                                            if (nextData) {
                                                 freeReplyObject((void *) r);
-                                                auto &nextS = std::get<0>(*nextData);
+                                                auto &nextS = *nextData;
                                                 return ItemType {nextS.revision, s.nextID, {std::move(nextS.data)}, nextS.nextID};
                                             }
                                         }
