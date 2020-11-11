@@ -26,7 +26,7 @@ namespace Dev.CD606.TM.Transport
             return new EtcdSharedChainConfiguration() {
                 etcd3URL = "http://127.0.0.1:2379"
                 , headKey = ""
-                , saveDataOnSeparateStorage = false
+                , saveDataOnSeparateStorage = true
                 , chainPrefix = $"{commonPrefix}_{(useDate?today:"")}_chain"
                 , dataPrefix = $"{commonPrefix}_{(useDate?today:"")}_data"
                 , extraDataPrefix = $"{commonPrefix}_{(useDate?today:"")}_extra_data"

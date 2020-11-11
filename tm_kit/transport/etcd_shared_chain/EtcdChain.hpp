@@ -26,6 +26,11 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
     #define EtcdChainItemFields \
         ((int64_t, revision)) \
         ((std::string, id)) \
+        ((std::optional<T>, data)) \
+        ((std::string, nextID)) 
+    #define InMemoryChainItemFields \
+        ((int64_t, revision)) \
+        ((std::string, id)) \
         ((T, data)) \
         ((std::string, nextID)) 
     
@@ -39,12 +44,14 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         ((std::string, nextID)) 
 
     TM_BASIC_CBOR_CAPABLE_TEMPLATE_STRUCT(((typename, T)), ChainItem, EtcdChainItemFields);
+    TM_BASIC_CBOR_CAPABLE_TEMPLATE_STRUCT(((typename, T)), InMemoryChainItem, InMemoryChainItemFields);
     TM_BASIC_CBOR_CAPABLE_TEMPLATE_STRUCT(((typename, T)), ChainStorage, EtcdChainStorageFields);
     TM_BASIC_CBOR_CAPABLE_TEMPLATE_STRUCT(((typename, T)), ChainRedisStorage, EtcdChainRedisStorageFields);
     TM_BASIC_CBOR_CAPABLE_TEMPLATE_EMPTY_STRUCT(((typename, T)), ChainUpdateNotification);
 }}}}} 
 
 TM_BASIC_CBOR_CAPABLE_TEMPLATE_STRUCT_SERIALIZE_NO_FIELD_NAMES(((typename, T)), dev::cd606::tm::transport::etcd_shared_chain::ChainItem, EtcdChainItemFields);
+TM_BASIC_CBOR_CAPABLE_TEMPLATE_STRUCT_SERIALIZE_NO_FIELD_NAMES(((typename, T)), dev::cd606::tm::transport::etcd_shared_chain::InMemoryChainItem, InMemoryChainItemFields);
 TM_BASIC_CBOR_CAPABLE_TEMPLATE_STRUCT_SERIALIZE_NO_FIELD_NAMES(((typename, T)), dev::cd606::tm::transport::etcd_shared_chain::ChainStorage, EtcdChainStorageFields);
 TM_BASIC_CBOR_CAPABLE_TEMPLATE_STRUCT_SERIALIZE_NO_FIELD_NAMES(((typename, T)), dev::cd606::tm::transport::etcd_shared_chain::ChainRedisStorage, EtcdChainRedisStorageFields);
 TM_BASIC_CBOR_CAPABLE_TEMPLATE_EMPTY_STRUCT_SERIALIZE_NO_FIELD_NAMES(((typename, T)), dev::cd606::tm::transport::etcd_shared_chain::ChainUpdateNotification);
@@ -55,7 +62,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
     struct EtcdChainConfiguration {
         std::shared_ptr<grpc::ChannelInterface> etcdChannel {};
         std::string headKey="";
-        bool saveDataOnSeparateStorage=false;
+        bool saveDataOnSeparateStorage=true;
         bool useWatchThread = false;
 
         std::string chainPrefix="shared_chain_test";
@@ -272,6 +279,9 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             , redisCtx_(nullptr), redisMutex_()
             , hookPair_(hookPair)
         {
+            if (!configuration_.saveDataOnSeparateStorage && hookPair_ && hookPair_->userToWire) {
+                std::cerr << "[EtcdChain::EtcdChain] WARNING!!! When there is a user-to-wire hook, it is strongly recommended to save data on separate storage.\n";
+            }
             if (configuration_.useWatchThread) {
                 watchThread_ = std::thread(&EtcdChain::runWatchThread, this);
                 watchThread_.detach();
@@ -334,7 +344,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                         if (data && std::get<1>(*data) == r->len) {
                             freeReplyObject((void *) r);
                             auto const &s = std::get<0>(*data);
-                            return ItemType {s.revision, configuration_.headKey, std::move(s.data), s.nextID};
+                            return ItemType {s.revision, configuration_.headKey, {std::move(s.data)}, s.nextID};
                         }
                     }
                     freeReplyObject((void *) r);
@@ -372,7 +382,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 }
 
                 auto const &kv = rsp.kvs(0);
-                return ItemType {kv.mod_revision(), configuration_.headKey, T{}, kv.value()};
+                return ItemType {kv.mod_revision(), configuration_.headKey, {T{}}, kv.value()};
             } else {
                 static const std::string emptyHeadDataStr = serialize<MapData>(MapData {}); 
 
@@ -412,9 +422,9 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                         kv.value()
                     );
                     if (mapData) {
-                        return ItemType {kv.mod_revision(), configuration_.headKey, mapData->value.data, mapData->value.nextID};
+                        return ItemType {kv.mod_revision(), configuration_.headKey, {std::move(mapData->value.data)}, mapData->value.nextID};
                     } else {
-                        return ItemType {};
+                        return ItemType {kv.mod_revision(), configuration_.headKey, {T{}}, ""};
                     }
                 } else {
                     auto &rsp = txnResp.responses(1).response_range(); 
@@ -426,9 +436,9 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                         kv.value()
                     );
                     if (mapData) {
-                        return ItemType {kv.mod_revision(), configuration_.headKey, mapData->value.data, mapData->value.nextID};
+                        return ItemType {kv.mod_revision(), configuration_.headKey, {std::move(mapData->value.data)}, mapData->value.nextID};
                     } else {
-                        return ItemType {};
+                        return ItemType {kv.mod_revision(), configuration_.headKey, {T{}}, ""};
                     }
                 }
             }
@@ -452,7 +462,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                         if (data && std::get<1>(*data) == r->len) {
                             freeReplyObject((void *) r);
                             auto &s = std::get<0>(*data);
-                            return ItemType {s.revision, id, std::move(s.data), s.nextID};
+                            return ItemType {s.revision, id, {std::move(s.data)}, s.nextID};
                         }
                     }
                     freeReplyObject((void *) r);
@@ -490,11 +500,16 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                         return ItemType {
                             dataKV.mod_revision()
                             , id
-                            , std::move(data->value)
+                            , {std::move(data->value)}
                             , txnResp.responses(0).response_range().kvs(0).value()
                         };
                     } else {
-                        throw EtcdChainException("LoadUntil Error! Bad record for "+configuration_.dataPrefix+":"+id);
+                        return ItemType {
+                            dataKV.mod_revision()
+                            , id
+                            , std::nullopt
+                            , txnResp.responses(0).response_range().kvs(0).value()
+                        };
                     }
                 } else {
                     throw EtcdChainException("LoadUntil Error! No record for "+configuration_.chainPrefix+":"+id+" or "+configuration_.dataPrefix+":"+id);
@@ -517,7 +532,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                     kv.value()
                 );
                 if (mapData) {
-                    return ItemType {kv.mod_revision(), id, mapData->value.data, mapData->value.nextID};
+                    return ItemType {kv.mod_revision(), id, std::move(mapData->value.data), mapData->value.nextID};
                 } else {
                     throw EtcdChainException("LoadUntil Error! Bad record for "+configuration_.chainPrefix+":"+id);
                 }
@@ -548,7 +563,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                             if (nextData && std::get<1>(*nextData) == r->len) {
                                 freeReplyObject((void *) r);
                                 auto &nextS = std::get<0>(*nextData);
-                                return ItemType {nextS.revision, current.nextID, std::move(nextS.data), nextS.nextID};
+                                return ItemType {nextS.revision, current.nextID, {std::move(nextS.data)}, nextS.nextID};
                             }
                         }
                         freeReplyObject((void *) r);
@@ -583,7 +598,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                                             if (nextData && std::get<1>(*nextData) == r->len) {
                                                 freeReplyObject((void *) r);
                                                 auto &nextS = std::get<0>(*nextData);
-                                                return ItemType {nextS.revision, s.nextID, std::move(nextS.data), nextS.nextID};
+                                                return ItemType {nextS.revision, s.nextID, {std::move(nextS.data)}, nextS.nextID};
                                             }
                                         }
                                     }
@@ -646,11 +661,16 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                             return ItemType {
                                 dataKV.mod_revision()
                                 , nextID
-                                , std::move(data->value)
+                                , {std::move(data->value)}
                                 , txnResp.responses(0).response_range().kvs(0).value()
                             };
                         } else {
-                            throw EtcdChainException("FetchNext Error! Bad record for "+configuration_.dataPrefix+":"+nextID);
+                            return ItemType {
+                                dataKV.mod_revision()
+                                , nextID
+                                , std::nullopt
+                                , txnResp.responses(0).response_range().kvs(0).value()
+                            };
                         }
                     } else {
                         throw EtcdChainException("Fetch Error! No record for "+configuration_.chainPrefix+":"+nextID);
@@ -700,7 +720,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                         kv2.value()
                     );
                     if (mapData) {
-                        return ItemType {kv2.mod_revision(), nextID, mapData->value.data, mapData->value.nextID};
+                        return ItemType {kv2.mod_revision(), nextID, {mapData->value.data}, mapData->value.nextID};
                     } else {
                         throw EtcdChainException("FetchNext Error! Bad record for "+configuration_.chainPrefix+":"+nextID);
                     }
@@ -731,6 +751,9 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             if (current.nextID != "") {
                 return false;
             } 
+            if (!toBeWritten.data) {
+                throw EtcdChainException("Cannot append a new item whose data is empty");
+            }
             if (toBeWritten.nextID != "") {
                 throw EtcdChainException("Cannot append a new item whose nextID is already non-empty");
             }
@@ -761,7 +784,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 action = txn.add_success();
                 put = action->mutable_request_put();
                 put->set_key(newDataKey);
-                put->set_value(serialize<T>(std::move(toBeWritten.data))); 
+                put->set_value(serialize<T>(std::move(*(toBeWritten.data)))); 
                 action = txn.add_success();
                 put = action->mutable_request_put();
                 put->set_key(newChainKey);
@@ -778,7 +801,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                         latestModRevision_.store(rev, std::memory_order_release);
                     }
                     if (configuration_.automaticallyDuplicateToRedis) {
-                        duplicateToRedis(rev, current.id, current.data, toBeWritten.id);     
+                        duplicateToRedis(rev, current.id, (current.data?*(current.data):T{}), toBeWritten.id);     
                     }
                 }
                 return ret;
@@ -798,11 +821,11 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 auto *action = txn.add_success();
                 auto *put = action->mutable_request_put();
                 put->set_key(currentChainKey);
-                put->set_value(serialize<MapData>(MapData {current.data, toBeWritten.id})); 
+                put->set_value(serialize<MapData>(MapData {(current.data?*(current.data):T{}), toBeWritten.id})); 
                 action = txn.add_success();
                 put = action->mutable_request_put();
                 put->set_key(newChainKey);
-                put->set_value(serialize<MapData>(MapData {std::move(toBeWritten.data), ""})); 
+                put->set_value(serialize<MapData>(MapData {std::move(*(toBeWritten.data)), ""})); 
                 
                 etcdserverpb::TxnResponse txnResp;
                 grpc::ClientContext txnCtx;
@@ -815,7 +838,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                         latestModRevision_.store(rev, std::memory_order_release);
                     }
                     if (configuration_.automaticallyDuplicateToRedis) {
-                        duplicateToRedis(rev, current.id, current.data, toBeWritten.id);     
+                        duplicateToRedis(rev, current.id, (current.data?*(current.data):T{}), toBeWritten.id);     
                     }
                 }
                 return ret;
@@ -907,14 +930,18 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         }
         static ItemType formChainItem(StorageIDType const &itemID, T &&itemData) {
             return ItemType {
-                0, itemID, std::move(itemData), ""
+                0, itemID, {std::move(itemData)}, ""
             };
         }
         static StorageIDType extractStorageID(ItemType const &p) {
             return p.id;
         }
         static T const *extractData(ItemType const &p) {
-            return &(p.data);
+            if (p.data) {
+                return &(*(p.data));
+            } else {
+                return nullptr;
+            }
         }
         static std::string_view extractStorageIDStringView(ItemType const &p) {
             return std::string_view {p.id};
@@ -930,7 +957,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         using DataType = T;
         using MapData = ChainStorage<T>;
         using TheMap = std::unordered_map<std::string, MapData>;
-        using ItemType = ChainItem<T>;
+        using ItemType = InMemoryChainItem<T>;
         static constexpr bool SupportsExtraData = false;
     private:
         std::function<void()> updateTriggerFunc_;

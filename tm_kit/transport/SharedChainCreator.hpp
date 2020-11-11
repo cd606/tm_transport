@@ -71,7 +71,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
             return etcd_shared_chain::EtcdChainConfiguration()
                 .InsecureEtcdServerAddr(l.host()+":"+std::to_string(l.port()))
                 .HeadKey(l.query("headKey", "head"))
-                .SaveDataOnSeparateStorage(l.query("saveDataOnSeparateStorage","false") == "true")
+                .SaveDataOnSeparateStorage(l.query("saveDataOnSeparateStorage","true") == "true")
                 .UseWatchThread(l.query("useWatchThread","false") == "true")
                 .ChainPrefix(l.identifier())
                 .DataPrefix(l.query("dataPrefix", l.identifier()+"_data"))

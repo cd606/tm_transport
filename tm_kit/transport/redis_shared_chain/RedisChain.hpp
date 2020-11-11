@@ -17,7 +17,7 @@
 namespace dev { namespace cd606 { namespace tm { namespace transport { namespace redis_shared_chain {
     #define RedisChainItemFields \
         ((std::string, id)) \
-        ((T, data)) \
+        ((std::optional<T>, data)) \
         ((std::string, nextID)) 
 
     TM_BASIC_CBOR_CAPABLE_TEMPLATE_STRUCT(((typename, T)), ChainItem, RedisChainItemFields);
@@ -189,9 +189,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             std::size_t l = r->len;
             auto data = parseRedisData<T>(r);
             freeReplyObject((void *) r);
-            if (!data || std::get<1>(*data) != l) {
-                throw RedisChainException("loadUntil: Redis chain parse error for "+dataKey);
-            }
+            bool parseError = (!data || std::get<1>(*data) != l);
             r = nullptr;
             {
                 std::lock_guard<std::mutex> _(redisMutex_);
@@ -207,7 +205,11 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             }
             std::string nextID {r->str, r->len};
             freeReplyObject((void *) r);
-            return ItemType {id, std::move(std::get<0>(*data)), std::move(nextID)};
+            if (parseError) {
+                return ItemType {id, std::nullopt, std::move(nextID)};
+            } else {
+                return ItemType {id, {std::move(std::get<0>(*data))}, std::move(nextID)};
+            }
         }
         std::optional<ItemType> fetchNext(ItemType const &current) {
             std::string nextID = current.nextID;
@@ -250,9 +252,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             std::size_t l = r->len;
             auto data = parseRedisData<T>(r);
             freeReplyObject((void *) r);
-            if (!data || std::get<1>(*data) != l) {
-                throw RedisChainException("fetchNext: Redis chain parse error for "+dataKey);
-            }
+            bool parseError = (!data || std::get<1>(*data) != l);
             r = nullptr;
             {
                 std::lock_guard<std::mutex> _(redisMutex_);
@@ -268,7 +268,11 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             }
             std::string nextNextID {r->str, r->len};
             freeReplyObject((void *) r);
-            return ItemType {nextID, std::move(std::get<0>(*data)), std::move(nextNextID)};
+            if (parseError) {
+                return ItemType {nextID, std::nullopt, std::move(nextNextID)};
+            } else {
+                return ItemType {nextID, {std::move(std::get<0>(*data))}, std::move(nextNextID)};
+            }
         }
         bool idIsAlreadyOnChain(std::string const &id) {
             std::string chainKey = configuration_.chainPrefix+":"+id;
@@ -288,13 +292,16 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             if (current.nextID != "") {
                 return false;
             }
+            if (!toBeWritten.data) {
+                throw RedisChainException("appendAfter: Cannot append a new item whose data is empty");
+            }
             if (toBeWritten.nextID != "") {
                 throw RedisChainException("appendAfter: Cannot append a new item whose nextID is already non-empty");
             }
             std::string currentChainKey = configuration_.chainPrefix+":"+current.id;
             std::string newDataKey = configuration_.dataPrefix+":"+toBeWritten.id;
             std::string newChainKey = configuration_.chainPrefix+":"+toBeWritten.id;
-            std::string newData = serialize<T>(std::move(toBeWritten.data));
+            std::string newData = serialize<T>(std::move(*(toBeWritten.data)));
             redisReply *r = nullptr;
             {
                 std::lock_guard<std::mutex> _(redisMutex_);
@@ -363,14 +370,18 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         }
         static ItemType formChainItem(StorageIDType const &itemID, T &&itemData) {
             return ItemType {
-                itemID, std::move(itemData), ""
+                itemID, {std::move(itemData)}, ""
             };
         }
         static StorageIDType extractStorageID(ItemType const &p) {
             return p.id;
         }
         static T const *extractData(ItemType const &p) {
-            return &(p.data);
+            if (p.data) {
+                return &(*(p.data));
+            } else {
+                return nullptr;
+            }
         }
         static std::string_view extractStorageIDStringView(ItemType const &p) {
             return std::string_view {p.id};
