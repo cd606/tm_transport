@@ -83,41 +83,23 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 if (!parsed) {
                     return std::nullopt;
                 }
-                auto x = basic::bytedata_utils::RunCBORDeserializer<X>::apply(
-                    std::string_view(parsed->content), 0
+                return basic::bytedata_utils::RunDeserializer<X>::apply(
+                    std::string_view(parsed->content)
                 );
-                if (!x || std::get<1>(*x) != parsed->content.length()) {
-                    return std::nullopt;
-                }
-                return {std::move(std::get<0>(*x))};
             } else {
-                auto x = basic::bytedata_utils::RunCBORDeserializer<X>::apply(
-                    std::string_view(r->str, r->len), 0
+                return basic::bytedata_utils::RunDeserializer<X>::apply(
+                    std::string_view(r->str, r->len)
                 );
-                if (!x || std::get<1>(*x) != r->len) {
-                    return std::nullopt;
-                }
-                return {std::move(std::get<0>(*x))};
             }
         }
         template <class X>
-        std::string serialize(X &&x) {
+        std::string serialize(X const &x) {
             if (hookPair_ && hookPair_->userToWire) {
                 return hookPair_->userToWire->hook(
-                    basic::ByteData {basic::bytedata_utils::RunSerializer<basic::CBOR<X>>::apply({std::move(x)})}
+                    basic::ByteData {basic::bytedata_utils::RunSerializer<X>::apply(x)}
                 ).content;
             } else {
-                return basic::bytedata_utils::RunSerializer<basic::CBOR<X>>::apply({std::move(x)});
-            }
-        }
-        template <class X>
-        std::string serialize2(X const &x) {
-            if (hookPair_ && hookPair_->userToWire) {
-                return hookPair_->userToWire->hook(
-                    basic::ByteData {basic::bytedata_utils::RunSerializer<basic::CBOR<X>>::apply({x})}
-                ).content;
-            } else {
-                return basic::bytedata_utils::RunSerializer<basic::CBOR<X>>::apply({x});
+                return basic::bytedata_utils::RunSerializer<X>::apply(x);
             }
         }
     public:
@@ -323,7 +305,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         template <class ExtraData>
         void saveExtraData(std::string const &key, ExtraData const &data) {
             std::string dataKey = configuration_.extraDataPrefix+":"+key;
-            std::string dataStr = serialize2<ExtraData>(data);
+            std::string dataStr = serialize<ExtraData>(data);
             redisReply *r = nullptr;
             {
                 std::lock_guard<std::mutex> _(redisMutex_);

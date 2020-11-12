@@ -218,57 +218,39 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 if (!parsed) {
                     return std::nullopt;
                 }
-                auto x = basic::bytedata_utils::RunCBORDeserializer<ChainRedisStorage<T>>::apply(
-                    std::string_view(parsed->content), 0
+                return basic::bytedata_utils::RunDeserializer<ChainRedisStorage<T>>::apply(
+                    std::string_view(parsed->content)
                 );
-                if (!x || std::get<1>(*x) != parsed->content.length()) {
-                    return std::nullopt;
-                }
-                return {std::move(std::get<0>(*x))};
             } else {
-                auto x = basic::bytedata_utils::RunCBORDeserializer<ChainRedisStorage<T>>::apply(
-                    std::string_view(r->str, r->len), 0
+                return basic::bytedata_utils::RunDeserializer<ChainRedisStorage<T>>::apply(
+                    std::string_view(r->str, r->len)
                 );
-                if (!x || std::get<1>(*x) != r->len) {
-                    return std::nullopt;
-                }
-                return {std::move(std::get<0>(*x))};
             }
         }
         template <class X>
-        std::optional<basic::CBOR<X>> parseEtcdData(std::string const &v) {
+        std::optional<X> parseEtcdData(std::string const &v) {
             if (hookPair_ && hookPair_->wireToUser) {
                 auto parsed = hookPair_->wireToUser->hook(basic::ByteDataView {std::string_view(v)});
                 if (!parsed) {
                     return std::nullopt;
                 }
-                return basic::bytedata_utils::RunDeserializer<basic::CBOR<X>>::apply(
+                return basic::bytedata_utils::RunDeserializer<X>::apply(
                     std::string_view(parsed->content)
                 );
             } else {
-                return basic::bytedata_utils::RunDeserializer<basic::CBOR<X>>::apply(
+                return basic::bytedata_utils::RunDeserializer<X>::apply(
                     std::string_view(v)
                 );
             }
         }
         template <class X>
-        std::string serialize(X &&x) {
+        std::string serialize(X const &x) {
             if (hookPair_ && hookPair_->userToWire) {
                 return hookPair_->userToWire->hook(
-                    basic::ByteData {basic::bytedata_utils::RunSerializer<basic::CBOR<X>>::apply({std::move(x)})}
+                    basic::ByteData {basic::bytedata_utils::RunSerializer<X>::apply(x)}
                 ).content;
             } else {
-                return basic::bytedata_utils::RunSerializer<basic::CBOR<X>>::apply({std::move(x)});
-            }
-        }
-        template <class X>
-        std::string serialize2(X const &x) {
-            if (hookPair_ && hookPair_->userToWire) {
-                return hookPair_->userToWire->hook(
-                    basic::ByteData {basic::bytedata_utils::RunSerializer<basic::CBOR<X>>::apply({x})}
-                ).content;
-            } else {
-                return basic::bytedata_utils::RunSerializer<basic::CBOR<X>>::apply({x});
+                return basic::bytedata_utils::RunSerializer<X>::apply(x);
             }
         }
 
@@ -430,7 +412,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                         kv.value()
                     );
                     if (mapData) {
-                        return ItemType {kv.mod_revision(), configuration_.headKey, {std::move(mapData->value.data)}, mapData->value.nextID};
+                        return ItemType {kv.mod_revision(), configuration_.headKey, {std::move(mapData->data)}, mapData->nextID};
                     } else {
                         return ItemType {kv.mod_revision(), configuration_.headKey, {T{}}, ""};
                     }
@@ -444,7 +426,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                         kv.value()
                     );
                     if (mapData) {
-                        return ItemType {kv.mod_revision(), configuration_.headKey, {std::move(mapData->value.data)}, mapData->value.nextID};
+                        return ItemType {kv.mod_revision(), configuration_.headKey, {std::move(mapData->data)}, mapData->nextID};
                     } else {
                         return ItemType {kv.mod_revision(), configuration_.headKey, {T{}}, ""};
                     }
@@ -504,21 +486,12 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                     auto data = parseEtcdData<T>(
                         dataKV.value()
                     );
-                    if (data) {
-                        return ItemType {
-                            dataKV.mod_revision()
-                            , id
-                            , {std::move(data->value)}
-                            , txnResp.responses(0).response_range().kvs(0).value()
-                        };
-                    } else {
-                        return ItemType {
-                            dataKV.mod_revision()
-                            , id
-                            , std::nullopt
-                            , txnResp.responses(0).response_range().kvs(0).value()
-                        };
-                    }
+                    return ItemType {
+                        dataKV.mod_revision()
+                        , id
+                        , std::move(data)
+                        , txnResp.responses(0).response_range().kvs(0).value()
+                    };
                 } else {
                     throw EtcdChainException("LoadUntil Error! No record for "+configuration_.chainPrefix+":"+id+" or "+configuration_.dataPrefix+":"+id);
                 }
@@ -540,7 +513,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                     kv.value()
                 );
                 if (mapData) {
-                    return ItemType {kv.mod_revision(), id, std::move(mapData->value.data), mapData->value.nextID};
+                    return ItemType {kv.mod_revision(), id, std::move(mapData->data), mapData->nextID};
                 } else {
                     throw EtcdChainException("LoadUntil Error! Bad record for "+configuration_.chainPrefix+":"+id);
                 }
@@ -665,21 +638,12 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                         auto data = parseEtcdData<T>(
                             dataKV.value()
                         );
-                        if (data) {
-                            return ItemType {
-                                dataKV.mod_revision()
-                                , nextID
-                                , {std::move(data->value)}
-                                , txnResp.responses(0).response_range().kvs(0).value()
-                            };
-                        } else {
-                            return ItemType {
-                                dataKV.mod_revision()
-                                , nextID
-                                , std::nullopt
-                                , txnResp.responses(0).response_range().kvs(0).value()
-                            };
-                        }
+                        return ItemType {
+                            dataKV.mod_revision()
+                            , nextID
+                            , std::move(data)
+                            , txnResp.responses(0).response_range().kvs(0).value()
+                        };
                     } else {
                         throw EtcdChainException("Fetch Error! No record for "+configuration_.chainPrefix+":"+nextID);
                     }
@@ -705,7 +669,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                         kv.value()
                     );
                     if (mapData) {
-                        nextID = mapData->value.nextID;
+                        nextID = mapData->nextID;
                     } else {
                         throw EtcdChainException("FetchNext Error! Bad record for "+configuration_.chainPrefix+":"+current.id);
                     }
@@ -728,7 +692,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                         kv2.value()
                     );
                     if (mapData) {
-                        return ItemType {kv2.mod_revision(), nextID, {mapData->value.data}, mapData->value.nextID};
+                        return ItemType {kv2.mod_revision(), nextID, {std::move(mapData->data)}, mapData->nextID};
                     } else {
                         throw EtcdChainException("FetchNext Error! Bad record for "+configuration_.chainPrefix+":"+nextID);
                     }
@@ -897,7 +861,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             etcdserverpb::PutRequest put;
             put.set_key(configuration_.extraDataPrefix+":"+key);
             put.set_value(
-                serialize2<ExtraData>(
+                serialize<ExtraData>(
                     data
                 )
             );
@@ -919,14 +883,9 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             if (rangeResp.kvs_size() == 0) {
                 return std::nullopt;
             }
-            auto d = parseEtcdData<ExtraData>(
+            return parseEtcdData<ExtraData>(
                 rangeResp.kvs(0).value()
             );
-            if (d) {
-                return d->value;
-            } else {
-                return std::nullopt;
-            }
         }
         template <class Env>
         static StorageIDType newStorageID() {
