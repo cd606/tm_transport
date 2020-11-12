@@ -239,9 +239,11 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             , head_(nullptr)
             , hookPair_(ForceSeparate?hookPair:std::nullopt)
         {
-            head_ = mem_.find_or_construct<BoostSharedMemoryStorageItem<T, ForceSeparate>>(boost::interprocess::unique_instance)();
             if constexpr (ForceSeparate || !std::is_trivially_copyable_v<T>) {
+                head_ = mem_.find_or_construct<BoostSharedMemoryStorageItem<T, ForceSeparate>>("head")();
                 head_->data = 0;
+            } else {
+                head_ = mem_.find_or_construct<BoostSharedMemoryStorageItem<T, ForceSeparate>>(boost::interprocess::unique_instance)();
             }
         }
         ItemType head(void *) {
@@ -626,9 +628,11 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             , head_(nullptr)
             , hookPair_(ForceSeparate?hookPair:std::nullopt)
         {
-            head_ = mem_.find_or_construct<BoostSharedMemoryStorageItem<T, ForceSeparate>>(boost::interprocess::unique_instance)();
             if constexpr (ForceSeparate || !std::is_trivially_copyable_v<T>) {
+                head_ = mem_.find_or_construct<BoostSharedMemoryStorageItem<T, ForceSeparate>>("head")();
                 head_->data = 0;
+            } else {
+                head_ = mem_.find_or_construct<BoostSharedMemoryStorageItem<T, ForceSeparate>>(boost::interprocess::unique_instance)();
             }
         }
         ItemType head(void *) {

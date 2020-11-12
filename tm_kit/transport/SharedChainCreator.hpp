@@ -202,7 +202,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
             chains_.clear();
         }
 
-        template <class ChainData, class ChainItemFolder, class TriggerT=void>
+        template <class ChainData, class ChainItemFolder, class TriggerT=void, bool ForceSeparateDataStorageIfPossible=false>
         auto reader(
             typename App::EnvironmentType *env
             , SharedChainProtocol protocol
@@ -221,6 +221,9 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                 {
                     if constexpr (std::is_convertible_v<typename App::EnvironmentType *, etcd_shared_chain::EtcdChainComponent *>) {
                         auto conf = shared_chain_utils::etcdChainConfigurationFromConnectionLocator(locator);
+                        if constexpr (ForceSeparateDataStorageIfPossible) {
+                            conf.SaveDataOnSeparateStorage(true);
+                        }
                         return shared_chain_utils::chainReaderHelper<App,ChainItemFolder,TriggerT>(
                             env
                             , getChain<etcd_shared_chain::EtcdChain<ChainData>>(
@@ -316,10 +319,10 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                                         :
                                         lock_free_in_memory_shared_chain::BoostSharedMemoryChainExtraDataProtectionStrategy::Unsafe
                                     )
-                                    , (
+                                    , (ForceSeparateDataStorageIfPossible || (
                                         DefaultHookFactory<typename App::EnvironmentType>::template HasOutgoingHookFactory<ChainData>()
                                         && DefaultHookFactory<typename App::EnvironmentType>::template HasIncomingHookFactory<ChainData>()
-                                    )
+                                    ))
                                 >>(
                                     shared_chain_utils::makeSharedChainLocator(protocol, locator)
                                     , [env,hookPair,memoryName,memorySize]() {
@@ -333,10 +336,10 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                                                 :
                                                 lock_free_in_memory_shared_chain::BoostSharedMemoryChainExtraDataProtectionStrategy::Unsafe
                                             )
-                                            , (
+                                            , (ForceSeparateDataStorageIfPossible || (
                                                 DefaultHookFactory<typename App::EnvironmentType>::template HasOutgoingHookFactory<ChainData>()
                                                 && DefaultHookFactory<typename App::EnvironmentType>::template HasIncomingHookFactory<ChainData>()
-                                            )
+                                            ))
                                         >(memoryName, memorySize, DefaultHookFactory<typename App::EnvironmentType>::template supplyFacilityHookPair_SingleType<ChainData>(
                                                 env, hookPair
                                         ));
@@ -357,10 +360,10 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                                         :
                                         lock_free_in_memory_shared_chain::BoostSharedMemoryChainExtraDataProtectionStrategy::Unsafe
                                     )
-                                    , (
+                                    , (ForceSeparateDataStorageIfPossible || (
                                         DefaultHookFactory<typename App::EnvironmentType>::template HasOutgoingHookFactory<ChainData>()
                                         && DefaultHookFactory<typename App::EnvironmentType>::template HasIncomingHookFactory<ChainData>()
-                                    )
+                                    ))
                                 >>(
                                     shared_chain_utils::makeSharedChainLocator(protocol, locator)
                                     , [env,hookPair,memoryName,memorySize]() {
@@ -374,10 +377,10 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                                                 :
                                                 lock_free_in_memory_shared_chain::BoostSharedMemoryChainExtraDataProtectionStrategy::Unsafe
                                             )
-                                            , (
+                                            , (ForceSeparateDataStorageIfPossible || (
                                                 DefaultHookFactory<typename App::EnvironmentType>::template HasOutgoingHookFactory<ChainData>()
                                                 && DefaultHookFactory<typename App::EnvironmentType>::template HasIncomingHookFactory<ChainData>()
-                                            )
+                                            ))
                                         >(memoryName, memorySize, DefaultHookFactory<typename App::EnvironmentType>::template supplyFacilityHookPair_SingleType<ChainData>(
                                                 env, hookPair
                                         ));
@@ -397,7 +400,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
             }
         }
 
-        template <class ChainData, class ChainItemFolder, class TriggerT=void>
+        template <class ChainData, class ChainItemFolder, class TriggerT=void, bool ForceSeparateDataStorageIfPossible=false>
         auto reader(
             typename App::EnvironmentType *env
             , std::string const &locatorStr
@@ -412,7 +415,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
         {
             auto parsed = shared_chain_utils::parseSharedChainLocator(locatorStr);
             if (parsed) {
-                return reader<ChainData,ChainItemFolder,TriggerT>(
+                return reader<ChainData,ChainItemFolder,TriggerT,ForceSeparateDataStorageIfPossible>(
                     env, std::get<0>(*parsed), std::get<1>(*parsed), pollingPolicy, hookPair
                 );
             } else {
@@ -420,7 +423,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
             }
         }
 
-        template <class ChainData, class ChainItemFolder, class InputHandler, class IdleLogic=void>
+        template <class ChainData, class ChainItemFolder, class InputHandler, class IdleLogic=void, bool ForceSeparateDataStorageIfPossible=false>
         auto writer(
             typename App::EnvironmentType *env
             , SharedChainProtocol protocol
@@ -449,6 +452,9 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                 {
                     if constexpr (std::is_convertible_v<typename App::EnvironmentType *, etcd_shared_chain::EtcdChainComponent *>) {
                         auto conf = shared_chain_utils::etcdChainConfigurationFromConnectionLocator(locator);
+                        if constexpr (ForceSeparateDataStorageIfPossible) {
+                            conf.SaveDataOnSeparateStorage(true);
+                        }
                         return shared_chain_utils::chainWriterHelper<App,ChainItemFolder,InputHandler,IdleLogic>(
                             getChain<etcd_shared_chain::EtcdChain<ChainData>>(
                                 shared_chain_utils::makeSharedChainLocator(protocol, locator)
@@ -547,10 +553,10 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                                         :
                                         lock_free_in_memory_shared_chain::BoostSharedMemoryChainExtraDataProtectionStrategy::Unsafe
                                     )
-                                    , (
+                                    , (ForceSeparateDataStorageIfPossible || (
                                         DefaultHookFactory<typename App::EnvironmentType>::template HasOutgoingHookFactory<ChainData>()
                                         && DefaultHookFactory<typename App::EnvironmentType>::template HasIncomingHookFactory<ChainData>()
-                                    )
+                                    ))
                                 >>(
                                     shared_chain_utils::makeSharedChainLocator(protocol, locator)
                                     , [env,hookPair,memoryName,memorySize]() {
@@ -564,10 +570,10 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                                                 :
                                                 lock_free_in_memory_shared_chain::BoostSharedMemoryChainExtraDataProtectionStrategy::Unsafe
                                             )
-                                            , (
+                                            , (ForceSeparateDataStorageIfPossible || (
                                                 DefaultHookFactory<typename App::EnvironmentType>::template HasOutgoingHookFactory<ChainData>()
                                                 && DefaultHookFactory<typename App::EnvironmentType>::template HasIncomingHookFactory<ChainData>()
-                                            )
+                                            ))
                                         >(memoryName, memorySize, DefaultHookFactory<typename App::EnvironmentType>::template supplyFacilityHookPair_SingleType<ChainData>(
                                             env, hookPair
                                         ));
@@ -589,10 +595,10 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                                         :
                                         lock_free_in_memory_shared_chain::BoostSharedMemoryChainExtraDataProtectionStrategy::Unsafe
                                     )
-                                    , (
+                                    , (ForceSeparateDataStorageIfPossible || (
                                         DefaultHookFactory<typename App::EnvironmentType>::template HasOutgoingHookFactory<ChainData>()
                                         && DefaultHookFactory<typename App::EnvironmentType>::template HasIncomingHookFactory<ChainData>()
-                                    )
+                                    ))
                                 >>(
                                     shared_chain_utils::makeSharedChainLocator(protocol, locator)
                                     , [env,hookPair,memoryName,memorySize]() {
@@ -606,10 +612,10 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                                                 :
                                                 lock_free_in_memory_shared_chain::BoostSharedMemoryChainExtraDataProtectionStrategy::Unsafe
                                             )
-                                            , (
+                                            , (ForceSeparateDataStorageIfPossible || (
                                                 DefaultHookFactory<typename App::EnvironmentType>::template HasOutgoingHookFactory<ChainData>()
                                                 && DefaultHookFactory<typename App::EnvironmentType>::template HasIncomingHookFactory<ChainData>()
-                                            )
+                                            ))
                                         >(memoryName, memorySize, DefaultHookFactory<typename App::EnvironmentType>::template supplyFacilityHookPair_SingleType<ChainData>(
                                             env, hookPair
                                         ));
@@ -631,7 +637,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
             }
         }
 
-        template <class ChainData, class ChainItemFolder, class InputHandler, class IdleLogic=void>
+        template <class ChainData, class ChainItemFolder, class InputHandler, class IdleLogic=void, bool ForceSeparateDataStorageIfPossible=false>
         auto writer(
             typename App::EnvironmentType *env
             , std::string const &locatorStr
@@ -656,7 +662,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
         {
             auto parsed = shared_chain_utils::parseSharedChainLocator(locatorStr);
             if (parsed) {
-                return writer<ChainData,ChainItemFolder,InputHandler,IdleLogic>(
+                return writer<ChainData,ChainItemFolder,InputHandler,IdleLogic,ForceSeparateDataStorageIfPossible>(
                     env, std::get<0>(*parsed), std::get<1>(*parsed), pollingPolicy, hookPair, std::move(inputHandler), std::move(idleLogic)
                 );
             } else {
@@ -664,7 +670,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
             }
         }
 
-        template <class ChainData, class ChainItemFolder, class TriggerT=void>
+        template <class ChainData, class ChainItemFolder, class TriggerT=void, bool ForceSeparateDataStorageIfPossible=false>
         auto readerFactory(
             typename App::EnvironmentType *env
             , std::string const &locatorStr
@@ -678,13 +684,13 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
             >
         {
             return [this,env,locatorStr,pollingPolicy,hookPair]() {
-                return reader<ChainData,ChainItemFolder,TriggerT>(
+                return reader<ChainData,ChainItemFolder,TriggerT,ForceSeparateDataStorageIfPossible>(
                     env, locatorStr, pollingPolicy, hookPair
                 );
             };
         }
 
-        template <class ChainData, class ChainItemFolder, class InputHandler, class IdleLogic=void>
+        template <class ChainData, class ChainItemFolder, class InputHandler, class IdleLogic=void, bool ForceSeparateDataStorageIfPossible=false>
         auto writerFactory(
             typename App::EnvironmentType *env
             , std::string const &locatorStr
@@ -720,13 +726,13 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                     , basic::VoidStruct
                     , IdleLogic
                 > l1 = std::move(l);
-                return writer<ChainData,ChainItemFolder,InputHandler,IdleLogic>(
+                return writer<ChainData,ChainItemFolder,InputHandler,IdleLogic,ForceSeparateDataStorageIfPossible>(
                     env, locatorStr, pollingPolicy, hookPair, std::move(h1), std::move(l1)
                 );
             };
         }
 
-        template <class ChainData, class ChainItemFolder, class F>
+        template <class ChainData, class ChainItemFolder, class F, bool ForceSeparateDataStorageIfPossible=false>
         bool oneShotWrite(
             typename App::EnvironmentType *env
             , SharedChainProtocol protocol
@@ -740,6 +746,9 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                 {
                     if constexpr (std::is_convertible_v<typename App::EnvironmentType *, etcd_shared_chain::EtcdChainComponent *>) {
                         auto conf = shared_chain_utils::etcdChainConfigurationFromConnectionLocator(locator);
+                        if constexpr (ForceSeparateDataStorageIfPossible) {
+                            conf.SaveDataOnSeparateStorage(true);
+                        }
                         return basic::simple_shared_chain::OneShotChainWriter<typename App::EnvironmentType,etcd_shared_chain::EtcdChain<ChainData>>::write(
                             env
                             , getChain<etcd_shared_chain::EtcdChain<ChainData>>(
@@ -836,10 +845,10 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                                     :
                                     lock_free_in_memory_shared_chain::BoostSharedMemoryChainExtraDataProtectionStrategy::Unsafe
                                 )
-                                , (
+                                , (ForceSeparateDataStorageIfPossible || (
                                     DefaultHookFactory<typename App::EnvironmentType>::template HasOutgoingHookFactory<ChainData>()
                                     && DefaultHookFactory<typename App::EnvironmentType>::template HasIncomingHookFactory<ChainData>()
-                                )
+                                ))
                             >>::write(
                                 env
                                 , getChain<lock_free_in_memory_shared_chain::LockFreeInBoostSharedMemoryChain<
@@ -852,10 +861,10 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                                         :
                                         lock_free_in_memory_shared_chain::BoostSharedMemoryChainExtraDataProtectionStrategy::Unsafe
                                     )
-                                    , (
+                                    , (ForceSeparateDataStorageIfPossible || (
                                         DefaultHookFactory<typename App::EnvironmentType>::template HasOutgoingHookFactory<ChainData>()
                                         && DefaultHookFactory<typename App::EnvironmentType>::template HasIncomingHookFactory<ChainData>()
-                                    )
+                                    ))
                                 >>(
                                     shared_chain_utils::makeSharedChainLocator(protocol, locator)
                                     , [env,hookPair,memoryName,memorySize]() {
@@ -869,10 +878,10 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                                                 :
                                                 lock_free_in_memory_shared_chain::BoostSharedMemoryChainExtraDataProtectionStrategy::Unsafe
                                             )
-                                            , (
+                                            , (ForceSeparateDataStorageIfPossible || (
                                                 DefaultHookFactory<typename App::EnvironmentType>::template HasOutgoingHookFactory<ChainData>()
                                                 && DefaultHookFactory<typename App::EnvironmentType>::template HasIncomingHookFactory<ChainData>()
-                                            )
+                                            ))
                                         >(memoryName, memorySize, DefaultHookFactory<typename App::EnvironmentType>::template supplyFacilityHookPair_SingleType<ChainData>(
                                             env, hookPair
                                         ));
@@ -892,10 +901,10 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                                     :
                                     lock_free_in_memory_shared_chain::BoostSharedMemoryChainExtraDataProtectionStrategy::Unsafe
                                 )
-                                , (
+                                , (ForceSeparateDataStorageIfPossible || (
                                     DefaultHookFactory<typename App::EnvironmentType>::template HasOutgoingHookFactory<ChainData>()
                                     && DefaultHookFactory<typename App::EnvironmentType>::template HasIncomingHookFactory<ChainData>()
-                                )
+                                ))
                             >>::write(
                                 env
                                 , getChain<lock_free_in_memory_shared_chain::LockFreeInBoostSharedMemoryChain<
@@ -908,10 +917,10 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                                         :
                                         lock_free_in_memory_shared_chain::BoostSharedMemoryChainExtraDataProtectionStrategy::Unsafe
                                     )
-                                    , (
+                                    , (ForceSeparateDataStorageIfPossible || (
                                         DefaultHookFactory<typename App::EnvironmentType>::template HasOutgoingHookFactory<ChainData>()
                                         && DefaultHookFactory<typename App::EnvironmentType>::template HasIncomingHookFactory<ChainData>()
-                                    )
+                                    ))
                                 >>(
                                     shared_chain_utils::makeSharedChainLocator(protocol, locator)
                                     , [env,hookPair,memoryName,memorySize]() {
@@ -925,10 +934,10 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                                                 :
                                                 lock_free_in_memory_shared_chain::BoostSharedMemoryChainExtraDataProtectionStrategy::Unsafe
                                             )
-                                            , (
+                                            , (ForceSeparateDataStorageIfPossible || (
                                                 DefaultHookFactory<typename App::EnvironmentType>::template HasOutgoingHookFactory<ChainData>()
                                                 && DefaultHookFactory<typename App::EnvironmentType>::template HasIncomingHookFactory<ChainData>()
-                                            )
+                                            ))
                                         >(memoryName, memorySize, DefaultHookFactory<typename App::EnvironmentType>::template supplyFacilityHookPair_SingleType<ChainData>(
                                             env, hookPair
                                         ));
@@ -949,7 +958,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
             }
         }
 
-        template <class ChainData, class ChainItemFolder, class F>
+        template <class ChainData, class ChainItemFolder, class F, bool ForceSeparateDataStorageIfPossible=false>
         bool oneShotWrite(
             typename App::EnvironmentType *env
             , std::string const &locatorStr
@@ -959,7 +968,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
         ) {
             auto parsed = shared_chain_utils::parseSharedChainLocator(locatorStr);
             if (parsed) {
-                return oneShotWrite<ChainData,ChainItemFolder,F>(
+                return oneShotWrite<ChainData,ChainItemFolder,F,ForceSeparateDataStorageIfPossible>(
                     env, std::get<0>(*parsed), std::get<1>(*parsed), f, std::move(folder), hookPair
                 );
             } else {
@@ -967,7 +976,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
             }
         }
 
-        template <class ChainData>
+        template <class ChainData, bool ForceSeparateDataStorageIfPossible=false>
         bool tryOneShotWriteConstValue(
             typename App::EnvironmentType *env
             , SharedChainProtocol protocol
@@ -981,6 +990,9 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                 {
                     if constexpr (std::is_convertible_v<typename App::EnvironmentType *, etcd_shared_chain::EtcdChainComponent *>) {
                         auto conf = shared_chain_utils::etcdChainConfigurationFromConnectionLocator(locator);
+                        if constexpr (ForceSeparateDataStorageIfPossible) {
+                            conf.SaveDataOnSeparateStorage(true);
+                        }
                         return basic::simple_shared_chain::OneShotChainWriter<typename App::EnvironmentType,etcd_shared_chain::EtcdChain<ChainData>>::tryWriteConstValue(
                             env
                             , getChain<etcd_shared_chain::EtcdChain<ChainData>>(
@@ -1078,10 +1090,10 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                                     :
                                     lock_free_in_memory_shared_chain::BoostSharedMemoryChainExtraDataProtectionStrategy::Unsafe
                                 )
-                                , (
+                                , (ForceSeparateDataStorageIfPossible || (
                                     DefaultHookFactory<typename App::EnvironmentType>::template HasOutgoingHookFactory<ChainData>()
                                     && DefaultHookFactory<typename App::EnvironmentType>::template HasIncomingHookFactory<ChainData>()
-                                )
+                                ))
                             >>::tryWriteConstValue(
                                 env
                                 , getChain<lock_free_in_memory_shared_chain::LockFreeInBoostSharedMemoryChain<
@@ -1094,10 +1106,10 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                                         :
                                         lock_free_in_memory_shared_chain::BoostSharedMemoryChainExtraDataProtectionStrategy::Unsafe
                                     )
-                                    , (
+                                    , (ForceSeparateDataStorageIfPossible || (
                                         DefaultHookFactory<typename App::EnvironmentType>::template HasOutgoingHookFactory<ChainData>()
                                         && DefaultHookFactory<typename App::EnvironmentType>::template HasIncomingHookFactory<ChainData>()
-                                    )
+                                    ))
                                 >>(
                                     shared_chain_utils::makeSharedChainLocator(protocol, locator)
                                     , [env,hookPair,memoryName,memorySize]() {
@@ -1111,6 +1123,10 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                                                 :
                                                 lock_free_in_memory_shared_chain::BoostSharedMemoryChainExtraDataProtectionStrategy::Unsafe
                                             )
+                                            , (ForceSeparateDataStorageIfPossible || (
+                                                DefaultHookFactory<typename App::EnvironmentType>::template HasOutgoingHookFactory<ChainData>()
+                                                && DefaultHookFactory<typename App::EnvironmentType>::template HasIncomingHookFactory<ChainData>()
+                                            ))
                                         >(memoryName, memorySize, DefaultHookFactory<typename App::EnvironmentType>::template supplyFacilityHookPair_SingleType<ChainData>(
                                             env, hookPair
                                         ));
@@ -1130,10 +1146,10 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                                     :
                                     lock_free_in_memory_shared_chain::BoostSharedMemoryChainExtraDataProtectionStrategy::Unsafe
                                 )
-                                , (
+                                , (ForceSeparateDataStorageIfPossible || (
                                     DefaultHookFactory<typename App::EnvironmentType>::template HasOutgoingHookFactory<ChainData>()
                                     && DefaultHookFactory<typename App::EnvironmentType>::template HasIncomingHookFactory<ChainData>()
-                                )
+                                ))
                             >>::tryWriteConstValue(
                                 env
                                 , getChain<lock_free_in_memory_shared_chain::LockFreeInBoostSharedMemoryChain<
@@ -1146,10 +1162,10 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                                         :
                                         lock_free_in_memory_shared_chain::BoostSharedMemoryChainExtraDataProtectionStrategy::Unsafe
                                     )
-                                    , (
+                                    , (ForceSeparateDataStorageIfPossible || (
                                         DefaultHookFactory<typename App::EnvironmentType>::template HasOutgoingHookFactory<ChainData>()
                                         && DefaultHookFactory<typename App::EnvironmentType>::template HasIncomingHookFactory<ChainData>()
-                                    )
+                                    ))
                                 >>(
                                     shared_chain_utils::makeSharedChainLocator(protocol, locator)
                                     , [env,hookPair,memoryName,memorySize]() {
@@ -1163,10 +1179,10 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                                                 :
                                                 lock_free_in_memory_shared_chain::BoostSharedMemoryChainExtraDataProtectionStrategy::Unsafe
                                             )
-                                            , (
+                                            , (ForceSeparateDataStorageIfPossible || (
                                                 DefaultHookFactory<typename App::EnvironmentType>::template HasOutgoingHookFactory<ChainData>()
                                                 && DefaultHookFactory<typename App::EnvironmentType>::template HasIncomingHookFactory<ChainData>()
-                                            )
+                                            ))
                                         >(memoryName, memorySize, DefaultHookFactory<typename App::EnvironmentType>::template supplyFacilityHookPair_SingleType<ChainData>(
                                             env, hookPair
                                         ));
@@ -1187,7 +1203,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
             }
         }
 
-        template <class ChainData>
+        template <class ChainData, bool ForceSeparateDataStorageIfPossible=false>
         bool tryOneShotWriteConstValue(
             typename App::EnvironmentType *env
             , std::string const &locatorStr
@@ -1197,7 +1213,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
         ) {
             auto parsed = shared_chain_utils::parseSharedChainLocator(locatorStr);
             if (parsed) {
-                return tryOneShotWriteConstValue<ChainData>(
+                return tryOneShotWriteConstValue<ChainData, ForceSeparateDataStorageIfPossible>(
                     env, std::get<0>(*parsed), std::get<1>(*parsed), id, std::move(data), hookPair
                 );
             } else {
@@ -1205,7 +1221,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
             }
         }
 
-        template <class ChainData>
+        template <class ChainData, bool ForceSeparateDataStorageIfPossible=false>
         void blockingOneShotWriteConstValue(
             typename App::EnvironmentType *env
             , SharedChainProtocol protocol
@@ -1219,6 +1235,9 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                 {
                     if constexpr (std::is_convertible_v<typename App::EnvironmentType *, etcd_shared_chain::EtcdChainComponent *>) {
                         auto conf = shared_chain_utils::etcdChainConfigurationFromConnectionLocator(locator);
+                        if constexpr (ForceSeparateDataStorageIfPossible) {
+                            conf.SaveDataOnSeparateStorage(true);
+                        }
                         basic::simple_shared_chain::OneShotChainWriter<typename App::EnvironmentType,etcd_shared_chain::EtcdChain<ChainData>>::blockingWriteConstValue(
                             env
                             , getChain<etcd_shared_chain::EtcdChain<ChainData>>(
@@ -1316,10 +1335,10 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                                     :
                                     lock_free_in_memory_shared_chain::BoostSharedMemoryChainExtraDataProtectionStrategy::Unsafe
                                 )
-                                , (
+                                , (ForceSeparateDataStorageIfPossible || (
                                     DefaultHookFactory<typename App::EnvironmentType>::template HasOutgoingHookFactory<ChainData>()
                                     && DefaultHookFactory<typename App::EnvironmentType>::template HasIncomingHookFactory<ChainData>()
-                                )
+                                ))
                             >>::blockingWriteConstValue(
                                 env
                                 , getChain<lock_free_in_memory_shared_chain::LockFreeInBoostSharedMemoryChain<
@@ -1332,10 +1351,10 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                                         :
                                         lock_free_in_memory_shared_chain::BoostSharedMemoryChainExtraDataProtectionStrategy::Unsafe
                                     )
-                                    , (
+                                    , (ForceSeparateDataStorageIfPossible || (
                                         DefaultHookFactory<typename App::EnvironmentType>::template HasOutgoingHookFactory<ChainData>()
                                         && DefaultHookFactory<typename App::EnvironmentType>::template HasIncomingHookFactory<ChainData>()
-                                    )
+                                    ))
                                 >>(
                                     shared_chain_utils::makeSharedChainLocator(protocol, locator)
                                     , [env,hookPair,memoryName,memorySize]() {
@@ -1349,6 +1368,10 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                                                 :
                                                 lock_free_in_memory_shared_chain::BoostSharedMemoryChainExtraDataProtectionStrategy::Unsafe
                                             )
+                                            , (ForceSeparateDataStorageIfPossible || (
+                                                DefaultHookFactory<typename App::EnvironmentType>::template HasOutgoingHookFactory<ChainData>()
+                                                && DefaultHookFactory<typename App::EnvironmentType>::template HasIncomingHookFactory<ChainData>()
+                                            ))
                                         >(memoryName, memorySize, DefaultHookFactory<typename App::EnvironmentType>::template supplyFacilityHookPair_SingleType<ChainData>(
                                             env, hookPair
                                         ));
@@ -1368,10 +1391,10 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                                     :
                                     lock_free_in_memory_shared_chain::BoostSharedMemoryChainExtraDataProtectionStrategy::Unsafe
                                 )
-                                , (
+                                , (ForceSeparateDataStorageIfPossible || (
                                     DefaultHookFactory<typename App::EnvironmentType>::template HasOutgoingHookFactory<ChainData>()
                                     && DefaultHookFactory<typename App::EnvironmentType>::template HasIncomingHookFactory<ChainData>()
-                                )
+                                ))
                             >>::blockingWriteConstValue(
                                 env
                                 , getChain<lock_free_in_memory_shared_chain::LockFreeInBoostSharedMemoryChain<
@@ -1384,10 +1407,10 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                                         :
                                         lock_free_in_memory_shared_chain::BoostSharedMemoryChainExtraDataProtectionStrategy::Unsafe
                                     )
-                                    , (
+                                    , (ForceSeparateDataStorageIfPossible || (
                                         DefaultHookFactory<typename App::EnvironmentType>::template HasOutgoingHookFactory<ChainData>()
                                         && DefaultHookFactory<typename App::EnvironmentType>::template HasIncomingHookFactory<ChainData>()
-                                    )
+                                    ))
                                 >>(
                                     shared_chain_utils::makeSharedChainLocator(protocol, locator)
                                     , [env,hookPair,memoryName,memorySize]() {
@@ -1401,6 +1424,10 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                                                 :
                                                 lock_free_in_memory_shared_chain::BoostSharedMemoryChainExtraDataProtectionStrategy::Unsafe
                                             )
+                                            , (ForceSeparateDataStorageIfPossible || (
+                                                DefaultHookFactory<typename App::EnvironmentType>::template HasOutgoingHookFactory<ChainData>()
+                                                && DefaultHookFactory<typename App::EnvironmentType>::template HasIncomingHookFactory<ChainData>()
+                                            ))
                                         >(memoryName, memorySize, DefaultHookFactory<typename App::EnvironmentType>::template supplyFacilityHookPair_SingleType<ChainData>(
                                             env, hookPair
                                         ));
@@ -1421,7 +1448,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
             }
         }
 
-        template <class ChainData>
+        template <class ChainData, bool ForceSeparateDataStorageIfPossible=false>
         void blockingOneShotWriteConstValue(
             typename App::EnvironmentType *env
             , std::string const &locatorStr
@@ -1431,7 +1458,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
         ) {
             auto parsed = shared_chain_utils::parseSharedChainLocator(locatorStr);
             if (parsed) {
-                blockingOneShotWriteConstValue<ChainData>(
+                blockingOneShotWriteConstValue<ChainData, ForceSeparateDataStorageIfPossible>(
                     env, std::get<0>(*parsed), std::get<1>(*parsed), id, std::move(data), hookPair
                 );
             } else {
