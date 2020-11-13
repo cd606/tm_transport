@@ -16,7 +16,7 @@ public:
     SignatureHookFactoryComponent(SignatureHelper::PrivateKey const &signKey)
         : signKey_(signKey) {}
     virtual ~SignatureHookFactoryComponent() {}
-    virtual UserToWireHook defaultHook() override final {
+    virtual std::optional<UserToWireHook> defaultHook() override final {
         auto signer = std::make_shared<SignatureHelper::Signer>(signKey_);
         return UserToWireHook { 
             [signer](basic::ByteData &&d) {
@@ -35,7 +35,7 @@ public:
     VerifyHookFactoryComponent(SignatureHelper::PublicKeyMap const &verifyKeys)
         : verifyKeys_(verifyKeys) {}
     virtual ~VerifyHookFactoryComponent() {}
-    virtual WireToUserHook defaultHook() override final {
+    virtual std::optional<WireToUserHook> defaultHook() override final {
         auto verifier = std::make_shared<SignatureHelper::Verifier>();
         for (auto const &k : verifyKeys_) {
             verifier->addKey(k.first, k.second);
@@ -63,7 +63,7 @@ public:
     SignatureWithNameHookFactoryComponent(std::string const &name, SignatureHelper::PrivateKey const &signKey)
         : name_(name), signKey_(signKey) {}
     virtual ~SignatureWithNameHookFactoryComponent() {}
-    virtual UserToWireHook defaultHook() override final {
+    virtual std::optional<UserToWireHook> defaultHook() override final {
         auto signer = std::make_shared<SignatureHelper::Signer>(signKey_);
         return UserToWireHook { 
             [this,signer](basic::ByteData &&d) {
@@ -82,7 +82,7 @@ public:
     VerifyUsingNameTagHookFactoryComponent(SignatureHelper::PublicKeyMap const &verifyKeys)
         : verifyKeys_(verifyKeys) {}
     virtual ~VerifyUsingNameTagHookFactoryComponent() {}
-    virtual WireToUserHook defaultHook() override final {
+    virtual std::optional<WireToUserHook> defaultHook() override final {
         auto verifier = std::make_shared<SignatureHelper::Verifier>();
         for (auto const &k : verifyKeys_) {
             verifier->addKey(k.first, k.second);

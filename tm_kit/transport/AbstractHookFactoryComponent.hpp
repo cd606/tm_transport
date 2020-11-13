@@ -11,39 +11,29 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
     class AbstractOutgoingHookFactoryComponent {
     public:
         virtual ~AbstractOutgoingHookFactoryComponent() {}
-        virtual UserToWireHook defaultHook() = 0;
+        virtual std::optional<UserToWireHook> defaultHook() = 0;
     };
     template <class DataT>
     class AbstractIncomingHookFactoryComponent {
     public:
         virtual ~AbstractIncomingHookFactoryComponent() {}
-        virtual WireToUserHook defaultHook() = 0;
+        virtual std::optional<WireToUserHook> defaultHook() = 0;
     };
 
     template <class DataT>
     class TrivialOutgoingHookFactoryComponent : public AbstractOutgoingHookFactoryComponent<DataT> {
     public:
         virtual ~TrivialOutgoingHookFactoryComponent() {}
-        virtual UserToWireHook defaultHook() override final {
-            return {
-                [](basic::ByteData &&d) -> basic::ByteData {
-                    return std::move(d);
-                }
-            };
+        virtual std::optional<UserToWireHook> defaultHook() override final {
+            return std::nullopt;
         }
     };
     template <class DataT>
     class TrivialIncomingHookFactoryComponent : public AbstractIncomingHookFactoryComponent<DataT> {
     public:
         virtual ~TrivialIncomingHookFactoryComponent() {}
-        virtual WireToUserHook defaultHook() override final {
-            return {
-                [](basic::ByteDataView const &d) -> std::optional<basic::ByteData> {
-                    return basic::ByteData {
-                        std::string {d.content}
-                    };
-                }
-            };
+        virtual std::optional<WireToUserHook> defaultHook() override final {
+            return std::nullopt;
         }
     };
 
