@@ -21,12 +21,24 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
             return boost::lexical_cast<std::string>(id);
         }
         static IDType id_from_string(std::string const &s) {
-            return boost::lexical_cast<IDType>(s);
+            try {
+                return boost::lexical_cast<IDType>(s);
+            } catch (...) {
+                return IDType {};
+            }
         }
-        static std::string id_to_bytes(IDType const &id) {
+        static basic::ByteData id_to_bytes(IDType const &id) {
             std::array<char,16> ret;
-            std::copy(id.begin(), id.end(), ret.begin());
-            return std::string {ret.data(), ret.data()+16};
+            std::memcpy(ret.data(), &id, 16);
+            return basic::ByteData {std::string {ret.data(), ret.data()+16}};
+        }
+        static IDType id_from_bytes(basic::ByteDataView const &bytes) {
+            if (bytes.content.length() != 16) {
+                return IDType {};
+            }
+            IDType id;
+            std::memcpy(&id, bytes.content.data(), 16);
+            return id;
         }
         static bool less_comparison_id(IDType const &a, IDType const &b) {
             return std::less<IDType>()(a,b);

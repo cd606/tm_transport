@@ -16,11 +16,23 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
             return (std::string) id;
         }
         static IDType id_from_string(std::string const &s) {
-            return IDType {s};
+            try {
+                return IDType {s};
+            } catch (...) {
+                return IDType {};
+            }
         }
-        static std::string id_to_bytes(IDType const &id) {
+        static basic::ByteData id_to_bytes(IDType const &id) {
             std::array<unsigned char,16> ret = id.bytes();
-            return std::string {reinterpret_cast<char const *>(ret.data()), reinterpret_cast<char const *>(ret.data()+16)};
+            return basic::ByteData {std::string {reinterpret_cast<char const *>(ret.data()), reinterpret_cast<char const *>(ret.data()+16)}};
+        }
+        static IDType id_from_bytes(basic::ByteDataView const &bytes) {
+            if (bytes.content.length() != 16) {
+                return IDType {};
+            }
+            std::array<unsigned char,16> x;
+            std::memcpy(x.data(), bytes.content.data(), 16);
+            return IDType {x};
         }
         static bool less_comparison_id(IDType const &a, IDType const &b) {
             return a.bytes() < b.bytes();
