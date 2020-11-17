@@ -379,6 +379,29 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
 
                 addChannelRegistration(runner, runner.getRegisteredName(toBeWrapped), rpcQueueLocator);
             }
+            template <class A, class B>
+            static void wrapFacilitioidConnector(
+                infra::AppRunner<M> &runner
+                , std::string const &registeredNameForFacilitioid
+                , typename infra::AppRunner<M>::template FacilitioidConnector<A,B> const &toBeWrapped
+                , ConnectionLocator const &rpcQueueLocator
+                , std::string const &wrapperItemsNamePrefix
+                , std::optional<ByteDataHookPair> hooks = std::nullopt
+            ) {
+                auto importerExporterPair = createOnOrderFacilityRPCConnectorIncomingAndOutgoingLegs(rpcQueueLocator, DefaultHookFactory<Env>::template supplyFacilityHookPair_ServerSide<A,B>(runner.environment(), hooks));
+                auto deserializer = simplyDeserialize<A>();
+                auto serializer = basic::SerializationActions<M>::template serializeWithKey<A,B>();
+
+                runner.registerImporter(std::get<0>(importerExporterPair), wrapperItemsNamePrefix+"_incomingLeg");
+                runner.registerExporter(std::get<1>(importerExporterPair), wrapperItemsNamePrefix+"_outgoingLeg");
+                runner.registerAction(deserializer, wrapperItemsNamePrefix+"_deserializer");
+                runner.registerAction(serializer, wrapperItemsNamePrefix+"_serializer");
+                runner.execute(deserializer, runner.importItem(std::get<0>(importerExporterPair)));
+                toBeWrapped(runner, runner.actionAsSource(deserializer), runner.actionAsSink(serializer));
+                runner.connect(runner.actionAsSource(serializer), runner.exporterAsSink(std::get<1>(importerExporterPair)));
+
+                addChannelRegistration(runner, registeredNameForFacilitioid, rpcQueueLocator);
+            }
             
             template <class A, class B>
             static auto facilityWrapper(
@@ -705,6 +728,29 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
 
                 addChannelRegistration(runner, runner.getRegisteredName(toBeWrapped), rpcQueueLocator);
             }
+            template <class A, class B>
+            static void wrapFacilitioidConnector(
+                infra::AppRunner<M> &runner
+                , std::string const &registeredNameForFacilitioid
+                , typename infra::AppRunner<M>::template FacilitioidConnector<std::tuple<Identity,A>,B> const &toBeWrapped
+                , ConnectionLocator const &rpcQueueLocator
+                , std::string const &wrapperItemsNamePrefix
+                , std::optional<ByteDataHookPair> hooks = std::nullopt
+            ) {
+                auto importerExporterPair = createOnOrderFacilityRPCConnectorIncomingAndOutgoingLegs(rpcQueueLocator, DefaultHookFactory<Env>::template supplyFacilityHookPair_ServerSide<A,B>(runner.environment(), hooks));
+                auto deserializer = checkIdentityAndDeserialize<Identity,A>();
+                auto serializer = serializeBasedOnIdentity<Identity,A,B>();
+
+                runner.registerImporter(std::get<0>(importerExporterPair), wrapperItemsNamePrefix+"_incomingLeg");
+                runner.registerExporter(std::get<1>(importerExporterPair), wrapperItemsNamePrefix+"_outgoingLeg");
+                runner.registerAction(deserializer, wrapperItemsNamePrefix+"_deserializer");
+                runner.registerAction(serializer, wrapperItemsNamePrefix+"_serializer");
+                runner.execute(deserializer, runner.importItem(std::get<0>(importerExporterPair)));
+                toBeWrapped(runner, runner.actionAsSource(deserializer), runner.actionAsSink(serializer));
+                runner.connect(runner.actionAsSource(serializer), runner.exporterAsSink(std::get<1>(importerExporterPair)));
+
+                addChannelRegistration(runner, registeredNameForFacilitioid, rpcQueueLocator);
+            }
 
             template <class A, class B>
             static auto facilityWrapper(
@@ -986,6 +1032,26 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             } else {
                 WithoutIdentity
                     ::template wrapVIEOnOrderFacilityWithoutReply<A,B,C,D>(runner, toBeWrapped, rpcQueueLocator, wrapperItemsNamePrefix, hooks);
+            }
+        }
+        template <class A, class B>
+        static void wrapFacilitioidConnector(
+            infra::AppRunner<M> &runner
+            , std::string const &registeredNameForFacilitioid
+            , typename infra::AppRunner<M>::template FacilitioidConnector<
+                typename DetermineServerSideIdentityForRequest<Env, A>::FullRequestType
+                , B
+            > const &toBeWrapped
+            , ConnectionLocator const &rpcQueueLocator
+            , std::string const &wrapperItemsNamePrefix
+            , std::optional<ByteDataHookPair> hooks = std::nullopt
+        ) {
+            if constexpr(DetermineServerSideIdentityForRequest<Env, A>::HasIdentity) {
+                WithIdentity<typename DetermineServerSideIdentityForRequest<Env, A>::IdentityType>
+                    ::template wrapFacilitioidConnector<A,B>(runner, registeredNameForFacilitioid, toBeWrapped, rpcQueueLocator, wrapperItemsNamePrefix, hooks);
+            } else {
+                WithoutIdentity
+                    ::template wrapFacilitioidConnector<A,B>(runner, registeredNameForFacilitioid, toBeWrapped, rpcQueueLocator, wrapperItemsNamePrefix, hooks);
             }
         }
 
