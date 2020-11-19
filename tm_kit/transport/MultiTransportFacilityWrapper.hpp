@@ -302,6 +302,78 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                 throw std::runtime_error("[MultiTransportFacilityWrapper::wrap(vieOnOrderFacility)] unknown channel spec '"+channelSpec+"'");
             }
         }
+        template <class A, class B, MultiTransportFacilityWrapperOption Option=MultiTransportFacilityWrapperOption::Default>
+        static void wrap(
+            R &runner
+            , std::string const &registeredNameForFacilitioid
+            , typename R::template FacilitioidConnector<
+                typename DetermineServerSideIdentityForRequest<Env, A>::FullRequestType
+                , B
+            > const &toBeWrapped
+            , MultiTransportRemoteFacilityConnectionType rpcConnType
+            , ConnectionLocator const &rpcQueueLocator
+            , std::string const &wrapperItemsNamePrefix
+            , std::optional<ByteDataHookPair> hooks = std::nullopt
+        ) {
+            switch (rpcConnType) {
+            case MultiTransportRemoteFacilityConnectionType::RabbitMQ:
+                if constexpr (std::is_convertible_v<Env *, rabbitmq::RabbitMQComponent *>) {
+                    if constexpr (Option == MultiTransportFacilityWrapperOption::NoReply) {
+                        rabbitmq::RabbitMQOnOrderFacility<Env>::template wrapFacilitioidConnectorWithoutReply<A,B>(
+                            runner, registeredNameForFacilitioid, toBeWrapped, rpcQueueLocator, wrapperItemsNamePrefix, hooks
+                        );
+                    } else {
+                        rabbitmq::RabbitMQOnOrderFacility<Env>::template wrapFacilitioidConnector<A,B>(
+                            runner, registeredNameForFacilitioid, toBeWrapped, rpcQueueLocator, wrapperItemsNamePrefix, hooks
+                        );
+                    }
+                } else {
+                    std::ostringstream errOss;
+                    errOss << "[MultiTransportFacilityWrapper::wrap(FacilitioidConnector)] trying to wrap a facility with rabbitmq channel '" << rpcQueueLocator << "', but rabbitmq is unsupported in the environment";
+                    throw std::runtime_error(errOss.str());
+                }
+                break;
+            case MultiTransportRemoteFacilityConnectionType::Redis:
+                if constexpr (std::is_convertible_v<Env *, redis::RedisComponent *>) {
+                    if constexpr (Option == MultiTransportFacilityWrapperOption::NoReply) {
+                        redis::RedisOnOrderFacility<Env>::template wrapFacilitioidConnectorWithoutReply<A,B>(
+                            runner, registeredNameForFacilitioid, toBeWrapped, rpcQueueLocator, wrapperItemsNamePrefix, hooks
+                        );
+                    } else {
+                        redis::RedisOnOrderFacility<Env>::template wrapFacilitioidConnector<A,B>(
+                            runner, registeredNameForFacilitioid, toBeWrapped, rpcQueueLocator, wrapperItemsNamePrefix, hooks
+                        );
+                    }
+                } else {
+                    std::ostringstream errOss;
+                    errOss << "[MultiTransportFacilityWrapper::wrap(FacilitioidConnector)] trying to wrap a facility with redis channel '" << rpcQueueLocator << "', but redis is unsupported in the environment";
+                    throw std::runtime_error(errOss.str());
+                }
+                break;
+            default:
+                throw std::runtime_error("[MultiTransportFacilityWrapper::wrap(FacilitioidConnector)] Unknown connection type");
+                break;
+            }
+        }
+        template <class A, class B, MultiTransportFacilityWrapperOption Option=MultiTransportFacilityWrapperOption::Default>
+        static void wrap(
+            R &runner
+            , std::string const &registeredNameForFacilitioid
+            , typename R::template FacilitioidConnector<
+                typename DetermineServerSideIdentityForRequest<Env, A>::FullRequestType
+                , B
+            > const &toBeWrapped
+            , std::string const &channelSpec
+            , std::string const &wrapperItemsNamePrefix
+            , std::optional<ByteDataHookPair> hooks = std::nullopt
+        ) {
+            auto parsed = parseMultiTransportRemoteFacilityChannel(channelSpec);
+            if (parsed) {
+                wrap<A,B,Option>(runner, registeredNameForFacilitioid, toBeWrapped, std::get<0>(*parsed), std::get<1>(*parsed), wrapperItemsNamePrefix, hooks);
+            } else {
+                throw std::runtime_error("[MultiTransportFacilityWrapper::wrap(FacilitioidConnector)] unknown channel spec '"+channelSpec+"'");
+            }
+        }
 
         template <class A, class B, MultiTransportFacilityWrapperOption Option=MultiTransportFacilityWrapperOption::Default>
         static auto facilityWrapper(
