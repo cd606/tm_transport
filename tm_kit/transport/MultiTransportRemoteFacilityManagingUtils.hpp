@@ -14,11 +14,11 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
 
     template <class R>
     class MultiTransportRemoteFacilityManagingUtils {
-    private:
+    public:
         template <class ID, class In, class Out>
         class IdentityAndInputAndOutputHolder {
         };
-
+    private:
         template <class Spec>
         class SpecReader {
         };
