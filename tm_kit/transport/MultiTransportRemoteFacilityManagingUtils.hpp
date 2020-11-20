@@ -14,6 +14,28 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
 
     template <class R>
     class MultiTransportRemoteFacilityManagingUtils {
+    private:
+        template <class ID, class In, class Out>
+        class IdentityAndInputAndOutputHolder {
+        };
+
+        template <class Spec>
+        class SpecReader {
+        };
+        template <class ID, class In, class Out>
+        class SpecReader<IdentityAndInputAndOutputHolder<ID,In,Out>> {
+        public:
+            using Identity = ID;
+            using Input = In;
+            using Output = Out;
+        };
+        template <class ID, class In, class Out>
+        class SpecReader<std::tuple<ID,In,Out>> {
+        public:
+            using Identity = ID;
+            using Input = In;
+            using Output = Out;
+        };
     public:
         using M = typename R::AppType;
 
@@ -21,8 +43,8 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
         using NonDistinguishedRemoteFacilities =
             std::tuple<
                 typename R::template FacilitioidConnector<
-                    std::tuple_element_t<1,IdentitiesAndInputsAndOutputs>
-                    , std::tuple_element_t<2,IdentitiesAndInputsAndOutputs>
+                    typename SpecReader<IdentitiesAndInputsAndOutputs>::Input
+                    , typename SpecReader<IdentitiesAndInputsAndOutputs>::Output
                 >...
             >;
 
@@ -62,9 +84,9 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
             auto facility = M::localOnOrderFacility(
                 new MultiTransportRemoteFacility<
                     typename M::EnvironmentType
-                    , std::tuple_element_t<1, FirstRemainingIdentityAndInputAndOutput>
-                    , std::tuple_element_t<2, FirstRemainingIdentityAndInputAndOutput>
-                    , std::tuple_element_t<0, FirstRemainingIdentityAndInputAndOutput>
+                    , typename SpecReader<FirstRemainingIdentityAndInputAndOutput>::Input
+                    , typename SpecReader<FirstRemainingIdentityAndInputAndOutput>::Output
+                    , typename SpecReader<FirstRemainingIdentityAndInputAndOutput>::Identity
                     , transport::MultiTransportRemoteFacilityDispatchStrategy::Random
                 >(hookPairFactory)
             );
@@ -147,8 +169,8 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
         using DistinguishedRemoteFacilities =
             std::tuple<
                 DistinguishedRemoteFacility<
-                    std::tuple_element_t<1,IdentitiesAndInputsAndOutputs>
-                    , std::tuple_element_t<2,IdentitiesAndInputsAndOutputs>
+                    typename SpecReader<IdentitiesAndInputsAndOutputs>::Input
+                    , typename SpecReader<IdentitiesAndInputsAndOutputs>::Output
                 >...
             >;
 
@@ -156,7 +178,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
         using DistinguishedRemoteFacilityInitiators =
             std::tuple<
                 std::function<
-                    std::tuple_element_t<1,IdentitiesAndInputsAndOutputs>()
+                    typename SpecReader<IdentitiesAndInputsAndOutputs>::Input()
                 >...
             >;
 
@@ -168,8 +190,8 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
         using DistinguishedRemoteFacilityInitialCallbackPickers =
             std::tuple<
                 DistinguishedRemoteFacilityInitialCallbackPicker<
-                    std::tuple_element_t<1,IdentitiesAndInputsAndOutputs>
-                    , std::tuple_element_t<2,IdentitiesAndInputsAndOutputs>
+                    typename SpecReader<IdentitiesAndInputsAndOutputs>::Input
+                    , typename SpecReader<IdentitiesAndInputsAndOutputs>::Output
                 >...
             >;
 
@@ -240,7 +262,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
             auto vieSelfLoopCreator = [initiator](MultiTransportRemoteFacilityActionResult &&x) 
                 -> std::tuple<
                     ConnectionLocator
-                    , std::tuple_element_t<1, FirstRemainingIdentityAndInputAndOutput>
+                    , typename SpecReader<FirstRemainingIdentityAndInputAndOutput>::Input
                 >
             {
                 return {std::get<0>(x).connectionLocator, initiator()};
@@ -252,9 +274,9 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                 [initialCallbackPicker](typename M::template KeyedData<
                     std::tuple<
                         ConnectionLocator
-                        , std::tuple_element_t<1, FirstRemainingIdentityAndInputAndOutput>
+                        , typename SpecReader<FirstRemainingIdentityAndInputAndOutput>::Input
                     >
-                    , std::tuple_element_t<2, FirstRemainingIdentityAndInputAndOutput>
+                    , typename SpecReader<FirstRemainingIdentityAndInputAndOutput>::Output
                 > const &x) -> bool {
                     return initialCallbackPicker(std::get<1>(x.key.key()), x.data);
                 };
@@ -262,9 +284,9 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
             auto facility = M::vieOnOrderFacility(
                 new MultiTransportRemoteFacility<
                     typename M::EnvironmentType
-                    , std::tuple_element_t<1, FirstRemainingIdentityAndInputAndOutput>
-                    , std::tuple_element_t<2, FirstRemainingIdentityAndInputAndOutput>
-                    , std::tuple_element_t<0, FirstRemainingIdentityAndInputAndOutput>
+                    , typename SpecReader<FirstRemainingIdentityAndInputAndOutput>::Input
+                    , typename SpecReader<FirstRemainingIdentityAndInputAndOutput>::Output
+                    , typename SpecReader<FirstRemainingIdentityAndInputAndOutput>::Identity
                     , transport::MultiTransportRemoteFacilityDispatchStrategy::Designated
                 >(hookPairFactory)
             );
@@ -302,8 +324,8 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
 
             std::get<CurrentIdx>(output) = 
                 DistinguishedRemoteFacility<
-                    std::tuple_element_t<1, FirstRemainingIdentityAndInputAndOutput>
-                    , std::tuple_element_t<2, FirstRemainingIdentityAndInputAndOutput>
+                    typename SpecReader<FirstRemainingIdentityAndInputAndOutput>::Input
+                    , typename SpecReader<FirstRemainingIdentityAndInputAndOutput>::Output
                 > {
                     facilityLoopOutput.callIntoFacility
                     , r.sourceAsSourceoid(facilityLoopOutput.facilityOutput.clone())
@@ -640,7 +662,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
             return std::get<0>(std::get<1>(SetupRemoteFacilities<
                 std::tuple<>
                 , std::tuple<
-                    std::tuple<
+                    IdentityAndInputAndOutputHolder<
                         typename DetermineClientSideIdentityForRequest<typename R::EnvironmentType, Request>::IdentityType
                         , Request
                         , Result
@@ -678,7 +700,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
         {
             return std::get<0>(std::get<0>(SetupRemoteFacilities<
                 std::tuple<
-                    std::tuple<
+                    IdentityAndInputAndOutputHolder<
                         typename DetermineClientSideIdentityForRequest<typename R::EnvironmentType, Request>::IdentityType
                         , Request
                         , Result
@@ -724,14 +746,14 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
         {
             auto res = SetupRemoteFacilities<
                 std::tuple<
-                    std::tuple<
+                    IdentityAndInputAndOutputHolder<
                         typename DetermineClientSideIdentityForRequest<typename R::EnvironmentType, FirstRequest>::IdentityType
                         , FirstRequest
                         , FirstResult
                     >
                 >
                 , std::tuple<
-                    std::tuple<
+                    IdentityAndInputAndOutputHolder<
                         typename DetermineClientSideIdentityForRequest<typename R::EnvironmentType, SecondRequest>::IdentityType
                         , SecondRequest
                         , SecondResult
