@@ -18,6 +18,7 @@ tm_transport_headers = [
       , 'CrossGuidComponent.hpp'
       , 'AbstractHookFactoryComponent.hpp'
       , 'SharedChainCreator.hpp'
+      , 'ExitDataSource.hpp'
     ]
   
 install_headers(tm_transport_headers, subdir : 'tm_kit/transport')
