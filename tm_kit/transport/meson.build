@@ -19,6 +19,7 @@ tm_transport_headers = [
       , 'AbstractHookFactoryComponent.hpp'
       , 'SharedChainCreator.hpp'
       , 'ExitDataSource.hpp'
+      , 'RemoteTransactionSubscriberManagingUtils.hpp'
     ]
   
 install_headers(tm_transport_headers, subdir : 'tm_kit/transport')
