@@ -1168,7 +1168,7 @@ export namespace RemoteComponents {
                 })();
             }
         }
-        public changeAddress(address : string) {
+        public changeAddress(address : string) : boolean {
             if (address !== undefined && address !== null && address != "" && address != this.currentParam.address) {
                 this.currentParam.address = address;
                 (async () => {
@@ -1185,6 +1185,9 @@ export namespace RemoteComponents {
                         s[1].pipe(this.conversionStream_out);
                     }
                 })();
+                return true;
+            } else {
+                return false;
             }
         }
         public handle(d : TMInfra.TimedDataWithEnvironment<Env,TMInfra.Key<InputT>>) {

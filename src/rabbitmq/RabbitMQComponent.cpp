@@ -128,64 +128,17 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
 
         class OnePublishingConnection {
         private:
-            struct PublishingData {
-                std::string exchange;
-                std::string routingKey;
-                AmqpClient::BasicMessage::ptr_t message;
-            };
             AmqpClient::Channel::ptr_t channel_;
             std::mutex mutex_;
-            std::condition_variable cond_;
-            std::list<PublishingData> incoming_, processing_;
-            std::thread th_;
-            std::atomic<bool> running_;
-            void run() {
-                while (running_) {
-                    {
-                        std::unique_lock<std::mutex> lock(mutex_);
-                        cond_.wait_for(lock, std::chrono::milliseconds(1));
-                        //cond_.wait(lock);
-                        if (incoming_.empty()) {
-                            lock.unlock();
-                            continue;
-                        }
-                        processing_.splice(processing_.end(), incoming_);
-                        lock.unlock();
-                    }
-                    while (!processing_.empty()) {
-                        auto const &item = processing_.front();
-                        channel_->BasicPublish(
-                            item.exchange
-                            , item.routingKey
-                            , item.message
-                        );
-                        processing_.pop_front();
-                    }
-                }
-            }
         public:
             OnePublishingConnection(ConnectionLocator const &l) 
                 : channel_(createChannel(l))
                 , mutex_()
-                , cond_()
-                , incoming_()
-                , processing_()
-                , th_()
-                , running_(true)
             {
-                th_ = std::thread(&OnePublishingConnection::run, this);
             }
             ~OnePublishingConnection() {
-                running_ = false;
-                try {
-                    th_.join();
-                } catch (std::system_error const &) {
-                }
             }
             void publishOnExchange(std::string const &exchange, basic::ByteDataWithTopic &&data) {
-                if (!running_) {
-                    return;
-                }
                 {
                     std::lock_guard<std::mutex> _(mutex_);
                     auto msg = AmqpClient::BasicMessage::Create(data.content);
@@ -193,19 +146,22 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
 #if !((SIMPLEAMQPCLIENT_VERSION_MAJOR >= 3) || (SIMPLEAMQPCLIENT_VERSION_MAJOR == 2 && SIMPLEAMQPCLIENT_VERSION_MINOR >= 6))
                     msg->Expiration("1000");
 #endif                    
-                    incoming_.push_back(PublishingData {exchange, data.topic, msg});
+                    channel_->BasicPublish(
+                        exchange
+                        , data.topic
+                        , msg
+                    );
                 }
-                cond_.notify_one();
             }
             void publishOnQueue(std::string const &queue, AmqpClient::BasicMessage::ptr_t message) {
-                if (!running_) {
-                    return;
-                }
                 {
                     std::lock_guard<std::mutex> _(mutex_);
-                    incoming_.push_back(PublishingData {"", queue, message});
+                    channel_->BasicPublish(
+                        ""
+                        , queue
+                        , message
+                    );
                 }
-                cond_.notify_one();
             }
         };
         std::unordered_map<ConnectionLocator, std::unique_ptr<OnePublishingConnection>> publishingConnections_;
