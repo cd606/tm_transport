@@ -67,19 +67,21 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 while (running_) {
                     AmqpClient::Envelope::ptr_t msg;
                     if (channel_->BasicConsumeMessage(tag, msg, 1000)) {
-                        if (wireToUserHook_) {
-                            auto b = (wireToUserHook_->hook)(basic::ByteDataView {std::string_view(msg->Message()->Body())});
-                            if (b) {
-                                callback_({ 
+                        if (running_) {
+                            if (wireToUserHook_) {
+                                auto b = (wireToUserHook_->hook)(basic::ByteDataView {std::string_view(msg->Message()->Body())});
+                                if (b) {
+                                    callback_({ 
+                                        msg->RoutingKey()
+                                        , std::move(b->content)
+                                    });
+                                }
+                            } else {
+                                callback_({
                                     msg->RoutingKey()
-                                    , std::move(b->content)
+                                    , msg->Message()->Body()
                                 });
                             }
-                        } else {
-                            callback_({
-                                msg->RoutingKey()
-                                , msg->Message()->Body()
-                            });
                         }
                     }
                 }
@@ -180,15 +182,17 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 while (running_) {
                     AmqpClient::Envelope::ptr_t msg;
                     if (channel_->BasicConsumeMessage(localQueue_, msg, 1000)) {
-                        std::string corrID = msg->Message()->CorrelationId();
-                        bool isFinal = (msg->Message()->ContentTypeIsSet() && msg->Message()->ContentType() == "final");
-                        if (wireToUserHook_) {
-                            auto d = (wireToUserHook_->hook)(basic::ByteDataView {std::string_view(msg->Message()->Body())});
-                            if (d) {
-                                callback_(isFinal, {corrID, std::move(d->content)});
+                        if (running_) {
+                            std::string corrID = msg->Message()->CorrelationId();
+                            bool isFinal = (msg->Message()->ContentTypeIsSet() && msg->Message()->ContentType() == "final");
+                            if (wireToUserHook_) {
+                                auto d = (wireToUserHook_->hook)(basic::ByteDataView {std::string_view(msg->Message()->Body())});
+                                if (d) {
+                                    callback_(isFinal, {corrID, std::move(d->content)});
+                                }
+                            } else {
+                                callback_(isFinal, {corrID, msg->Message()->Body()});
                             }
-                        } else {
-                            callback_(isFinal, {corrID, msg->Message()->Body()});
                         }
                     }
                 }
@@ -247,18 +251,20 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                     AmqpClient::Envelope::ptr_t msg;
                     if (channel_->BasicConsumeMessage(rpcQueue_, msg, 1000)) {
                         channel_->BasicAck(msg);
-                        std::string corrID = msg->Message()->CorrelationId();
-                        {
-                            std::lock_guard<std::mutex> _(mutex_);
-                            replyQueueMap_[corrID] = msg->Message()->ReplyTo();
-                        }
-                        if (wireToUserHook_) {
-                            auto d = (wireToUserHook_->hook)(basic::ByteDataView {std::string_view(msg->Message()->Body())});
-                            if (d) {
-                                callback_({corrID, std::move(d->content)});
+                        if (running_) {
+                            std::string corrID = msg->Message()->CorrelationId();
+                            {
+                                std::lock_guard<std::mutex> _(mutex_);
+                                replyQueueMap_[corrID] = msg->Message()->ReplyTo();
                             }
-                        } else {
-                            callback_({corrID, msg->Message()->Body()});
+                            if (wireToUserHook_) {
+                                auto d = (wireToUserHook_->hook)(basic::ByteDataView {std::string_view(msg->Message()->Body())});
+                                if (d) {
+                                    callback_({corrID, std::move(d->content)});
+                                }
+                            } else {
+                                callback_({corrID, msg->Message()->Body()});
+                            }
                         }
                     }                   
                 }

@@ -90,6 +90,10 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
 
                         auto parseRes = basic::bytedata_utils::RunCBORDeserializer<basic::ByteDataWithTopic>::apply(std::string_view {data, sz}, 0);
                         nng_free(data, sz);
+
+                        if (!running_) {
+                            break;
+                        }
                         if (parseRes && std::get<1>(*parseRes) == sz) {
                             basic::ByteDataWithTopic data = std::move(std::get<0>(*parseRes));
 
