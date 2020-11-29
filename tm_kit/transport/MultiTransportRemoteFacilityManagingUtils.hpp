@@ -39,10 +39,19 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
     public:
         using M = typename R::AppType;
 
+        template <class Input, class Output>
+        struct NonDistinguishedRemoteFacility {
+            typename R::template FacilitioidConnector<
+                Input
+                , Output
+            > facility;
+            typename R::template Sourceoid<std::size_t> feedUnderlyingCount;
+        };
+
         template <class ... IdentitiesAndInputsAndOutputs>
         using NonDistinguishedRemoteFacilities =
             std::tuple<
-                typename R::template FacilitioidConnector<
+                NonDistinguishedRemoteFacility<
                     typename SpecReader<IdentitiesAndInputsAndOutputs>::Input
                     , typename SpecReader<IdentitiesAndInputsAndOutputs>::Output
                 >...
@@ -81,7 +90,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
             , std::function<std::optional<ByteDataHookPair>(std::string const &, ConnectionLocator const &)> const &hookPairFactory
             , Output &output
         ) {
-            auto facility = M::localOnOrderFacility(
+            auto facility = M::vieOnOrderFacility(
                 new MultiTransportRemoteFacility<
                     typename M::EnvironmentType
                     , typename SpecReader<FirstRemainingIdentityAndInputAndOutput>::Input
@@ -90,7 +99,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                     , transport::MultiTransportRemoteFacilityDispatchStrategy::Random
                 >(hookPairFactory)
             );
-            r.registerLocalOnOrderFacility(
+            r.registerVIEOnOrderFacility(
                 prefix+"/"+names[CurrentIdx]
                 , facility
             );
@@ -102,9 +111,19 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
             r.registerAction(prefix+"/get_"+std::to_string(CurrentIdx), getOneAction);
             r.connect(
                 r.execute(getOneAction, actionSource.clone())
-                , r.localFacilityAsSink(facility)
+                , r.vieFacilityAsSink(facility)
             );
-            std::get<CurrentIdx>(output) = R::localFacilityConnector(facility);
+            //this is added so that the user does not have to handle the
+            //count. If the user wants to handle the count, the source is
+            //still there in the return value.
+            auto countSource = r.vieFacilityAsSource(facility);
+            auto discardCount = M::template trivialExporter<std::size_t>();
+            r.registerExporter(prefix+"/discard_count_"+std::to_string(CurrentIdx), discardCount);
+            r.connect(countSource.clone(), r.exporterAsSink(discardCount));
+            std::get<CurrentIdx>(output) = {
+                R::vieFacilityConnector(facility)
+                , r.sourceAsSourceoid(countSource.clone())
+            };
             setupNonDistinguishedRemoteFacilitiesInternal<
                 (CurrentIdx+1)
                 , Output
@@ -657,7 +676,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
             , std::optional<ByteDataHookPair> hooks = std::nullopt
             , std::chrono::system_clock::duration ttl = std::chrono::seconds(3)
             , std::chrono::system_clock::duration checkPeriod = std::chrono::seconds(5)
-        ) -> typename R::template FacilitioidConnector<Request, Result>
+        ) -> NonDistinguishedRemoteFacility<Request, Result>
         {
             return std::get<0>(std::get<1>(SetupRemoteFacilities<
                 std::tuple<>
@@ -741,7 +760,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
             , std::chrono::system_clock::duration checkPeriod = std::chrono::seconds(5)
         ) -> std::tuple<
             DistinguishedRemoteFacility<FirstRequest, FirstResult>
-            , typename R::template FacilitioidConnector<SecondRequest, SecondResult>
+            , NonDistinguishedRemoteFacility<SecondRequest, SecondResult>
         >
         {
             auto res = SetupRemoteFacilities<

@@ -244,7 +244,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                     , std::get<0>(res)
                     , exitSource
                 )
-                , std::get<1>(res)
+                , std::get<1>(res).facility
             };
         }
     };
