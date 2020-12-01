@@ -119,6 +119,177 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
         HeartbeatMessageToRemoteFacilityCommandConverter(HeartbeatMessageToRemoteFacilityCommandConverter const &) = delete;
         HeartbeatMessageToRemoteFacilityCommandConverter &operator=(HeartbeatMessageToRemoteFacilityCommandConverter const &) = delete;
         HeartbeatMessageToRemoteFacilityCommandConverter &operator=(HeartbeatMessageToRemoteFacilityCommandConverter &&) = delete;
+    private:
+        void handleHeartbeat(
+            HeartbeatMessage const &h 
+            , std::vector<std::tuple<
+                std::array<MultiTransportRemoteFacilityAction, sizeof...(DistinguishedFacilitySpecs)>
+                , std::array<MultiTransportRemoteFacilityAction, sizeof...(NonDistinguishedFacilitySpecs)>
+            >> &output
+        ) {
+            int ii = 0;
+            if (!std::regex_match(h.senderDescription(), senderRE_)) {
+                output.clear();
+                return;
+            }
+            auto uuidStr = h.uuidStr();
+            auto iter = serverInfos_.find(uuidStr);
+            if (iter == serverInfos_.end()) {
+                iter = serverInfos_.insert({uuidStr, OneServerInfo{}}).first;
+            }
+
+            if (!iter->second.good_) {
+                auto const &facilityInfo = h.facilityChannels();
+                ii = 0;
+                for (auto const &nm : distinguishedFacilityNames_) {
+                    auto hIter = facilityInfo.find(nm);
+                    if (hIter == facilityInfo.end()) {
+                        output.clear();
+                        return;
+                    }
+                    auto spec = parseServerSpec(hIter->second);
+                    if (!spec) {
+                        output.clear();
+                        return;
+                    }
+                    iter->second.distinguishedFacilityLocators_[ii] = *spec;
+                    ++ii;
+                }
+                ii = 0;
+                for (auto const &nm : nonDistinguishedFacilityNames_) {
+                    auto hIter = facilityInfo.find(nm);
+                    if (hIter == facilityInfo.end()) {
+                        output.clear();
+                        return;
+                    }
+                    auto spec = parseServerSpec(hIter->second);
+                    if (!spec) {
+                        output.clear();
+                        return;
+                    }
+                    iter->second.nonDistinguishedFacilityLocators_[ii] = *spec;
+                    ++ii;
+                }
+                
+                iter->second.good_ = true;
+
+                std::vector<std::string> duplicates;
+                for (auto const &item : serverInfos_) {
+                    if (item.first == iter->first) {
+                        continue;
+                    }
+                    if (item.second.hasSameInfo(iter->second)) {
+                        duplicates.push_back(item.first);
+                    }
+                }
+                for (auto const &id : duplicates) {
+                    serverInfos_.erase(id);
+                }
+
+                if (!duplicates.empty()) {
+                    std::tuple<
+                        std::array<MultiTransportRemoteFacilityAction, sizeof...(DistinguishedFacilitySpecs)>
+                        , std::array<MultiTransportRemoteFacilityAction, sizeof...(NonDistinguishedFacilitySpecs)>
+                    > deRegisterCmds;
+                    ii = 0;
+                    for (auto const &l : iter->second.distinguishedFacilityLocators_) {
+                        std::get<0>(deRegisterCmds)[ii] = MultiTransportRemoteFacilityAction {
+                            MultiTransportRemoteFacilityActionType::Deregister
+                            , std::get<0>(l)
+                            , std::get<1>(l)
+                            , distinguishedFacilityNames_[ii]
+                        };
+                        ++ii;
+                    }
+                    ii = 0;
+                    for (auto const &l : iter->second.nonDistinguishedFacilityLocators_) {
+                        std::get<1>(deRegisterCmds)[ii] = MultiTransportRemoteFacilityAction {
+                            MultiTransportRemoteFacilityActionType::Deregister
+                            , std::get<0>(l)
+                            , std::get<1>(l)
+                            , nonDistinguishedFacilityNames_[ii]
+                        };
+                        ++ii;
+                    }
+                    output.push_back(deRegisterCmds);
+                }
+                std::tuple<
+                    std::array<MultiTransportRemoteFacilityAction, sizeof...(DistinguishedFacilitySpecs)>
+                    , std::array<MultiTransportRemoteFacilityAction, sizeof...(NonDistinguishedFacilitySpecs)>
+                > registerCmds;
+                ii = 0;
+                for (auto const &l : iter->second.distinguishedFacilityLocators_) {
+                    std::get<0>(registerCmds)[ii] = MultiTransportRemoteFacilityAction {
+                        MultiTransportRemoteFacilityActionType::Register
+                        , std::get<0>(l)
+                        , std::get<1>(l)
+                        , distinguishedFacilityNames_[ii]
+                    };
+                    ++ii;
+                }
+                ii = 0;
+                for (auto const &l : iter->second.nonDistinguishedFacilityLocators_) {
+                    std::get<1>(registerCmds)[ii] = MultiTransportRemoteFacilityAction {
+                        MultiTransportRemoteFacilityActionType::Register
+                        , std::get<0>(l)
+                        , std::get<1>(l)
+                        , nonDistinguishedFacilityNames_[ii]
+                    };
+                    ++ii;
+                }
+                output.push_back(registerCmds);
+            }
+            //we don't trust the heartbeat message's "time" since the clocks
+            //may be out of sync
+            iter->second.lastGoodTime_ = std::chrono::system_clock::now();
+        }
+        void handleTimer(
+            std::chrono::system_clock::time_point const &tp
+            , std::vector<std::tuple<
+                std::array<MultiTransportRemoteFacilityAction, sizeof...(DistinguishedFacilitySpecs)>
+                , std::array<MultiTransportRemoteFacilityAction, sizeof...(NonDistinguishedFacilitySpecs)>
+            >> &output
+        ) {
+            int ii = 0;
+            std::vector<std::string> toDelete;
+            for (auto const &item : serverInfos_) {
+                if (!item.second.good_) {
+                    continue;
+                }
+                if (item.second.lastGoodTime_+ttl_ < tp) {
+                    std::tuple<
+                        std::array<MultiTransportRemoteFacilityAction, sizeof...(DistinguishedFacilitySpecs)>
+                        , std::array<MultiTransportRemoteFacilityAction, sizeof...(NonDistinguishedFacilitySpecs)>
+                    > deRegisterCmds;
+                    ii = 0;
+                    for (auto const &l : item.second.distinguishedFacilityLocators_) {
+                        std::get<0>(deRegisterCmds)[ii] = MultiTransportRemoteFacilityAction {
+                            MultiTransportRemoteFacilityActionType::Deregister
+                            , std::get<0>(l)
+                            , std::get<1>(l)
+                            , distinguishedFacilityNames_[ii]
+                        };
+                        ++ii;
+                    }
+                    ii = 0;
+                    for (auto const &l : item.second.nonDistinguishedFacilityLocators_) {
+                        std::get<1>(deRegisterCmds)[ii] = MultiTransportRemoteFacilityAction {
+                            MultiTransportRemoteFacilityActionType::Deregister
+                            , std::get<0>(l)
+                            , std::get<1>(l)
+                            , nonDistinguishedFacilityNames_[ii]
+                        };
+                        ++ii;
+                    }
+                    output.push_back(deRegisterCmds);
+                    toDelete.push_back(item.first);
+                }
+            }
+            for (auto const &s : toDelete) {
+                serverInfos_.erase(s);
+            }
+        }
+    public:
         std::vector<std::tuple<
             std::array<MultiTransportRemoteFacilityAction, sizeof...(DistinguishedFacilitySpecs)>
             , std::array<MultiTransportRemoteFacilityAction, sizeof...(NonDistinguishedFacilitySpecs)>
@@ -134,154 +305,29 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
             int ii = 0;
             std::lock_guard<std::mutex> _(mutex_);
             if (which == 0) {
-                auto const &h = std::get<1>(heartbeat);
-                if (!std::regex_match(h.senderDescription(), senderRE_)) {
-                    return {};
-                }
-                auto uuidStr = h.uuidStr();
-                auto iter = serverInfos_.find(uuidStr);
-                if (iter == serverInfos_.end()) {
-                    iter = serverInfos_.insert({uuidStr, OneServerInfo{}}).first;
-                }
-
-                if (!iter->second.good_) {
-                    auto const &facilityInfo = h.facilityChannels();
-                    ii = 0;
-                    for (auto const &nm : distinguishedFacilityNames_) {
-                        auto hIter = facilityInfo.find(nm);
-                        if (hIter == facilityInfo.end()) {
-                            return {};
-                        }
-                        auto spec = parseServerSpec(hIter->second);
-                        if (!spec) {
-                            return {};
-                        }
-                        iter->second.distinguishedFacilityLocators_[ii] = *spec;
-                        ++ii;
-                    }
-                    ii = 0;
-                    for (auto const &nm : nonDistinguishedFacilityNames_) {
-                        auto hIter = facilityInfo.find(nm);
-                        if (hIter == facilityInfo.end()) {
-                            return {};
-                        }
-                        auto spec = parseServerSpec(hIter->second);
-                        if (!spec) {
-                            return {};
-                        }
-                        iter->second.nonDistinguishedFacilityLocators_[ii] = *spec;
-                        ++ii;
-                    }
-                    
-                    iter->second.good_ = true;
-
-                    std::vector<std::string> duplicates;
-                    for (auto const &item : serverInfos_) {
-                        if (item.first == iter->first) {
-                            continue;
-                        }
-                        if (item.second.hasSameInfo(iter->second)) {
-                            duplicates.push_back(item.first);
-                        }
-                    }
-                    for (auto const &id : duplicates) {
-                        serverInfos_.erase(id);
-                    }
-
-                    if (!duplicates.empty()) {
-                        std::tuple<
-                            std::array<MultiTransportRemoteFacilityAction, sizeof...(DistinguishedFacilitySpecs)>
-                            , std::array<MultiTransportRemoteFacilityAction, sizeof...(NonDistinguishedFacilitySpecs)>
-                        > deRegisterCmds;
-                        ii = 0;
-                        for (auto const &l : iter->second.distinguishedFacilityLocators_) {
-                            std::get<0>(deRegisterCmds)[ii] = MultiTransportRemoteFacilityAction {
-                                MultiTransportRemoteFacilityActionType::Deregister
-                                , std::get<0>(l)
-                                , std::get<1>(l)
-                                , distinguishedFacilityNames_[ii]
-                            };
-                            ++ii;
-                        }
-                        ii = 0;
-                        for (auto const &l : iter->second.nonDistinguishedFacilityLocators_) {
-                            std::get<1>(deRegisterCmds)[ii] = MultiTransportRemoteFacilityAction {
-                                MultiTransportRemoteFacilityActionType::Deregister
-                                , std::get<0>(l)
-                                , std::get<1>(l)
-                                , nonDistinguishedFacilityNames_[ii]
-                            };
-                            ++ii;
-                        }
-                        output.push_back(deRegisterCmds);
-                    }
-                    std::tuple<
-                        std::array<MultiTransportRemoteFacilityAction, sizeof...(DistinguishedFacilitySpecs)>
-                        , std::array<MultiTransportRemoteFacilityAction, sizeof...(NonDistinguishedFacilitySpecs)>
-                    > registerCmds;
-                    ii = 0;
-                    for (auto const &l : iter->second.distinguishedFacilityLocators_) {
-                        std::get<0>(registerCmds)[ii] = MultiTransportRemoteFacilityAction {
-                            MultiTransportRemoteFacilityActionType::Register
-                            , std::get<0>(l)
-                            , std::get<1>(l)
-                            , distinguishedFacilityNames_[ii]
-                        };
-                        ++ii;
-                    }
-                    ii = 0;
-                    for (auto const &l : iter->second.nonDistinguishedFacilityLocators_) {
-                        std::get<1>(registerCmds)[ii] = MultiTransportRemoteFacilityAction {
-                            MultiTransportRemoteFacilityActionType::Register
-                            , std::get<0>(l)
-                            , std::get<1>(l)
-                            , nonDistinguishedFacilityNames_[ii]
-                        };
-                        ++ii;
-                    }
-                    output.push_back(registerCmds);
-                }
-                //we don't trust the heartbeat message's "time" since the clocks
-                //may be out of sync
-                iter->second.lastGoodTime_ = std::chrono::system_clock::now();
+                handleHeartbeat(std::get<1>(heartbeat), output);
             } else {
-                std::vector<std::string> toDelete;
-                for (auto const &item : serverInfos_) {
-                    if (!item.second.good_) {
-                        continue;
-                    }
-                    if (item.second.lastGoodTime_+ttl_ < std::get<0>(timer)) {
-                        std::tuple<
-                            std::array<MultiTransportRemoteFacilityAction, sizeof...(DistinguishedFacilitySpecs)>
-                            , std::array<MultiTransportRemoteFacilityAction, sizeof...(NonDistinguishedFacilitySpecs)>
-                        > deRegisterCmds;
-                        ii = 0;
-                        for (auto const &l : item.second.distinguishedFacilityLocators_) {
-                            std::get<0>(deRegisterCmds)[ii] = MultiTransportRemoteFacilityAction {
-                                MultiTransportRemoteFacilityActionType::Deregister
-                                , std::get<0>(l)
-                                , std::get<1>(l)
-                                , distinguishedFacilityNames_[ii]
-                            };
-                            ++ii;
-                        }
-                        ii = 0;
-                        for (auto const &l : item.second.nonDistinguishedFacilityLocators_) {
-                            std::get<1>(deRegisterCmds)[ii] = MultiTransportRemoteFacilityAction {
-                                MultiTransportRemoteFacilityActionType::Deregister
-                                , std::get<0>(l)
-                                , std::get<1>(l)
-                                , nonDistinguishedFacilityNames_[ii]
-                            };
-                            ++ii;
-                        }
-                        output.push_back(deRegisterCmds);
-                        toDelete.push_back(item.first);
-                    }
-                }
-                for (auto const &s : toDelete) {
-                    serverInfos_.erase(s);
-                }
+                handleTimer(std::get<0>(timer), output);
+            }
+            return output;
+        }
+        std::vector<std::tuple<
+            std::array<MultiTransportRemoteFacilityAction, sizeof...(DistinguishedFacilitySpecs)>
+            , std::array<MultiTransportRemoteFacilityAction, sizeof...(NonDistinguishedFacilitySpecs)>
+        >> operator()(
+            int which
+            , std::tuple<std::chrono::system_clock::time_point, std::shared_ptr<HeartbeatMessage const>> &&heartbeat 
+            , std::tuple<std::chrono::system_clock::time_point, basic::VoidStruct> &&timer
+        ) {
+            std::vector<std::tuple<
+                std::array<MultiTransportRemoteFacilityAction, sizeof...(DistinguishedFacilitySpecs)>
+                , std::array<MultiTransportRemoteFacilityAction, sizeof...(NonDistinguishedFacilitySpecs)>
+            >> output;
+            std::lock_guard<std::mutex> _(mutex_);
+            if (which == 0) {
+                handleHeartbeat(*(std::get<1>(heartbeat)), output);
+            } else {
+                handleTimer(std::get<0>(timer), output);
             }
             return output;
         }

@@ -434,29 +434,25 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
             std::tuple<DistinguishedRemoteFacilitiesSpec...>
             , std::tuple<NonDistinguishedRemoteFacilitiesSpec...>
         > {
-        public:
-            static auto run(
-                R &r
+        private:
+            static auto buildFacilityActionSource(
+                R &r 
                 , std::variant<
                     MultiTransportBroadcastListenerAddSubscription
                     , typename R::template Sourceoid<HeartbeatMessage>
+                    , typename R::template Sourceoid<std::shared_ptr<HeartbeatMessage const>>
                 > const &heartbeatSource
                 , std::regex const &serverNameRE
                 , std::array<std::string, sizeof...(DistinguishedRemoteFacilitiesSpec)+sizeof...(NonDistinguishedRemoteFacilitiesSpec)> const &channelNames
                 , std::chrono::system_clock::duration ttl
                 , std::chrono::system_clock::duration checkPeriod
-                , DistinguishedRemoteFacilityInitiators<DistinguishedRemoteFacilitiesSpec...> const &initiators
-                , DistinguishedRemoteFacilityInitialCallbackPickers<DistinguishedRemoteFacilitiesSpec...> const &initialCallbackPickers
-                , std::array<std::string, sizeof...(DistinguishedRemoteFacilitiesSpec)+sizeof...(NonDistinguishedRemoteFacilitiesSpec)> const &facilityRegistrationNames
                 , std::string const &prefix
                 , std::optional<WireToUserHook> wireToUserHookForHeartbeat = std::nullopt
-                , std::function<std::optional<ByteDataHookPair>(std::string const &, ConnectionLocator const &)> const &hookPairFactory
-                    = [](std::string const &, ConnectionLocator const &) {return std::nullopt;}
-            ) 
-            -> std::tuple<
-                DistinguishedRemoteFacilities<DistinguishedRemoteFacilitiesSpec...>
-                , NonDistinguishedRemoteFacilities<NonDistinguishedRemoteFacilitiesSpec...>
-            >
+            )
+            -> typename R::template Source<std::tuple<
+                std::array<MultiTransportRemoteFacilityAction, sizeof...(DistinguishedRemoteFacilitiesSpec)>
+                , std::array<MultiTransportRemoteFacilityAction, sizeof...(NonDistinguishedRemoteFacilitiesSpec)>
+            >>
             {
                 std::array<std::string, sizeof...(DistinguishedRemoteFacilitiesSpec)> distinguishedChannelNames;
                 std::array<std::string, sizeof...(NonDistinguishedRemoteFacilitiesSpec)> nonDistinguishedChannelNames;
@@ -466,16 +462,22 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                 for (int ii=0; ii<sizeof...(NonDistinguishedRemoteFacilitiesSpec); ++ii) {
                     nonDistinguishedChannelNames[ii] = channelNames[ii+sizeof...(DistinguishedRemoteFacilitiesSpec)];
                 }
-                std::array<std::string, sizeof...(DistinguishedRemoteFacilitiesSpec)> distinguishedRegNames;
-                std::array<std::string, sizeof...(NonDistinguishedRemoteFacilitiesSpec)> nonDistinguishedRegNames;
-                for (int ii=0; ii<sizeof...(DistinguishedRemoteFacilitiesSpec); ++ii) {
-                    distinguishedRegNames[ii] = facilityRegistrationNames[ii];
-                }
-                for (int ii=0; ii<sizeof...(NonDistinguishedRemoteFacilitiesSpec); ++ii) {
-                    nonDistinguishedRegNames[ii] = facilityRegistrationNames[ii+sizeof...(DistinguishedRemoteFacilitiesSpec)];
-                }
 
-                typename R::template Sourceoid<HeartbeatMessage> hsMsgSource = std::visit([&r,&prefix,wireToUserHookForHeartbeat](auto const &hs) -> typename R::template Sourceoid<HeartbeatMessage> {
+                auto facilityCheckTimer = basic::real_time_clock::ClockImporter<typename M::EnvironmentType>
+                    ::template createRecurringClockImporter<basic::VoidStruct>(
+                        std::chrono::system_clock::now()
+                        , std::chrono::system_clock::now()+std::chrono::hours(24)
+                        , checkPeriod
+                        , [](typename M::EnvironmentType::TimePointType const &tp) {
+                            return basic::VoidStruct {};
+                        }
+                    );
+                auto timerInput = r.importItem(prefix+"/checkTimer", facilityCheckTimer);
+
+                return std::visit([&r,&prefix,wireToUserHookForHeartbeat,&serverNameRE,ttl,&distinguishedChannelNames,&nonDistinguishedChannelNames,&timerInput](auto const &hs) -> typename R::template Source<std::tuple<
+                    std::array<MultiTransportRemoteFacilityAction, sizeof...(DistinguishedRemoteFacilitiesSpec)>
+                    , std::array<MultiTransportRemoteFacilityAction, sizeof...(NonDistinguishedRemoteFacilitiesSpec)>
+                >> {
                     using T = std::decay_t<decltype(hs)>;
                     if constexpr (std::is_same_v<T, MultiTransportBroadcastListenerAddSubscription>) {
                         auto createHeartbeatListenKey = M::constFirstPushKeyImporter(
@@ -501,46 +503,127 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                             , std::nullopt //the trigger response is not needed
                             , prefix+"/heartbeatListener"
                         );
-                        return R::sourceAsSourceoid(r.execute(
+                        auto heartbeatParser = M::template enhancedMulti2<
+                            HeartbeatMessage, basic::VoidStruct
+                        >(
+                            HeartbeatMessageToRemoteFacilityCommandConverter<
+                                std::tuple<
+                                    DistinguishedRemoteFacilitiesSpec...
+                                >
+                                , std::tuple<
+                                    NonDistinguishedRemoteFacilitiesSpec...
+                                >
+                            >(
+                                serverNameRE
+                                , distinguishedChannelNames
+                                , nonDistinguishedChannelNames
+                                , ttl
+                            )
+                        );
+                        r.registerAction(prefix+"/heartbeatParser", heartbeatParser);
+
+                        r.execute(heartbeatParser, r.execute(
                             discardTopicFromHeartbeat
                             , std::move(realHeartbeatSource)
                         ));
+                        r.execute(heartbeatParser, std::move(timerInput));
+
+                        return r.actionAsSource(heartbeatParser);
                     } else if constexpr (std::is_same_v<T, typename R::template Sourceoid<HeartbeatMessage>>) {
-                        return hs;
+                        auto heartbeatParser = M::template enhancedMulti2<
+                            HeartbeatMessage, basic::VoidStruct
+                        >(
+                            HeartbeatMessageToRemoteFacilityCommandConverter<
+                                std::tuple<
+                                    DistinguishedRemoteFacilitiesSpec...
+                                >
+                                , std::tuple<
+                                    NonDistinguishedRemoteFacilitiesSpec...
+                                >
+                            >(
+                                serverNameRE
+                                , distinguishedChannelNames
+                                , nonDistinguishedChannelNames
+                                , ttl
+                            )
+                        );
+                        r.registerAction(prefix+"/heartbeatParser", heartbeatParser);
+
+                        hs(r, r.actionAsSink_2_0(heartbeatParser));
+                        r.execute(heartbeatParser, std::move(timerInput));
+
+                        return r.actionAsSource(heartbeatParser);
                     } else {
-                        return typename R::template Sourceoid<HeartbeatMessage> {};
+                        auto heartbeatParser = M::template enhancedMulti2<
+                            std::shared_ptr<HeartbeatMessage const>, basic::VoidStruct
+                        >(
+                            HeartbeatMessageToRemoteFacilityCommandConverter<
+                                std::tuple<
+                                    DistinguishedRemoteFacilitiesSpec...
+                                >
+                                , std::tuple<
+                                    NonDistinguishedRemoteFacilitiesSpec...
+                                >
+                            >(
+                                serverNameRE
+                                , distinguishedChannelNames
+                                , nonDistinguishedChannelNames
+                                , ttl
+                            )
+                        );
+                        r.registerAction(prefix+"/heartbeatParser", heartbeatParser);
+
+                        hs(r, r.actionAsSink_2_0(heartbeatParser));
+                        r.execute(heartbeatParser, std::move(timerInput));
+
+                        return r.actionAsSource(heartbeatParser);
                     }
                 }, heartbeatSource);
+            }
+        public:
+            static auto run(
+                R &r
+                , std::variant<
+                    MultiTransportBroadcastListenerAddSubscription
+                    , typename R::template Sourceoid<HeartbeatMessage>
+                    , typename R::template Sourceoid<std::shared_ptr<HeartbeatMessage const>>
+                > const &heartbeatSource
+                , std::regex const &serverNameRE
+                , std::array<std::string, sizeof...(DistinguishedRemoteFacilitiesSpec)+sizeof...(NonDistinguishedRemoteFacilitiesSpec)> const &channelNames
+                , std::chrono::system_clock::duration ttl
+                , std::chrono::system_clock::duration checkPeriod
+                , DistinguishedRemoteFacilityInitiators<DistinguishedRemoteFacilitiesSpec...> const &initiators
+                , DistinguishedRemoteFacilityInitialCallbackPickers<DistinguishedRemoteFacilitiesSpec...> const &initialCallbackPickers
+                , std::array<std::string, sizeof...(DistinguishedRemoteFacilitiesSpec)+sizeof...(NonDistinguishedRemoteFacilitiesSpec)> const &facilityRegistrationNames
+                , std::string const &prefix
+                , std::optional<WireToUserHook> wireToUserHookForHeartbeat = std::nullopt
+                , std::function<std::optional<ByteDataHookPair>(std::string const &, ConnectionLocator const &)> const &hookPairFactory
+                    = [](std::string const &, ConnectionLocator const &) {return std::nullopt;}
+            ) 
+            -> std::tuple<
+                DistinguishedRemoteFacilities<DistinguishedRemoteFacilitiesSpec...>
+                , NonDistinguishedRemoteFacilities<NonDistinguishedRemoteFacilitiesSpec...>
+            >
+            {
+                std::array<std::string, sizeof...(DistinguishedRemoteFacilitiesSpec)> distinguishedRegNames;
+                std::array<std::string, sizeof...(NonDistinguishedRemoteFacilitiesSpec)> nonDistinguishedRegNames;
+                for (int ii=0; ii<sizeof...(DistinguishedRemoteFacilitiesSpec); ++ii) {
+                    distinguishedRegNames[ii] = facilityRegistrationNames[ii];
+                }
+                for (int ii=0; ii<sizeof...(NonDistinguishedRemoteFacilitiesSpec); ++ii) {
+                    nonDistinguishedRegNames[ii] = facilityRegistrationNames[ii+sizeof...(DistinguishedRemoteFacilitiesSpec)];
+                }
 
-                auto facilityCheckTimer = basic::real_time_clock::ClockImporter<typename M::EnvironmentType>
-                    ::template createRecurringClockImporter<basic::VoidStruct>(
-                        std::chrono::system_clock::now()
-                        , std::chrono::system_clock::now()+std::chrono::hours(24)
-                        , checkPeriod
-                        , [](typename M::EnvironmentType::TimePointType const &tp) {
-                            return basic::VoidStruct {};
-                        }
-                    );
-                auto timerInput = r.importItem(prefix+"/checkTimer", facilityCheckTimer);
-
-                auto heartbeatParser = M::template enhancedMulti2<
-                    HeartbeatMessage, basic::VoidStruct
-                >(
-                    HeartbeatMessageToRemoteFacilityCommandConverter<
-                        std::tuple<
-                            DistinguishedRemoteFacilitiesSpec...
-                        >
-                        , std::tuple<
-                            NonDistinguishedRemoteFacilitiesSpec...
-                        >
-                    >(
-                        serverNameRE
-                        , distinguishedChannelNames
-                        , nonDistinguishedChannelNames
-                        , ttl
-                    )
+                auto commands = buildFacilityActionSource(
+                    r 
+                    , heartbeatSource
+                    , serverNameRE
+                    , channelNames
+                    , ttl
+                    , checkPeriod
+                    , prefix
+                    , wireToUserHookForHeartbeat
                 );
-                r.registerAction(prefix+"/heartbeatParser", heartbeatParser);
 
                 auto distinguishedSpecInputBrancher = M::template liftPure<
                     std::tuple<
@@ -559,10 +642,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                 );
 
                 r.registerAction(prefix+"/distinguishedBranch", distinguishedSpecInputBrancher);
-                
-                hsMsgSource(r, r.actionAsSink_2_0(heartbeatParser));
-                auto commands = r.actionAsSource(heartbeatParser);
-                r.execute(heartbeatParser, std::move(timerInput));
+
                 auto distinguishedCommands
                     = r.execute(
                         distinguishedSpecInputBrancher
@@ -667,10 +747,38 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                 }               
             }
         };
+    private:
+        static auto convertToHeartbeatInput(
+            std::variant<
+                typename R::template ConvertibleToSourceoid<HeartbeatMessage>
+                , typename R::template ConvertibleToSourceoid<std::shared_ptr<HeartbeatMessage const>>
+            > &&heartbeatSource
+        ) -> std::variant<
+            MultiTransportBroadcastListenerAddSubscription
+            , typename R::template Sourceoid<HeartbeatMessage>
+            , typename R::template Sourceoid<std::shared_ptr<HeartbeatMessage const>>
+        > {
+            return std::visit([](auto &&h) -> std::variant<
+                MultiTransportBroadcastListenerAddSubscription
+                , typename R::template Sourceoid<HeartbeatMessage>
+                , typename R::template Sourceoid<std::shared_ptr<HeartbeatMessage const>>
+            > {
+                using T = std::decay_t<decltype(h)>;
+                if constexpr (std::is_same_v<T, typename R::template ConvertibleToSourceoid<HeartbeatMessage>>) {
+                    return R::template convertToSourceoid<HeartbeatMessage>(std::move(h));
+                } else {
+                    return R::template convertToSourceoid<std::shared_ptr<HeartbeatMessage const>>(std::move(h));
+                }
+            }, std::move(heartbeatSource));
+        }
+    public:
         template <class Request, class Result>
         static auto setupOneNonDistinguishedRemoteFacility(
             R &r 
-            , typename R::template ConvertibleToSourceoid<HeartbeatMessage> &&heartbeatSource
+            , std::variant<
+                typename R::template ConvertibleToSourceoid<HeartbeatMessage>
+                , typename R::template ConvertibleToSourceoid<std::shared_ptr<HeartbeatMessage const>>
+            > &&heartbeatSource
             , std::regex const &serverNameRE
             , std::string const &facilityRegistrationName 
             , std::optional<ByteDataHookPair> hooks = std::nullopt
@@ -689,7 +797,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                 >
             >::run(
                 r 
-                , R::convertToSourceoid(std::move(heartbeatSource))
+                , convertToHeartbeatInput(std::move(heartbeatSource))
                 , serverNameRE
                 , {facilityRegistrationName}
                 , ttl 
@@ -707,7 +815,10 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
         template <class Request, class Result>
         static auto setupOneDistinguishedRemoteFacility(
             R &r 
-            , typename R::template ConvertibleToSourceoid<HeartbeatMessage> &&heartbeatSource
+            , std::variant<
+                typename R::template ConvertibleToSourceoid<HeartbeatMessage>
+                , typename R::template ConvertibleToSourceoid<std::shared_ptr<HeartbeatMessage const>>
+            > &&heartbeatSource
             , std::regex const &serverNameRE
             , std::string const &facilityRegistrationName
             , std::function<Request()> requestGenerator
@@ -729,7 +840,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                 >
             >::run(
                 r 
-                , R::convertToSourceoid(std::move(heartbeatSource))
+                , convertToHeartbeatInput(std::move(heartbeatSource))
                 , serverNameRE
                 , {facilityRegistrationName}
                 , ttl 
@@ -747,7 +858,10 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
         template <class FirstRequest, class FirstResult, class SecondRequest, class SecondResult>
         static auto setupTwoStepRemoteFacility(
             R &r 
-            , typename R::template ConvertibleToSourceoid<HeartbeatMessage> &&heartbeatSource
+            , std::variant<
+                typename R::template ConvertibleToSourceoid<HeartbeatMessage>
+                , typename R::template ConvertibleToSourceoid<std::shared_ptr<HeartbeatMessage const>>
+            > &&heartbeatSource
             , std::regex const &serverNameRE
             , std::tuple<std::string, std::string> const &facilityRegistrationNames
             , std::function<FirstRequest()> firstRequestGenerator
@@ -780,7 +894,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                 >
             >::run(
                 r 
-                , R::convertToSourceoid(std::move(heartbeatSource))
+                , convertToHeartbeatInput(std::move(heartbeatSource))
                 , serverNameRE
                 , {std::get<0>(facilityRegistrationNames), std::get<1>(facilityRegistrationNames)}
                 , ttl 

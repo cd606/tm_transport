@@ -51,6 +51,10 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
             , details_(details)
         {
         }
+        HeartbeatMessage(HeartbeatMessage const &) = default;
+        HeartbeatMessage(HeartbeatMessage &&) = default;
+        HeartbeatMessage &operator=(HeartbeatMessage const &) = default;
+        HeartbeatMessage &operator=(HeartbeatMessage &&) = default;
 
         void SerializeToString(std::string *s) const;
         bool ParseFromString(std::string const &s);

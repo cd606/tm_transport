@@ -373,7 +373,10 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
         template <class InputType>
         static auto setupBroadcastListenerWithTopicThroughHeartbeat(
             R &r
-            , typename R::template ConvertibleToSourceoid<HeartbeatMessage> &&heartbeatSource
+            , std::variant<
+                typename R::template ConvertibleToSourceoid<HeartbeatMessage>
+                , typename R::template ConvertibleToSourceoid<std::shared_ptr<HeartbeatMessage const>>
+            > &&heartbeatSource
             , std::regex const &serverNameRE
             , std::string const &broadcastSourceLookupName
             , std::string const &broadcastTopic
@@ -393,7 +396,8 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                 AddSubscriptionCreator(std::regex const &serverNameRE, std::string const &lookupName, std::string const &topic) : seenLocators_(), mutex_(), serverNameRE_(serverNameRE), lookupName_(lookupName), topic_(topic) {}
                 AddSubscriptionCreator(AddSubscriptionCreator &&c)
                     : seenLocators_(std::move(c.seenLocators_)), mutex_(), serverNameRE_(std::move(c.serverNameRE_)), lookupName_(std::move(c.lookupName_)), topic_(std::move(c.topic_)) {}
-                std::vector<MultiTransportBroadcastListenerInput> operator()(HeartbeatMessage &&msg) {
+            private:
+                std::vector<MultiTransportBroadcastListenerInput> handleHeartbeat(HeartbeatMessage const &msg) {
                     std::vector<MultiTransportBroadcastListenerInput> ret;
                     if (!std::regex_match(msg.senderDescription(), serverNameRE_)) {
                         return ret;
@@ -419,18 +423,38 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                     }
                     return ret;
                 }
+            public:
+                std::vector<MultiTransportBroadcastListenerInput> operator()(HeartbeatMessage &&msg) {
+                    return handleHeartbeat(msg);
+                }
+                std::vector<MultiTransportBroadcastListenerInput> operator()(std::shared_ptr<HeartbeatMessage const> &&msg) {
+                    return handleHeartbeat(*msg);
+                }
             };
-            auto addSubscriptionCreator = M::template liftMulti<HeartbeatMessage>(
-                AddSubscriptionCreator(serverNameRE, broadcastSourceLookupName, broadcastTopic)
-            );
-            r.registerAction(prefix+"/addSubscriptionCreator", addSubscriptionCreator);
-            (R::convertToSourceoid(std::move(heartbeatSource)))(r, r.actionAsSink(addSubscriptionCreator));
 
             auto keyify = M::template kleisli<MultiTransportBroadcastListenerInput>(
                 basic::CommonFlowUtilComponents<M>::template keyify<MultiTransportBroadcastListenerInput>()
             );
             r.registerAction(prefix+"/keyify", keyify);
-            r.execute(keyify, r.actionAsSource(addSubscriptionCreator));
+
+            std::visit([&r,&broadcastSourceLookupName,&broadcastTopic,&prefix,&serverNameRE,&keyify](auto &&x) {
+                using T = std::decay_t<decltype(x)>;
+                if constexpr (std::is_same_v<T, typename R::template ConvertibleToSourceoid<HeartbeatMessage>>) {
+                    auto addSubscriptionCreator = M::template liftMulti<HeartbeatMessage>(
+                        AddSubscriptionCreator(serverNameRE, broadcastSourceLookupName, broadcastTopic)
+                    );
+                    r.registerAction(prefix+"/addSubscriptionCreator", addSubscriptionCreator);
+                    (R::convertToSourceoid(std::move(x)))(r, r.actionAsSink(addSubscriptionCreator));
+                    r.execute(keyify, r.actionAsSource(addSubscriptionCreator));
+                } else {
+                    auto addSubscriptionCreator = M::template liftMulti<std::shared_ptr<HeartbeatMessage const>>(
+                        AddSubscriptionCreator(serverNameRE, broadcastSourceLookupName, broadcastTopic)
+                    );
+                    r.registerAction(prefix+"/addSubscriptionCreator", addSubscriptionCreator);
+                    (R::convertToSourceoid(std::move(x)))(r, r.actionAsSink(addSubscriptionCreator));
+                    r.execute(keyify, r.actionAsSource(addSubscriptionCreator));
+                }
+            }, std::move(heartbeatSource));
 
             auto listener = M::onOrderFacilityWithExternalEffects(
                 new MultiTransportBroadcastListener<
@@ -446,7 +470,10 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
         template <class InputType>
         static auto setupBroadcastListenerThroughHeartbeat(
             R &r
-            , typename R::template ConvertibleToSourceoid<HeartbeatMessage> &&heartbeatSource
+            , std::variant<
+                typename R::template ConvertibleToSourceoid<HeartbeatMessage>
+                , typename R::template ConvertibleToSourceoid<std::shared_ptr<HeartbeatMessage const>>
+            > &&heartbeatSource
             , std::regex const &serverNameRE
             , std::string const &broadcastSourceLookupName
             , std::string const &broadcastTopic

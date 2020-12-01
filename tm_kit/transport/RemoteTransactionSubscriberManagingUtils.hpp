@@ -139,7 +139,10 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
         template <class GS>
         static auto createSubscriber(
             R &r 
-            , typename R::template ConvertibleToSourceoid<HeartbeatMessage> &&heartbeatSource
+            , std::variant<
+                typename R::template ConvertibleToSourceoid<HeartbeatMessage>
+                , typename R::template ConvertibleToSourceoid<std::shared_ptr<HeartbeatMessage const>>
+            > &&heartbeatSource
             , std::regex const &serverNameRE
             , std::string const &facilityRegistrationName
             , typename GS::Subscription &&initialSubscriptionCommand
@@ -199,7 +202,10 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
         template <class GS, class TI>
         static auto createSubscriberAndUpdater(
             R &r 
-            , typename R::template ConvertibleToSourceoid<HeartbeatMessage> &&heartbeatSource
+            , std::variant<
+                typename R::template ConvertibleToSourceoid<HeartbeatMessage>
+                , typename R::template ConvertibleToSourceoid<std::shared_ptr<HeartbeatMessage const>>
+            > &&heartbeatSource
             , std::regex const &serverNameRE
             , std::string const &subscriptionFacilityRegistrationName
             , std::string const &transactionFacilityRegistrationName
