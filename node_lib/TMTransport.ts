@@ -46,7 +46,14 @@ export interface ConnectionLocator {
     , properties : Record<string, string>
 }
 
-class TMTransportUtils {
+export class TMTransportUtils {
+    static getConnectionLocatorProperty(l : ConnectionLocator, property : string, defaultValue : string) : string {
+        if (property in l.properties) {
+            return l.properties[property];
+        } else {
+            return defaultValue;
+        }
+    }
     static parseConnectionLocator(locatorStr : string) : ConnectionLocator {
         let idx = locatorStr.indexOf('[');
         let mainPortion : string;
@@ -1805,5 +1812,40 @@ export class RedisSharedChain {
 
     currentValue() {
         return this.current;
+    }
+}
+
+export type SharedChainSpec = ["etcd", EtcdSharedChainConfiguration] | ["redis", RedisSharedChainConfiguration];
+
+export class SharedChainUtils {
+    static parseChainLocator(locatorStr : string) : SharedChainSpec {
+        if (locatorStr.startsWith('etcd://')) {
+            let parsedParts = TMTransportUtils.parseConnectionLocator(locatorStr.substr('etcd://'.length));
+            let conf : EtcdSharedChainConfiguration = {
+                etcd3Options : {hosts: `${parsedParts.host}:${parsedParts.port}`}
+                , headKey : TMTransportUtils.getConnectionLocatorProperty(parsedParts, "headKey", "head")
+                , saveDataOnSeparateStorage : TMTransportUtils.getConnectionLocatorProperty(parsedParts, "saveDataOnSeparateStorage","true") == "true"
+                , chainPrefix : parsedParts.identifier
+                , dataPrefix : TMTransportUtils.getConnectionLocatorProperty(parsedParts, "dataPrefix", parsedParts.identifier+"_data")
+                , extraDataPrefix : TMTransportUtils.getConnectionLocatorProperty(parsedParts, "extraDataPrefix", parsedParts.identifier+"_extra_data")
+                , redisServerAddr : TMTransportUtils.getConnectionLocatorProperty(parsedParts, "redisServerAddr", "")
+                , duplicateFromRedis : TMTransportUtils.getConnectionLocatorProperty(parsedParts, "redisServerAddr", "") != ""
+                , redisTTLSeconds : parseInt(TMTransportUtils.getConnectionLocatorProperty(parsedParts, "redisTTLSeconds", "0"))
+                , automaticallyDuplicateToRedis : TMTransportUtils.getConnectionLocatorProperty(parsedParts, "automaticallyDuplicateToRedis", "false") == "true"
+            };
+            return ["etcd", conf];
+        } else if (locatorStr.startsWith('redis://')) {
+            let parsedParts = TMTransportUtils.parseConnectionLocator(locatorStr.substr('redis://'.length));
+            let conf : RedisSharedChainConfiguration = {
+                redisServerAddr : `${parsedParts.host}:${parsedParts.port}`
+                , headKey : TMTransportUtils.getConnectionLocatorProperty(parsedParts, "headKey", "head")
+                , chainPrefix : parsedParts.identifier
+                , dataPrefix : TMTransportUtils.getConnectionLocatorProperty(parsedParts, "dataPrefix", parsedParts.identifier+"_data")
+                , extraDataPrefix : TMTransportUtils.getConnectionLocatorProperty(parsedParts, "extraDataPrefix", parsedParts.identifier+"_extra_data")
+            };
+            return ["redis", conf];
+        } else {
+            return null;
+        }
     }
 }
