@@ -225,10 +225,10 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 auto deserializer = simplyDeserialize<A>();
                 auto serializer = basic::SerializationActions<M>::template serializeWithKey<A,B>();
 
-                runner.registerImporter(std::get<0>(importerExporterPair), wrapperItemsNamePrefix+"_incomingLeg");
-                runner.registerExporter(std::get<1>(importerExporterPair), wrapperItemsNamePrefix+"_outgoingLeg");
-                runner.registerAction(deserializer, wrapperItemsNamePrefix+"_deserializer");
-                runner.registerAction(serializer, wrapperItemsNamePrefix+"_serializer");
+                runner.registerImporter(std::get<0>(importerExporterPair), wrapperItemsNamePrefix+"/incomingLeg");
+                runner.registerExporter(std::get<1>(importerExporterPair), wrapperItemsNamePrefix+"/outgoingLeg");
+                runner.registerAction(deserializer, wrapperItemsNamePrefix+"/deserializer");
+                runner.registerAction(serializer, wrapperItemsNamePrefix+"/serializer");
                 runner.execute(deserializer, runner.importItem(std::get<0>(importerExporterPair)));
                 runner.placeOrderWithFacility(runner.actionAsSource(deserializer), toBeWrapped, runner.actionAsSink(serializer));
                 runner.connect(runner.actionAsSource(serializer), runner.exporterAsSink(std::get<1>(importerExporterPair)));
@@ -246,8 +246,8 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 auto importer = createOnOrderFacilityRPCConnectorIncomingLegOnly(rpcQueueLocator, DefaultHookFactory<Env>::template supplyFacilityHookPair_ServerSide<A,B>(runner.environment(), hooks));
                 auto deserializer = simplyDeserialize<A>();
 
-                runner.registerImporter(importer, wrapperItemsNamePrefix+"_incomingLeg");
-                runner.registerAction(deserializer, wrapperItemsNamePrefix+"_deserializer");
+                runner.registerImporter(importer, wrapperItemsNamePrefix+"/incomingLeg");
+                runner.registerAction(deserializer, wrapperItemsNamePrefix+"/deserializer");
                 runner.execute(deserializer, runner.importItem(importer));
                 runner.placeOrderWithFacilityAndForget(runner.actionAsSource(deserializer), toBeWrapped);
 
@@ -265,10 +265,10 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 auto deserializer = simplyDeserialize<A>();
                 auto serializer = basic::SerializationActions<M>::template serializeWithKey<A,B>();
 
-                runner.registerImporter(std::get<0>(importerExporterPair), wrapperItemsNamePrefix+"_incomingLeg");
-                runner.registerExporter(std::get<1>(importerExporterPair), wrapperItemsNamePrefix+"_outgoingLeg");
-                runner.registerAction(deserializer, wrapperItemsNamePrefix+"_deserializer");
-                runner.registerAction(serializer, wrapperItemsNamePrefix+"_serializer");
+                runner.registerImporter(std::get<0>(importerExporterPair), wrapperItemsNamePrefix+"/incomingLeg");
+                runner.registerExporter(std::get<1>(importerExporterPair), wrapperItemsNamePrefix+"/outgoingLeg");
+                runner.registerAction(deserializer, wrapperItemsNamePrefix+"/deserializer");
+                runner.registerAction(serializer, wrapperItemsNamePrefix+"/serializer");
                 runner.execute(deserializer, runner.importItem(std::get<0>(importerExporterPair)));
                 runner.placeOrderWithLocalFacility(runner.actionAsSource(deserializer), toBeWrapped, runner.actionAsSink(serializer));
                 runner.connect(runner.actionAsSource(serializer), runner.exporterAsSink(std::get<1>(importerExporterPair)));
@@ -286,8 +286,8 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 auto importer = createOnOrderFacilityRPCConnectorIncomingLegOnly(rpcQueueLocator, DefaultHookFactory<Env>::template supplyFacilityHookPair_ServerSide<A,B>(runner.environment(), hooks));
                 auto deserializer = simplyDeserialize<A>();
 
-                runner.registerImporter(importer, wrapperItemsNamePrefix+"_incomingLeg");
-                runner.registerAction(deserializer, wrapperItemsNamePrefix+"_deserializer");
+                runner.registerImporter(importer, wrapperItemsNamePrefix+"/incomingLeg");
+                runner.registerAction(deserializer, wrapperItemsNamePrefix+"/deserializer");
                 runner.execute(deserializer, runner.importItem(importer));
                 runner.placeOrderWithLocalFacilityAndForget(runner.actionAsSource(deserializer), toBeWrapped);
 
@@ -305,10 +305,10 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 auto deserializer = simplyDeserialize<A>();
                 auto serializer = basic::SerializationActions<M>::template serializeWithKey<A,B>();
 
-                runner.registerImporter(std::get<0>(importerExporterPair), wrapperItemsNamePrefix+"_incomingLeg");
-                runner.registerExporter(std::get<1>(importerExporterPair), wrapperItemsNamePrefix+"_outgoingLeg");
-                runner.registerAction(deserializer, wrapperItemsNamePrefix+"_deserializer");
-                runner.registerAction(serializer, wrapperItemsNamePrefix+"_serializer");
+                runner.registerImporter(std::get<0>(importerExporterPair), wrapperItemsNamePrefix+"/incomingLeg");
+                runner.registerExporter(std::get<1>(importerExporterPair), wrapperItemsNamePrefix+"/outgoingLeg");
+                runner.registerAction(deserializer, wrapperItemsNamePrefix+"/deserializer");
+                runner.registerAction(serializer, wrapperItemsNamePrefix+"/serializer");
                 runner.execute(deserializer, runner.importItem(std::get<0>(importerExporterPair)));
                 runner.placeOrderWithFacilityWithExternalEffects(runner.actionAsSource(deserializer), toBeWrapped, runner.actionAsSink(serializer));
                 runner.connect(runner.actionAsSource(serializer), runner.exporterAsSink(std::get<1>(importerExporterPair)));
@@ -326,8 +326,8 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 auto importer = createOnOrderFacilityRPCConnectorIncomingLegOnly(rpcQueueLocator, DefaultHookFactory<Env>::template supplyFacilityHookPair_ServerSide<A,B>(runner.environment(), hooks));
                 auto deserializer = simplyDeserialize<A>();
 
-                runner.registerImporter(importer, wrapperItemsNamePrefix+"_incomingLeg");
-                runner.registerAction(deserializer, wrapperItemsNamePrefix+"_deserializer");
+                runner.registerImporter(importer, wrapperItemsNamePrefix+"/incomingLeg");
+                runner.registerAction(deserializer, wrapperItemsNamePrefix+"/deserializer");
                 runner.execute(deserializer, runner.importItem(importer));
                 runner.placeOrderWithFacilityWithExternalEffectsAndForget(runner.actionAsSource(deserializer), toBeWrapped);
 
@@ -345,10 +345,10 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 auto deserializer = simplyDeserialize<A>();
                 auto serializer = basic::SerializationActions<M>::template serializeWithKey<A,B>();
 
-                runner.registerImporter(std::get<0>(importerExporterPair), wrapperItemsNamePrefix+"_incomingLeg");
-                runner.registerExporter(std::get<1>(importerExporterPair), wrapperItemsNamePrefix+"_outgoingLeg");
-                runner.registerAction(deserializer, wrapperItemsNamePrefix+"_deserializer");
-                runner.registerAction(serializer, wrapperItemsNamePrefix+"_serializer");
+                runner.registerImporter(std::get<0>(importerExporterPair), wrapperItemsNamePrefix+"/incomingLeg");
+                runner.registerExporter(std::get<1>(importerExporterPair), wrapperItemsNamePrefix+"/outgoingLeg");
+                runner.registerAction(deserializer, wrapperItemsNamePrefix+"/deserializer");
+                runner.registerAction(serializer, wrapperItemsNamePrefix+"/serializer");
                 runner.execute(deserializer, runner.importItem(std::get<0>(importerExporterPair)));
                 runner.placeOrderWithVIEFacility(runner.actionAsSource(deserializer), toBeWrapped, runner.actionAsSink(serializer));
                 runner.connect(runner.actionAsSource(serializer), runner.exporterAsSink(std::get<1>(importerExporterPair)));
@@ -366,8 +366,8 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 auto importer = createOnOrderFacilityRPCConnectorIncomingLegOnly(rpcQueueLocator, DefaultHookFactory<Env>::template supplyFacilityHookPair_ServerSide<A,B>(runner.environment(), hooks));
                 auto deserializer = simplyDeserialize<A>();
 
-                runner.registerImporter(importer, wrapperItemsNamePrefix+"_incomingLeg");
-                runner.registerAction(deserializer, wrapperItemsNamePrefix+"_deserializer");
+                runner.registerImporter(importer, wrapperItemsNamePrefix+"/incomingLeg");
+                runner.registerAction(deserializer, wrapperItemsNamePrefix+"/deserializer");
                 runner.execute(deserializer, runner.importItem(importer));
                 runner.placeOrderWithVIEFacilityAndForget(runner.actionAsSource(deserializer), toBeWrapped);
 
@@ -386,10 +386,10 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 auto deserializer = simplyDeserialize<A>();
                 auto serializer = basic::SerializationActions<M>::template serializeWithKey<A,B>();
 
-                runner.registerImporter(std::get<0>(importerExporterPair), wrapperItemsNamePrefix+"_incomingLeg");
-                runner.registerExporter(std::get<1>(importerExporterPair), wrapperItemsNamePrefix+"_outgoingLeg");
-                runner.registerAction(deserializer, wrapperItemsNamePrefix+"_deserializer");
-                runner.registerAction(serializer, wrapperItemsNamePrefix+"_serializer");
+                runner.registerImporter(std::get<0>(importerExporterPair), wrapperItemsNamePrefix+"/incomingLeg");
+                runner.registerExporter(std::get<1>(importerExporterPair), wrapperItemsNamePrefix+"/outgoingLeg");
+                runner.registerAction(deserializer, wrapperItemsNamePrefix+"/deserializer");
+                runner.registerAction(serializer, wrapperItemsNamePrefix+"/serializer");
                 runner.execute(deserializer, runner.importItem(std::get<0>(importerExporterPair)));
                 toBeWrapped(runner, runner.actionAsSource(deserializer), runner.actionAsSink(serializer));
                 runner.connect(runner.actionAsSource(serializer), runner.exporterAsSink(std::get<1>(importerExporterPair)));
@@ -408,8 +408,8 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 auto importer = createOnOrderFacilityRPCConnectorIncomingLegOnly(rpcQueueLocator, DefaultHookFactory<Env>::template supplyFacilityHookPair_ServerSide<A,B>(runner.environment(), hooks));
                 auto deserializer = simplyDeserialize<A>();
 
-                runner.registerImporter(importer, wrapperItemsNamePrefix+"_incomingLeg");
-                runner.registerAction(deserializer, wrapperItemsNamePrefix+"_deserializer");
+                runner.registerImporter(importer, wrapperItemsNamePrefix+"/incomingLeg");
+                runner.registerAction(deserializer, wrapperItemsNamePrefix+"/deserializer");
                 runner.execute(deserializer, runner.importItem(importer));
                 toBeWrapped(runner, runner.actionAsSource(deserializer), std::nullopt);
 
@@ -571,10 +571,10 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 auto deserializer = checkIdentityAndDeserialize<Identity,A>();
                 auto serializer = serializeBasedOnIdentity<Identity,A,B>();
 
-                runner.registerImporter(std::get<0>(importerExporterPair), wrapperItemsNamePrefix+"_incomingLeg");
-                runner.registerExporter(std::get<1>(importerExporterPair), wrapperItemsNamePrefix+"_outgoingLeg");
-                runner.registerAction(deserializer, wrapperItemsNamePrefix+"_deserializer");
-                runner.registerAction(serializer, wrapperItemsNamePrefix+"_serializer");
+                runner.registerImporter(std::get<0>(importerExporterPair), wrapperItemsNamePrefix+"/incomingLeg");
+                runner.registerExporter(std::get<1>(importerExporterPair), wrapperItemsNamePrefix+"/outgoingLeg");
+                runner.registerAction(deserializer, wrapperItemsNamePrefix+"/deserializer");
+                runner.registerAction(serializer, wrapperItemsNamePrefix+"/serializer");
                 runner.execute(deserializer, runner.importItem(std::get<0>(importerExporterPair)));
                 runner.placeOrderWithFacility(runner.actionAsSource(deserializer), toBeWrapped, runner.actionAsSink(serializer));
                 runner.connect(runner.actionAsSource(serializer), runner.exporterAsSink(std::get<1>(importerExporterPair)));
@@ -592,8 +592,8 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 auto importer = createOnOrderFacilityRPCConnectorIncomingLegOnly(rpcQueueLocator, DefaultHookFactory<Env>::template supplyFacilityHookPair_ServerSide<A,B>(runner.environment(), hooks));
                 auto deserializer = checkIdentityAndDeserialize<Identity,A>();
 
-                runner.registerImporter(importer, wrapperItemsNamePrefix+"_incomingLeg");
-                runner.registerAction(deserializer, wrapperItemsNamePrefix+"_deserializer");
+                runner.registerImporter(importer, wrapperItemsNamePrefix+"/incomingLeg");
+                runner.registerAction(deserializer, wrapperItemsNamePrefix+"/deserializer");
                 runner.execute(deserializer, runner.importItem(importer));
                 runner.placeOrderWithFacilityAndForget(runner.actionAsSource(deserializer), toBeWrapped);
 
@@ -611,10 +611,10 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 auto deserializer = checkIdentityAndDeserialize<Identity,A>();
                 auto serializer = serializeBasedOnIdentity<Identity,A,B>();
 
-                runner.registerImporter(std::get<0>(importerExporterPair), wrapperItemsNamePrefix+"_incomingLeg");
-                runner.registerExporter(std::get<1>(importerExporterPair), wrapperItemsNamePrefix+"_outgoingLeg");
-                runner.registerAction(deserializer, wrapperItemsNamePrefix+"_deserializer");
-                runner.registerAction(serializer, wrapperItemsNamePrefix+"_serializer");
+                runner.registerImporter(std::get<0>(importerExporterPair), wrapperItemsNamePrefix+"/incomingLeg");
+                runner.registerExporter(std::get<1>(importerExporterPair), wrapperItemsNamePrefix+"/outgoingLeg");
+                runner.registerAction(deserializer, wrapperItemsNamePrefix+"/deserializer");
+                runner.registerAction(serializer, wrapperItemsNamePrefix+"/serializer");
                 runner.execute(deserializer, runner.importItem(std::get<0>(importerExporterPair)));
                 runner.placeOrderWithLocalFacility(runner.actionAsSource(deserializer), toBeWrapped, runner.actionAsSink(serializer));
                 runner.connect(runner.actionAsSource(serializer), runner.exporterAsSink(std::get<1>(importerExporterPair)));
@@ -632,8 +632,8 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 auto importer = createOnOrderFacilityRPCConnectorIncomingLegOnly(rpcQueueLocator, DefaultHookFactory<Env>::template supplyFacilityHookPair_ServerSide<A,B>(runner.environment(), hooks));
                 auto deserializer = checkIdentityAndDeserialize<Identity,A>();
 
-                runner.registerImporter(importer, wrapperItemsNamePrefix+"_incomingLeg");
-                runner.registerAction(deserializer, wrapperItemsNamePrefix+"_deserializer");
+                runner.registerImporter(importer, wrapperItemsNamePrefix+"/incomingLeg");
+                runner.registerAction(deserializer, wrapperItemsNamePrefix+"/deserializer");
                 runner.execute(deserializer, runner.importItem(importer));
                 runner.placeOrderWithLocalFacilityAndForget(runner.actionAsSource(deserializer), toBeWrapped);
 
@@ -651,10 +651,10 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 auto deserializer = checkIdentityAndDeserialize<Identity,A>();
                 auto serializer = serializeBasedOnIdentity<Identity,A,B>();
 
-                runner.registerImporter(std::get<0>(importerExporterPair), wrapperItemsNamePrefix+"_incomingLeg");
-                runner.registerExporter(std::get<1>(importerExporterPair), wrapperItemsNamePrefix+"_outgoingLeg");
-                runner.registerAction(deserializer, wrapperItemsNamePrefix+"_deserializer");
-                runner.registerAction(serializer, wrapperItemsNamePrefix+"_serializer");
+                runner.registerImporter(std::get<0>(importerExporterPair), wrapperItemsNamePrefix+"/incomingLeg");
+                runner.registerExporter(std::get<1>(importerExporterPair), wrapperItemsNamePrefix+"/outgoingLeg");
+                runner.registerAction(deserializer, wrapperItemsNamePrefix+"/deserializer");
+                runner.registerAction(serializer, wrapperItemsNamePrefix+"/serializer");
                 runner.execute(deserializer, runner.importItem(std::get<0>(importerExporterPair)));
                 runner.placeOrderWithFacilityWithExternalEffects(runner.actionAsSource(deserializer), toBeWrapped, runner.actionAsSink(serializer));
                 runner.connect(runner.actionAsSource(serializer), runner.exporterAsSink(std::get<1>(importerExporterPair)));
@@ -672,8 +672,8 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 auto importer = createOnOrderFacilityRPCConnectorIncomingLegOnly(rpcQueueLocator, DefaultHookFactory<Env>::template supplyFacilityHookPair_ServerSide<A,B>(runner.environment(), hooks));
                 auto deserializer = checkIdentityAndDeserialize<Identity,A>();
 
-                runner.registerImporter(importer, wrapperItemsNamePrefix+"_incomingLeg");
-                runner.registerAction(deserializer, wrapperItemsNamePrefix+"_deserializer");
+                runner.registerImporter(importer, wrapperItemsNamePrefix+"/incomingLeg");
+                runner.registerAction(deserializer, wrapperItemsNamePrefix+"/deserializer");
                 runner.execute(deserializer, runner.importItem(importer));
                 runner.placeOrderWithFacilityWithExternalEffectsAndForget(runner.actionAsSource(deserializer), toBeWrapped);
 
@@ -691,10 +691,10 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 auto deserializer = checkIdentityAndDeserialize<Identity,A>();
                 auto serializer = serializeBasedOnIdentity<Identity,A,B>();
 
-                runner.registerImporter(std::get<0>(importerExporterPair), wrapperItemsNamePrefix+"_incomingLeg");
-                runner.registerExporter(std::get<1>(importerExporterPair), wrapperItemsNamePrefix+"_outgoingLeg");
-                runner.registerAction(deserializer, wrapperItemsNamePrefix+"_deserializer");
-                runner.registerAction(serializer, wrapperItemsNamePrefix+"_serializer");
+                runner.registerImporter(std::get<0>(importerExporterPair), wrapperItemsNamePrefix+"/incomingLeg");
+                runner.registerExporter(std::get<1>(importerExporterPair), wrapperItemsNamePrefix+"/outgoingLeg");
+                runner.registerAction(deserializer, wrapperItemsNamePrefix+"/deserializer");
+                runner.registerAction(serializer, wrapperItemsNamePrefix+"/serializer");
                 runner.execute(deserializer, runner.importItem(std::get<0>(importerExporterPair)));
                 runner.placeOrderWithVIEFacility(runner.actionAsSource(deserializer), toBeWrapped, runner.actionAsSink(serializer));
                 runner.connect(runner.actionAsSource(serializer), runner.exporterAsSink(std::get<1>(importerExporterPair)));
@@ -712,8 +712,8 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 auto importer = createOnOrderFacilityRPCConnectorIncomingLegOnly(rpcQueueLocator, DefaultHookFactory<Env>::template supplyFacilityHookPair_ServerSide<A,B>(runner.environment(), hooks));
                 auto deserializer = checkIdentityAndDeserialize<Identity,A>();
 
-                runner.registerImporter(importer, wrapperItemsNamePrefix+"_incomingLeg");
-                runner.registerAction(deserializer, wrapperItemsNamePrefix+"_deserializer");
+                runner.registerImporter(importer, wrapperItemsNamePrefix+"/incomingLeg");
+                runner.registerAction(deserializer, wrapperItemsNamePrefix+"/deserializer");
                 runner.execute(deserializer, runner.importItem(importer));
                 runner.placeOrderWithVIEFacilityAndForget(runner.actionAsSource(deserializer), toBeWrapped);
 
@@ -732,10 +732,10 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 auto deserializer = checkIdentityAndDeserialize<Identity,A>();
                 auto serializer = serializeBasedOnIdentity<Identity,A,B>();
 
-                runner.registerImporter(std::get<0>(importerExporterPair), wrapperItemsNamePrefix+"_incomingLeg");
-                runner.registerExporter(std::get<1>(importerExporterPair), wrapperItemsNamePrefix+"_outgoingLeg");
-                runner.registerAction(deserializer, wrapperItemsNamePrefix+"_deserializer");
-                runner.registerAction(serializer, wrapperItemsNamePrefix+"_serializer");
+                runner.registerImporter(std::get<0>(importerExporterPair), wrapperItemsNamePrefix+"/incomingLeg");
+                runner.registerExporter(std::get<1>(importerExporterPair), wrapperItemsNamePrefix+"/outgoingLeg");
+                runner.registerAction(deserializer, wrapperItemsNamePrefix+"/deserializer");
+                runner.registerAction(serializer, wrapperItemsNamePrefix+"/serializer");
                 runner.execute(deserializer, runner.importItem(std::get<0>(importerExporterPair)));
                 toBeWrapped(runner, runner.actionAsSource(deserializer), runner.actionAsSink(serializer));
                 runner.connect(runner.actionAsSource(serializer), runner.exporterAsSink(std::get<1>(importerExporterPair)));
@@ -754,8 +754,8 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 auto importer = createOnOrderFacilityRPCConnectorIncomingLegOnly(rpcQueueLocator, DefaultHookFactory<Env>::template supplyFacilityHookPair_ServerSide<A,B>(runner.environment(), hooks));
                 auto deserializer = checkIdentityAndDeserialize<Identity,A>();
 
-                runner.registerImporter(importer, wrapperItemsNamePrefix+"_incomingLeg");
-                runner.registerAction(deserializer, wrapperItemsNamePrefix+"_deserializer");
+                runner.registerImporter(importer, wrapperItemsNamePrefix+"/incomingLeg");
+                runner.registerAction(deserializer, wrapperItemsNamePrefix+"/deserializer");
                 runner.execute(deserializer, runner.importItem(importer));
                 toBeWrapped(runner, runner.actionAsSource(deserializer), std::nullopt);
 
