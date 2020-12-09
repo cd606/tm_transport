@@ -68,89 +68,126 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
             >> &&)> outputReceiver
         ) 
         {
-            auto parsedSpec = parseMultiTransportBroadcastChannel(spec.channel);
-            typename R::template ImporterPtr<basic::TypedDataWithTopic<FirstInputType>> sub {};
-            if (parsedSpec) {
-                switch (std::get<0>(*parsedSpec)) {
-                case MultiTransportBroadcastListenerConnectionType::Multicast:
-                    if constexpr (std::is_convertible_v<Env *, multicast::MulticastComponent *>) {
-                        sub = multicast::MulticastImporterExporter<Env>::template createTypedImporter<FirstInputType>(
-                            std::get<1>(*parsedSpec)
-                            , MultiTransportBroadcastListenerTopicHelper<multicast::MulticastComponent>::parseTopic(getTopic_internal(std::get<0>(*parsedSpec), spec.topicDescription))
-                            , hookFactory(spec.name)
-                        );
-                        r.registerImporter(prefix+"/"+spec.name, sub);
-                    } else {
-                        r.environment()->log(infra::LogLevel::Warning, "[MultiTransportBroadcastListenerManagingUtils::setupBroadcastListeners_internal] Trying to create multicast publisher with channel spec '"+spec.channel+"', but multicast is unsupported in the environment");
-                    }
-                    break;
-                case MultiTransportBroadcastListenerConnectionType::RabbitMQ:
-                    if constexpr (std::is_convertible_v<Env *, rabbitmq::RabbitMQComponent *>) {
-                        sub = rabbitmq::RabbitMQImporterExporter<Env>::template createTypedImporter<FirstInputType>(
-                            std::get<1>(*parsedSpec)
-                            , getTopic_internal(std::get<0>(*parsedSpec), spec.topicDescription)
-                            , hookFactory(spec.name)
-                        );
-                        r.registerImporter(prefix+"/"+spec.name, sub);
-                    } else {
-                        r.environment()->log(infra::LogLevel::Warning, "[MultiTransportBroadcastListenerManagingUtils::setupBroadcastListeners_internal] Trying to create rabbitmq publisher with channel spec '"+spec.channel+"', but rabbitmq is unsupported in the environment");
-                    }
-                    break;
-                case MultiTransportBroadcastListenerConnectionType::Redis:
-                    if constexpr (std::is_convertible_v<Env *, redis::RedisComponent *>) {
-                        sub = redis::RedisImporterExporter<Env>::template createTypedImporter<FirstInputType>(
-                            std::get<1>(*parsedSpec)
-                            , getTopic_internal(std::get<0>(*parsedSpec), spec.topicDescription)
-                            , hookFactory(spec.name)
-                        );
-                        r.registerImporter(prefix+"/"+spec.name, sub);
-                    } else {
-                        r.environment()->log(infra::LogLevel::Warning, "[MultiTransportBroadcastListenerManagingUtils::setupBroadcastListeners_internal] Trying to create redis publisher with channel spec '"+spec.channel+"', but redis is unsupported in the environment");
-                    }
-                    break;
-                case MultiTransportBroadcastListenerConnectionType::ZeroMQ:
-                    if constexpr (std::is_convertible_v<Env *, zeromq::ZeroMQComponent *>) {
-                        sub = zeromq::ZeroMQImporterExporter<Env>::template createTypedImporter<FirstInputType>(
-                            std::get<1>(*parsedSpec)
-                            , MultiTransportBroadcastListenerTopicHelper<zeromq::ZeroMQComponent>::parseTopic(getTopic_internal(std::get<0>(*parsedSpec), spec.topicDescription))
-                            , hookFactory(spec.name)
-                        );
-                        r.registerImporter(prefix+"/"+spec.name, sub);
-                    } else {
-                        r.environment()->log(infra::LogLevel::Warning, "[MultiTransportBroadcastListenerManagingUtils::setupBroadcastListeners_internal] Trying to create zeromq publisher with channel spec '"+spec.channel+"', but zeromq is unsupported in the environment");
-                    }
-                    break;
-                case MultiTransportBroadcastListenerConnectionType::NNG:
-                    if constexpr (std::is_convertible_v<Env *, nng::NNGComponent *>) {
-                        sub = nng::NNGImporterExporter<Env>::template createTypedImporter<FirstInputType>(
-                            std::get<1>(*parsedSpec)
-                            , MultiTransportBroadcastListenerTopicHelper<nng::NNGComponent>::parseTopic(getTopic_internal(std::get<0>(*parsedSpec), spec.topicDescription))
-                            , hookFactory(spec.name)
-                        );
-                        r.registerImporter(prefix+"/"+spec.name, sub);
-                    } else {
-                        r.environment()->log(infra::LogLevel::Warning, "[MultiTransportBroadcastListenerManagingUtils::setupBroadcastListeners_internal] Trying to create nng publisher with channel spec '"+spec.channel+"', but nng is unsupported in the environment");
-                    }
-                    break;
-                default:
-                    r.environment()->log(infra::LogLevel::Warning, "[MultiTransportBroadcastListenerManagingUtils::setupBroadcastListeners_internal] Trying to create unknown-protocol publisher with channel spec '"+spec.channel+"'");
-                    break;
-                }
-                if (sub) {
-                    if constexpr (RemoveTopic) {
-                        auto removeTopic = M::template liftPure<basic::TypedDataWithTopic<FirstInputType>>(
-                            [](basic::TypedDataWithTopic<FirstInputType> &&d) -> FirstInputType {
-                                return std::move(d.content);
+            if constexpr (!basic::bytedata_utils::DirectlySerializableChecker<FirstInputType>::IsDirectlySerializable()) {
+                auto adapter = [outputReceiver,&r,prefix,spec](typename R::template Source<std::conditional_t<
+                    RemoveTopic
+                    , basic::CBOR<FirstInputType>
+                    , basic::TypedDataWithTopic<basic::CBOR<FirstInputType>>
+                >> &&s) {
+                    auto transform = M::template liftPure<std::conditional_t<
+                        RemoveTopic
+                        , basic::CBOR<FirstInputType>
+                        , basic::TypedDataWithTopic<basic::CBOR<FirstInputType>>
+                    >>(
+                        [outputReceiver](std::conditional_t<
+                            RemoveTopic
+                            , basic::CBOR<FirstInputType>
+                            , basic::TypedDataWithTopic<basic::CBOR<FirstInputType>>
+                        > &&data) -> std::conditional_t<
+                            RemoveTopic
+                            , FirstInputType
+                            , basic::TypedDataWithTopic<FirstInputType>
+                        > {
+                            if constexpr (RemoveTopic) {
+                                return std::move(data.value);
+                            } else {
+                                return {std::move(data.content.value), std::move(data.topic)};
                             }
-                        );
-                        r.registerAction(prefix+"/"+spec.name+".removeTopic", removeTopic);
-                        outputReceiver(r.execute(removeTopic, r.importItem(sub)));
-                    } else {
-                        outputReceiver(r.importItem(sub));
-                    }
-                }
+                        }
+                    );
+                    r.registerAction(prefix+"/"+spec.name+":transform", transform);
+                    outputReceiver(
+                        r.execute(transform, std::move(s))
+                    );
+                };
+                setupOneBroadcastListener_internal<RemoveTopic, basic::CBOR<FirstInputType>>(
+                    r, spec, prefix, hookFactory, adapter
+                );
             } else {
-                r.environment()->log(infra::LogLevel::Warning, "[MultiTransportBroadcastListenerManagingUtils::setupBroadcastListeners_internal] Unrecognized spec channel '"+spec.channel+"'");
+                auto parsedSpec = parseMultiTransportBroadcastChannel(spec.channel);
+                typename R::template ImporterPtr<basic::TypedDataWithTopic<FirstInputType>> sub {};
+                if (parsedSpec) {
+                    switch (std::get<0>(*parsedSpec)) {
+                    case MultiTransportBroadcastListenerConnectionType::Multicast:
+                        if constexpr (std::is_convertible_v<Env *, multicast::MulticastComponent *>) {
+                            sub = multicast::MulticastImporterExporter<Env>::template createTypedImporter<FirstInputType>(
+                                std::get<1>(*parsedSpec)
+                                , MultiTransportBroadcastListenerTopicHelper<multicast::MulticastComponent>::parseTopic(getTopic_internal(std::get<0>(*parsedSpec), spec.topicDescription))
+                                , hookFactory(spec.name)
+                            );
+                            r.registerImporter(prefix+"/"+spec.name, sub);
+                        } else {
+                            r.environment()->log(infra::LogLevel::Warning, "[MultiTransportBroadcastListenerManagingUtils::setupBroadcastListeners_internal] Trying to create multicast publisher with channel spec '"+spec.channel+"', but multicast is unsupported in the environment");
+                        }
+                        break;
+                    case MultiTransportBroadcastListenerConnectionType::RabbitMQ:
+                        if constexpr (std::is_convertible_v<Env *, rabbitmq::RabbitMQComponent *>) {
+                            sub = rabbitmq::RabbitMQImporterExporter<Env>::template createTypedImporter<FirstInputType>(
+                                std::get<1>(*parsedSpec)
+                                , getTopic_internal(std::get<0>(*parsedSpec), spec.topicDescription)
+                                , hookFactory(spec.name)
+                            );
+                            r.registerImporter(prefix+"/"+spec.name, sub);
+                        } else {
+                            r.environment()->log(infra::LogLevel::Warning, "[MultiTransportBroadcastListenerManagingUtils::setupBroadcastListeners_internal] Trying to create rabbitmq publisher with channel spec '"+spec.channel+"', but rabbitmq is unsupported in the environment");
+                        }
+                        break;
+                    case MultiTransportBroadcastListenerConnectionType::Redis:
+                        if constexpr (std::is_convertible_v<Env *, redis::RedisComponent *>) {
+                            sub = redis::RedisImporterExporter<Env>::template createTypedImporter<FirstInputType>(
+                                std::get<1>(*parsedSpec)
+                                , getTopic_internal(std::get<0>(*parsedSpec), spec.topicDescription)
+                                , hookFactory(spec.name)
+                            );
+                            r.registerImporter(prefix+"/"+spec.name, sub);
+                        } else {
+                            r.environment()->log(infra::LogLevel::Warning, "[MultiTransportBroadcastListenerManagingUtils::setupBroadcastListeners_internal] Trying to create redis publisher with channel spec '"+spec.channel+"', but redis is unsupported in the environment");
+                        }
+                        break;
+                    case MultiTransportBroadcastListenerConnectionType::ZeroMQ:
+                        if constexpr (std::is_convertible_v<Env *, zeromq::ZeroMQComponent *>) {
+                            sub = zeromq::ZeroMQImporterExporter<Env>::template createTypedImporter<FirstInputType>(
+                                std::get<1>(*parsedSpec)
+                                , MultiTransportBroadcastListenerTopicHelper<zeromq::ZeroMQComponent>::parseTopic(getTopic_internal(std::get<0>(*parsedSpec), spec.topicDescription))
+                                , hookFactory(spec.name)
+                            );
+                            r.registerImporter(prefix+"/"+spec.name, sub);
+                        } else {
+                            r.environment()->log(infra::LogLevel::Warning, "[MultiTransportBroadcastListenerManagingUtils::setupBroadcastListeners_internal] Trying to create zeromq publisher with channel spec '"+spec.channel+"', but zeromq is unsupported in the environment");
+                        }
+                        break;
+                    case MultiTransportBroadcastListenerConnectionType::NNG:
+                        if constexpr (std::is_convertible_v<Env *, nng::NNGComponent *>) {
+                            sub = nng::NNGImporterExporter<Env>::template createTypedImporter<FirstInputType>(
+                                std::get<1>(*parsedSpec)
+                                , MultiTransportBroadcastListenerTopicHelper<nng::NNGComponent>::parseTopic(getTopic_internal(std::get<0>(*parsedSpec), spec.topicDescription))
+                                , hookFactory(spec.name)
+                            );
+                            r.registerImporter(prefix+"/"+spec.name, sub);
+                        } else {
+                            r.environment()->log(infra::LogLevel::Warning, "[MultiTransportBroadcastListenerManagingUtils::setupBroadcastListeners_internal] Trying to create nng publisher with channel spec '"+spec.channel+"', but nng is unsupported in the environment");
+                        }
+                        break;
+                    default:
+                        r.environment()->log(infra::LogLevel::Warning, "[MultiTransportBroadcastListenerManagingUtils::setupBroadcastListeners_internal] Trying to create unknown-protocol publisher with channel spec '"+spec.channel+"'");
+                        break;
+                    }
+                    if (sub) {
+                        if constexpr (RemoveTopic) {
+                            auto removeTopic = M::template liftPure<basic::TypedDataWithTopic<FirstInputType>>(
+                                [](basic::TypedDataWithTopic<FirstInputType> &&d) -> FirstInputType {
+                                    return std::move(d.content);
+                                }
+                            );
+                            r.registerAction(prefix+"/"+spec.name+".removeTopic", removeTopic);
+                            outputReceiver(r.execute(removeTopic, r.importItem(sub)));
+                        } else {
+                            outputReceiver(r.importItem(sub));
+                        }
+                    }
+                } else {
+                    r.environment()->log(infra::LogLevel::Warning, "[MultiTransportBroadcastListenerManagingUtils::setupBroadcastListeners_internal] Unrecognized spec channel '"+spec.channel+"'");
+                }
             }
         }
         template <bool RemoveTopic, int CurrentIdx, class Input, class Output, class FirstInputType, class ... RemainingInputTypes>

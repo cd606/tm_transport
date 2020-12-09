@@ -27,69 +27,86 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
             , std::optional<UserToWireHook> hook = std::nullopt
         ) -> typename R::template Sink<basic::TypedDataWithTopic<OutputType>>
         {
-            auto parsed = parseMultiTransportBroadcastChannel(channelSpec);
-            if (!parsed) {
-                throw std::runtime_error("[MultiTransportBroadcastPublisherManagingUtils::oneBroadcastPublisher] Unknown channel spec '"+channelSpec+"'");
-            }
-            switch (std::get<0>(*parsed)) {
-            case MultiTransportBroadcastListenerConnectionType::Multicast:
-                if constexpr (std::is_convertible_v<Env *, multicast::MulticastComponent *>) {
-                    auto pub = multicast::MulticastImporterExporter<Env>::template createTypedExporter<OutputType>(
-                        std::get<1>(*parsed), hook, name
-                    );
-                    r.registerExporter(name, pub);
-                    return r.exporterAsSink(pub);
-                } else {
-                    throw std::runtime_error("[MultiTransportBroadcastPublisherManagingUtils::oneBroadcastPublisher] Trying to create multicast publisher with channel spec '"+channelSpec+"', but multicast is unsupported in the environment");
+            if constexpr (!basic::bytedata_utils::DirectlySerializableChecker<OutputType>::IsDirectlySerializable()) {
+                auto s = oneBroadcastPublisher<basic::CBOR<OutputType>>(
+                    r, name, channelSpec, hook
+                );
+                auto transform = M::template liftPure<basic::TypedDataWithTopic<OutputType>>(
+                    [](basic::TypedDataWithTopic<OutputType> &&x) -> basic::TypedDataWithTopic<basic::CBOR<OutputType>> {
+                        return {
+                            {std::move(x.content)}
+                            , std::move(x.topic)
+                        };
+                    }
+                );
+                r.registerAction(name+":transform", transform);
+                r.connect(r.actionAsSource(transform), s);
+                return r.actionAsSink(transform);
+            } else {
+                auto parsed = parseMultiTransportBroadcastChannel(channelSpec);
+                if (!parsed) {
+                    throw std::runtime_error("[MultiTransportBroadcastPublisherManagingUtils::oneBroadcastPublisher] Unknown channel spec '"+channelSpec+"'");
                 }
-                break;
-            case MultiTransportBroadcastListenerConnectionType::RabbitMQ:
-                if constexpr (std::is_convertible_v<Env *, rabbitmq::RabbitMQComponent *>) {
-                    auto pub = rabbitmq::RabbitMQImporterExporter<Env>::template createTypedExporter<OutputType>(
-                        std::get<1>(*parsed), hook, name
-                    );
-                    r.registerExporter(name, pub);
-                    return r.exporterAsSink(pub);
-                } else {
-                    throw std::runtime_error("[MultiTransportBroadcastPublisherManagingUtils::oneBroadcastPublisher] Trying to create rabbitmq publisher with channel spec '"+channelSpec+"', but rabbitmq is unsupported in the environment");
+                switch (std::get<0>(*parsed)) {
+                case MultiTransportBroadcastListenerConnectionType::Multicast:
+                    if constexpr (std::is_convertible_v<Env *, multicast::MulticastComponent *>) {
+                        auto pub = multicast::MulticastImporterExporter<Env>::template createTypedExporter<OutputType>(
+                            std::get<1>(*parsed), hook, name
+                        );
+                        r.registerExporter(name, pub);
+                        return r.exporterAsSink(pub);
+                    } else {
+                        throw std::runtime_error("[MultiTransportBroadcastPublisherManagingUtils::oneBroadcastPublisher] Trying to create multicast publisher with channel spec '"+channelSpec+"', but multicast is unsupported in the environment");
+                    }
+                    break;
+                case MultiTransportBroadcastListenerConnectionType::RabbitMQ:
+                    if constexpr (std::is_convertible_v<Env *, rabbitmq::RabbitMQComponent *>) {
+                        auto pub = rabbitmq::RabbitMQImporterExporter<Env>::template createTypedExporter<OutputType>(
+                            std::get<1>(*parsed), hook, name
+                        );
+                        r.registerExporter(name, pub);
+                        return r.exporterAsSink(pub);
+                    } else {
+                        throw std::runtime_error("[MultiTransportBroadcastPublisherManagingUtils::oneBroadcastPublisher] Trying to create rabbitmq publisher with channel spec '"+channelSpec+"', but rabbitmq is unsupported in the environment");
+                    }
+                    break;
+                case MultiTransportBroadcastListenerConnectionType::Redis:
+                    if constexpr (std::is_convertible_v<Env *, redis::RedisComponent *>) {
+                        auto pub = redis::RedisImporterExporter<Env>::template createTypedExporter<OutputType>(
+                            std::get<1>(*parsed), hook, name
+                        );
+                        r.registerExporter(name, pub);
+                        return r.exporterAsSink(pub);
+                    } else {
+                        throw std::runtime_error("[MultiTransportBroadcastPublisherManagingUtils::oneBroadcastPublisher] Trying to create redis publisher with channel spec '"+channelSpec+"', but redis is unsupported in the environment");
+                    }
+                    break;
+                case MultiTransportBroadcastListenerConnectionType::ZeroMQ:
+                    if constexpr (std::is_convertible_v<Env *, zeromq::ZeroMQComponent *>) {
+                        auto pub = zeromq::ZeroMQImporterExporter<Env>::template createTypedExporter<OutputType>(
+                            std::get<1>(*parsed), hook, name
+                        );
+                        r.registerExporter(name, pub);
+                        return r.exporterAsSink(pub);
+                    } else {
+                        throw std::runtime_error("[MultiTransportBroadcastPublisherManagingUtils::oneBroadcastPublisher] Trying to create zeromq publisher with channel spec '"+channelSpec+"', but zeromq is unsupported in the environment");
+                    }
+                    break;
+                case MultiTransportBroadcastListenerConnectionType::NNG:
+                    if constexpr (std::is_convertible_v<Env *, nng::NNGComponent *>) {
+                        auto pub = nng::NNGImporterExporter<Env>::template createTypedExporter<OutputType>(
+                            std::get<1>(*parsed), hook, name
+                        );
+                        r.registerExporter(name, pub);
+                        return r.exporterAsSink(pub);
+                    } else {
+                        throw std::runtime_error("[MultiTransportBroadcastPublisherManagingUtils::oneBroadcastPublisher] Trying to create nng publisher with channel spec '"+channelSpec+"', but nng is unsupported in the environment");
+                    }
+                    break;
+                default:
+                    throw std::runtime_error("[MultiTransportBroadcastPublisherManagingUtils::oneBroadcastPublisher] Trying to create unknown-protocol publisher with channel spec '"+channelSpec+"'");
+                    break;
                 }
-                break;
-            case MultiTransportBroadcastListenerConnectionType::Redis:
-                if constexpr (std::is_convertible_v<Env *, redis::RedisComponent *>) {
-                    auto pub = redis::RedisImporterExporter<Env>::template createTypedExporter<OutputType>(
-                        std::get<1>(*parsed), hook, name
-                    );
-                    r.registerExporter(name, pub);
-                    return r.exporterAsSink(pub);
-                } else {
-                    throw std::runtime_error("[MultiTransportBroadcastPublisherManagingUtils::oneBroadcastPublisher] Trying to create redis publisher with channel spec '"+channelSpec+"', but redis is unsupported in the environment");
-                }
-                break;
-            case MultiTransportBroadcastListenerConnectionType::ZeroMQ:
-                if constexpr (std::is_convertible_v<Env *, zeromq::ZeroMQComponent *>) {
-                    auto pub = zeromq::ZeroMQImporterExporter<Env>::template createTypedExporter<OutputType>(
-                        std::get<1>(*parsed), hook, name
-                    );
-                    r.registerExporter(name, pub);
-                    return r.exporterAsSink(pub);
-                } else {
-                    throw std::runtime_error("[MultiTransportBroadcastPublisherManagingUtils::oneBroadcastPublisher] Trying to create zeromq publisher with channel spec '"+channelSpec+"', but zeromq is unsupported in the environment");
-                }
-                break;
-            case MultiTransportBroadcastListenerConnectionType::NNG:
-                if constexpr (std::is_convertible_v<Env *, nng::NNGComponent *>) {
-                    auto pub = nng::NNGImporterExporter<Env>::template createTypedExporter<OutputType>(
-                        std::get<1>(*parsed), hook, name
-                    );
-                    r.registerExporter(name, pub);
-                    return r.exporterAsSink(pub);
-                } else {
-                    throw std::runtime_error("[MultiTransportBroadcastPublisherManagingUtils::oneBroadcastPublisher] Trying to create nng publisher with channel spec '"+channelSpec+"', but nng is unsupported in the environment");
-                }
-                break;
-            default:
-                throw std::runtime_error("[MultiTransportBroadcastPublisherManagingUtils::oneBroadcastPublisher] Trying to create unknown-protocol publisher with channel spec '"+channelSpec+"'");
-                break;
             }
         }
         
