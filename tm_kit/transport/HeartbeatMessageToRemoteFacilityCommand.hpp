@@ -294,9 +294,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
             std::array<MultiTransportRemoteFacilityAction, sizeof...(DistinguishedFacilitySpecs)>
             , std::array<MultiTransportRemoteFacilityAction, sizeof...(NonDistinguishedFacilitySpecs)>
         >> operator()(
-            int which
-            , std::tuple<std::chrono::system_clock::time_point, HeartbeatMessage> &&heartbeat 
-            , std::tuple<std::chrono::system_clock::time_point, basic::VoidStruct> &&timer
+            std::tuple<std::chrono::system_clock::time_point, std::variant<HeartbeatMessage, basic::VoidStruct>> &&data
         ) {
             std::vector<std::tuple<
                 std::array<MultiTransportRemoteFacilityAction, sizeof...(DistinguishedFacilitySpecs)>
@@ -304,10 +302,10 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
             >> output;
             int ii = 0;
             std::lock_guard<std::mutex> _(mutex_);
-            if (which == 0) {
-                handleHeartbeat(std::get<1>(heartbeat), output);
+            if (std::get<1>(data).index() == 0) {
+                handleHeartbeat(std::get<0>(std::get<1>(data)), output);
             } else {
-                handleTimer(std::get<0>(timer), output);
+                handleTimer(std::get<0>(data), output);
             }
             return output;
         }
@@ -315,19 +313,17 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
             std::array<MultiTransportRemoteFacilityAction, sizeof...(DistinguishedFacilitySpecs)>
             , std::array<MultiTransportRemoteFacilityAction, sizeof...(NonDistinguishedFacilitySpecs)>
         >> operator()(
-            int which
-            , std::tuple<std::chrono::system_clock::time_point, std::shared_ptr<HeartbeatMessage const>> &&heartbeat 
-            , std::tuple<std::chrono::system_clock::time_point, basic::VoidStruct> &&timer
+            std::tuple<std::chrono::system_clock::time_point, std::variant<std::shared_ptr<HeartbeatMessage const>, basic::VoidStruct>> &&data
         ) {
             std::vector<std::tuple<
                 std::array<MultiTransportRemoteFacilityAction, sizeof...(DistinguishedFacilitySpecs)>
                 , std::array<MultiTransportRemoteFacilityAction, sizeof...(NonDistinguishedFacilitySpecs)>
             >> output;
             std::lock_guard<std::mutex> _(mutex_);
-            if (which == 0) {
-                handleHeartbeat(*(std::get<1>(heartbeat)), output);
+            if (std::get<1>(data).index() == 0) {
+                handleHeartbeat(*(std::get<0>(std::get<1>(data))), output);
             } else {
-                handleTimer(std::get<0>(timer), output);
+                handleTimer(std::get<0>(data), output);
             }
             return output;
         }
