@@ -6,6 +6,7 @@
 #include <boost/lexical_cast.hpp>
 
 #include <tm_kit/infra/RealTimeApp.hpp>
+#include <tm_kit/infra/TraceNodesComponent.hpp>
 #include <tm_kit/basic/ByteData.hpp>
 #include <tm_kit/transport/multicast/MulticastComponent.hpp>
 #include <tm_kit/transport/HeartbeatAndAlertComponent.hpp>
@@ -33,6 +34,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                         locator_
                         , topic_
                         , [this,env](basic::ByteDataWithTopic &&d) {
+                            TM_INFRA_IMPORTER_TRACER(env);
                             this->publish(M::template pureInnerData<basic::ByteDataWithTopic>(env, std::move(d)));
                         }
                         , wireToUserHook_
@@ -61,6 +63,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                        locator_
                         , topic_
                         , [this,env](basic::ByteDataWithTopic &&d) {
+                            TM_INFRA_IMPORTER_TRACER(env);
                             auto t = basic::bytedata_utils::RunDeserializer<T>::apply(d.content);
                             if (t) {
                                 this->publish(M::template pureInnerData<basic::TypedDataWithTopic<T>>(env, {std::move(d.topic), std::move(*t)}));
@@ -106,6 +109,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 }
                 virtual void handle(typename M::template InnerData<basic::ByteDataWithTopic> &&data) override final {
                     if (env_) {
+                        TM_INFRA_EXPORTER_TRACER(env_);
                         publisher_(std::move(data.timedData.value), ttl_);
                     }
                 }
@@ -150,6 +154,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 }
                 virtual void handle(typename M::template InnerData<basic::TypedDataWithTopic<T>> &&data) override final {
                     if (env_) {
+                        TM_INFRA_EXPORTER_TRACER(env_);
                         std::string s = basic::bytedata_utils::RunSerializer<T>::apply(data.timedData.value.content);
                         publisher_({std::move(data.timedData.value.topic), std::move(s)}, ttl_);
                     }

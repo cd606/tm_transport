@@ -2,6 +2,7 @@
 #define TM_KIT_TRANSPORT_MULTI_TRANSPORT_REMOTE_FACILITY_HPP_
 
 #include <tm_kit/infra/RealTimeApp.hpp>
+#include <tm_kit/infra/TraceNodesComponent.hpp>
 
 #include <tm_kit/basic/ByteData.hpp>
 
@@ -398,6 +399,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
         }
 
         void actuallyHandleFacilityAction(typename M::template InnerData<MultiTransportRemoteFacilityAction> &&action) {
+            TM_INFRA_FACILITY_TRACER_WITH_SUFFIX(action.environment, ":setup");
             std::tuple<std::size_t, bool> handled = {0, false};
             switch (action.timedData.value.actionType) {
             case MultiTransportRemoteFacilityActionType::Register:
@@ -434,6 +436,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
             }
         }
         void actuallyHandleInput(typename M::template InnerData<typename M::template Key<Input>> &&input) {
+            TM_INFRA_FACILITY_TRACER_WITH_SUFFIX(input.environment, ":handle");
             std::lock_guard<std::mutex> _(mutex_);
             if constexpr (DispatchStrategy == MultiTransportRemoteFacilityDispatchStrategy::Random) {
                 if (underlyingSenders_.empty()) {
@@ -498,11 +501,12 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
             ).detach();
         }
         void handle(typename M::template InnerData<typename M::template Key<Input>> &&input) override final {
-            std::thread(
+            /*std::thread(
                 &MultiTransportRemoteFacility::actuallyHandleInput
                 , this
                 , std::move(input)
-            ).detach();
+            ).detach();*/
+            actuallyHandleInput(std::move(input));
         }
     };
 

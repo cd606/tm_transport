@@ -7,6 +7,7 @@
 #include <future>
 
 #include <tm_kit/infra/RealTimeApp.hpp>
+#include <tm_kit/infra/TraceNodesComponent.hpp>
 #include <tm_kit/basic/ByteData.hpp>
 #include <tm_kit/transport/rabbitmq/RabbitMQComponent.hpp>
 #include <tm_kit/transport/AbstractIdentityCheckerComponent.hpp>
@@ -45,6 +46,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                     env->rabbitmq_setRPCQueueServer(
                         locator_
                         , [this,env](basic::ByteDataWithID &&d) {
+                            TM_INFRA_IMPORTER_TRACER(env);
                             this->publish(M::template pureInnerData<basic::ByteDataWithID>(env, std::move(d)));
                         }
                         , hooks_
@@ -72,6 +74,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                     *replierPtr_ = env->rabbitmq_setRPCQueueServer(
                         locator_
                         , [this,env](basic::ByteDataWithID &&d) {
+                            TM_INFRA_IMPORTER_TRACER(env);
                             this->publish(M::template pureInnerData<basic::ByteDataWithID>(env, std::move(d)));
                         }
                         , hooks_
@@ -93,6 +96,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 }
                 virtual void handle(typename M::template InnerData<basic::ByteDataWithID> &&data) override final {
                     if (env_) {
+                        TM_INFRA_EXPORTER_TRACER(env_);
                         (*replierPtr_)(data.timedData.finalFlag, std::move(data.timedData.value));
                     }
                 }
@@ -200,6 +204,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                     }
                     virtual void handle(typename M::template InnerData<typename M::template Key<A>> &&data) override final {
                         if (env_) {
+                            TM_INFRA_FACILITY_TRACER(env_);
                             basic::ByteData s = { basic::SerializationActions<M>::template serializeFunc<A>(
                                 data.timedData.value.key()
                             ) };
@@ -546,6 +551,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                     }
                     virtual void handle(typename M::template InnerData<typename M::template Key<A>> &&data) override final {
                         if (env_) {
+                            TM_INFRA_FACILITY_TRACER(env_);
                             basic::ByteData s = { basic::SerializationActions<M>::template serializeFunc<A>(
                                 data.timedData.value.key()
                             ) };

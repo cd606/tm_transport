@@ -2,6 +2,7 @@
 #define TM_KIT_TRANSPORT_MULTI_TRANSPORT_BROADCAST_LISTENER_HPP_
 
 #include <tm_kit/infra/RealTimeApp.hpp>
+#include <tm_kit/infra/TraceNodesComponent.hpp>
 
 #include <tm_kit/basic/ByteData.hpp>
 
@@ -172,6 +173,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
         void actuallyHandle(typename M::template InnerData<typename M::template Key<MultiTransportBroadcastListenerInput>> &&input) {
             Env *env = input.environment;
             typename Env::IDType id = std::move(input.timedData.value.id());
+            TM_INFRA_FACILITY_TRACER_WITH_SUFFIX(env, ":setup");
             std::visit([this,env,&id](auto &&x) {
                 using X = std::decay_t<decltype(x)>;
                 std::ostringstream oss;
@@ -190,6 +192,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                                 x.connectionLocator
                                 , MultiTransportBroadcastListenerTopicHelper<multicast::MulticastComponent>::parseTopic(x.topicDescription)
                                 , [this,env](basic::ByteDataWithTopic &&d) {
+                                    TM_INFRA_IMPORTER_TRACER_WITH_SUFFIX(env, ":data");
                                     auto t = basic::bytedata_utils::RunDeserializer<T>::apply(d.content);
                                     if (t) {
                                         this->ImporterParent::publish(M::template pureInnerData<basic::TypedDataWithTopic<T>>(env, {std::move(d.topic), std::move(*t)}));
@@ -234,6 +237,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                                 x.connectionLocator
                                 , x.topicDescription
                                 , [this,env](basic::ByteDataWithTopic &&d) {
+                                    TM_INFRA_IMPORTER_TRACER_WITH_SUFFIX(env, ":data");
                                     auto t = basic::bytedata_utils::RunDeserializer<T>::apply(d.content);
                                     if (t) {
                                         this->ImporterParent::publish(M::template pureInnerData<basic::TypedDataWithTopic<T>>(env, {std::move(d.topic), std::move(*t)}));
@@ -278,6 +282,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                                 x.connectionLocator
                                 , x.topicDescription
                                 , [this,env](basic::ByteDataWithTopic &&d) {
+                                    TM_INFRA_IMPORTER_TRACER_WITH_SUFFIX(env, ":data");
                                     auto t = basic::bytedata_utils::RunDeserializer<T>::apply(d.content);
                                     if (t) {
                                         this->ImporterParent::publish(M::template pureInnerData<basic::TypedDataWithTopic<T>>(env, {std::move(d.topic), std::move(*t)}));
@@ -322,6 +327,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                                 x.connectionLocator
                                 , MultiTransportBroadcastListenerTopicHelper<zeromq::ZeroMQComponent>::parseTopic(x.topicDescription)
                                 , [this,env](basic::ByteDataWithTopic &&d) {
+                                    TM_INFRA_IMPORTER_TRACER_WITH_SUFFIX(env, ":data");
                                     auto t = basic::bytedata_utils::RunDeserializer<T>::apply(d.content);
                                     if (t) {
                                         this->ImporterParent::publish(M::template pureInnerData<basic::TypedDataWithTopic<T>>(env, {std::move(d.topic), std::move(*t)}));
@@ -366,6 +372,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                                 x.connectionLocator
                                 , MultiTransportBroadcastListenerTopicHelper<nng::NNGComponent>::parseTopic(x.topicDescription)
                                 , [this,env](basic::ByteDataWithTopic &&d) {
+                                    TM_INFRA_IMPORTER_TRACER_WITH_SUFFIX(env, ":data");
                                     auto t = basic::bytedata_utils::RunDeserializer<T>::apply(d.content);
                                     if (t) {
                                         this->ImporterParent::publish(M::template pureInnerData<basic::TypedDataWithTopic<T>>(env, {std::move(d.topic), std::move(*t)}));
