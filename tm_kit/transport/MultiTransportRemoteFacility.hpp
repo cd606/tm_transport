@@ -231,10 +231,11 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                         oss << "[MultiTransportRemoteFacility::registerFacility] Registered RabbitMQ facility for "
                             << locator;
                         env->log(infra::LogLevel::Info, oss.str());
-                    } catch (rabbitmq::RabbitMQComponentException const &) {
+                    } catch (rabbitmq::RabbitMQComponentException const &ex) {
                         std::ostringstream oss;
                         oss << "[MultiTransportRemoteFacility::registerFacility] Error registering RabbitMQ facility for "
-                            << locator;
+                            << locator
+                            << ": " << ex.what();
                         env->log(infra::LogLevel::Error, oss.str());
                     }
                 } else {
@@ -315,10 +316,11 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                         oss << "[MultiTransportRemoteFacility::registerFacility] Registered Redis facility for "
                             << locator;
                         env->log(infra::LogLevel::Info, oss.str());
-                    } catch (redis::RedisComponentException const &) {
+                    } catch (redis::RedisComponentException const &ex) {
                         std::ostringstream oss;
                         oss << "[MultiTransportRemoteFacility::registerFacility] Error registering Redis facility for "
-                            << locator;
+                            << locator
+                            << ": " << ex.what();
                         env->log(infra::LogLevel::Error, oss.str());
                     }
                 } else {
