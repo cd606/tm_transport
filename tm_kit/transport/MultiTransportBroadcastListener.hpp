@@ -472,12 +472,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
         void start(Env *env) override final {
         }
         void handle(typename M::template InnerData<typename M::template Key<MultiTransportBroadcastListenerInput>> &&input) override final {
-            //These commands are supposed to be sparse, but handling
-            //them may involve setting up or closing lower-level communication 
-            //channels which would take some time, so we will launch a
-            //thread to handle each one
-            std::thread th(&MultiTransportBroadcastListener::actuallyHandle, this, std::move(input));
-            th.detach();
+            actuallyHandle(std::move(input));
         } 
     };
 } } } }

@@ -496,18 +496,9 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
         void start(Env *) override final {}
 
         void handle(typename M::template InnerData<MultiTransportRemoteFacilityAction> &&action) override final {
-            std::thread(
-                &MultiTransportRemoteFacility::actuallyHandleFacilityAction
-                , this
-                , std::move(action)
-            ).detach();
+            actuallyHandleFacilityAction(std::move(action));
         }
         void handle(typename M::template InnerData<typename M::template Key<Input>> &&input) override final {
-            /*std::thread(
-                &MultiTransportRemoteFacility::actuallyHandleInput
-                , this
-                , std::move(input)
-            ).detach();*/
             actuallyHandleInput(std::move(input));
         }
     };
