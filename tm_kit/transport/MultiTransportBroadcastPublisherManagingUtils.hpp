@@ -25,11 +25,12 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
             , std::string const &name
             , std::string const &channelSpec
             , std::optional<UserToWireHook> hook = std::nullopt
+            , bool threaded = false
         ) -> typename R::template Sink<basic::TypedDataWithTopic<OutputType>>
         {
             if constexpr (!basic::bytedata_utils::DirectlySerializableChecker<OutputType>::IsDirectlySerializable()) {
                 auto s = oneBroadcastPublisher<basic::CBOR<OutputType>>(
-                    r, name, channelSpec, hook
+                    r, name, channelSpec, hook, false
                 );
                 auto transform = M::template liftPure<basic::TypedDataWithTopic<OutputType>>(
                     [](basic::TypedDataWithTopic<OutputType> &&x) -> basic::TypedDataWithTopic<basic::CBOR<OutputType>> {
@@ -38,11 +39,22 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                             , std::move(x.topic)
                         };
                     }
+                    , typename infra::LiftParameters<typename M::TimePoint>().SuggestThreaded(threaded)
                 );
                 r.registerAction(name+":transform", transform);
                 r.connect(r.actionAsSource(transform), s);
                 return r.actionAsSink(transform);
             } else {
+                if (threaded) {
+                    auto wrapper = M::template kleisli<basic::TypedDataWithTopic<OutputType>>(
+                        basic::CommonFlowUtilComponents<M>::template idFunc<basic::TypedDataWithTopic<OutputType>>()
+                        , typename infra::LiftParameters<typename M::TimePoint>().SuggestThreaded(true)
+                    );
+                    auto s = oneBroadcastPublisher<OutputType>(r, name, channelSpec, hook, false);
+                    r.registerAction(name+":threadWrapper", wrapper);
+                    r.connect(r.actionAsSource(wrapper), s);
+                    return r.actionAsSink(wrapper);
+                }
                 auto parsed = parseMultiTransportBroadcastChannel(channelSpec);
                 if (!parsed) {
                     throw std::runtime_error("[MultiTransportBroadcastPublisherManagingUtils::oneBroadcastPublisher] Unknown channel spec '"+channelSpec+"'");
@@ -115,8 +127,19 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
             , std::string const &name
             , std::string const &channelSpec
             , std::optional<UserToWireHook> hook = std::nullopt
+            , bool threaded = false
         ) -> typename R::template Sink<basic::ByteDataWithTopic>
         {
+            if (threaded) {
+                auto wrapper = M::template kleisli<basic::ByteDataWithTopic>(
+                    basic::CommonFlowUtilComponents<M>::template idFunc<basic::ByteDataWithTopic>()
+                    , typename infra::LiftParameters<typename M::TimePoint>().SuggestThreaded(true)
+                );
+                auto s = oneByteDataBroadcastPublisher(r, name, channelSpec, hook, false);
+                r.registerAction(name+":threadWrapper", wrapper);
+                r.connect(r.actionAsSource(wrapper), s);
+                return r.actionAsSink(wrapper);
+            }
             auto parsed = parseMultiTransportBroadcastChannel(channelSpec);
             if (!parsed) {
                 throw std::runtime_error("[MultiTransportBroadcastPublisherManagingUtils::oneByteDataBroadcastPublisher] Unknown channel spec '"+channelSpec+"'");
