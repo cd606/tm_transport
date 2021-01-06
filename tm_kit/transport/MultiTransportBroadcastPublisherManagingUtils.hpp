@@ -35,8 +35,8 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                 auto transform = M::template liftPure<basic::TypedDataWithTopic<OutputType>>(
                     [](basic::TypedDataWithTopic<OutputType> &&x) -> basic::TypedDataWithTopic<basic::CBOR<OutputType>> {
                         return {
-                            {std::move(x.content)}
-                            , std::move(x.topic)
+                            std::move(x.topic)
+                            , {std::move(x.content)}
                         };
                     }
                     , typename infra::LiftParameters<typename M::TimePoint>().SuggestThreaded(threaded)
