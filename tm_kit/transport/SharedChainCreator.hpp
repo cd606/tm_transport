@@ -694,7 +694,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
         }
 
         template <class ChainData, class ChainItemFolder, class TriggerT=void, bool ForceSeparateDataStorageIfPossible=false>
-        auto readerFactory(
+        auto readerFactoryWithHook(
             typename App::EnvironmentType *env
             , std::string const &locatorStr
             , basic::simple_shared_chain::ChainPollingPolicy const &pollingPolicy = basic::simple_shared_chain::ChainPollingPolicy()
@@ -716,8 +716,26 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
             };
         }
 
+        template <class ChainData, class ChainItemFolder, class TriggerT=void, bool ForceSeparateDataStorageIfPossible=false>
+        auto readerFactory(
+            typename App::EnvironmentType *env
+            , std::string const &locatorStr
+            , basic::simple_shared_chain::ChainPollingPolicy const &pollingPolicy = basic::simple_shared_chain::ChainPollingPolicy()
+            , ChainItemFolder &&folder = ChainItemFolder {}
+        )
+            -> std::conditional_t<
+                std::is_same_v<TriggerT, void>
+                , basic::simple_shared_chain::ChainReaderImporterFactory<App, ChainItemFolder>
+                , basic::simple_shared_chain::ChainReaderActionFactory<App, ChainItemFolder, TriggerT>
+            >
+        {
+            return readerFactoryWithHook<ChainData, ChainItemFolder, TriggerT, ForceSeparateDataStorageIfPossible>(
+                env, locatorStr, pollingPolicy, std::nullopt, std::move(folder)
+            );
+        }
+
         template <class ChainData, class ChainItemFolder, class InputHandler, class IdleLogic=void, bool ForceSeparateDataStorageIfPossible=false>
-        auto writerFactory(
+        auto writerFactoryWithHook(
             typename App::EnvironmentType *env
             , std::string const &locatorStr
             , basic::simple_shared_chain::ChainPollingPolicy const &pollingPolicy = basic::simple_shared_chain::ChainPollingPolicy()
@@ -759,6 +777,34 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                     env, locatorStr, pollingPolicy, hookPair, std::move(f1), std::move(h1), std::move(l1)
                 );
             };
+        }
+
+        template <class ChainData, class ChainItemFolder, class InputHandler, class IdleLogic=void, bool ForceSeparateDataStorageIfPossible=false>
+        auto writerFactory(
+            typename App::EnvironmentType *env
+            , std::string const &locatorStr
+            , basic::simple_shared_chain::ChainPollingPolicy const &pollingPolicy = basic::simple_shared_chain::ChainPollingPolicy()
+            , ChainItemFolder &&folder = ChainItemFolder {}
+            , InputHandler &&inputHandler = InputHandler()
+            , std::conditional_t<
+                std::is_same_v<IdleLogic, void>
+                , basic::VoidStruct
+                , IdleLogic
+            > &&idleLogic = std::conditional_t<
+                std::is_same_v<IdleLogic, void>
+                , basic::VoidStruct
+                , IdleLogic
+            >()
+        )
+            -> std::conditional_t<
+                std::is_same_v<IdleLogic, void>
+                , basic::simple_shared_chain::ChainWriterOnOrderFacilityFactory<App, ChainItemFolder, InputHandler>
+                , basic::simple_shared_chain::ChainWriterOnOrderFacilityWithExternalEffectsFactory<App, ChainItemFolder, InputHandler, IdleLogic>
+            >
+        {
+            return writerFactoryWithHook<ChainData, ChainItemFolder, InputHandler, IdleLogic, ForceSeparateDataStorageIfPossible>(
+                env, locatorStr, pollingPolicy, std::nullopt, std::move(folder), std::move(inputHandler), std::move(idleLogic)
+            );
         }
 
         template <class ChainData, class ChainItemFolder, class F, bool ForceSeparateDataStorageIfPossible=false>
