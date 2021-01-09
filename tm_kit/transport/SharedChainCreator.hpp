@@ -4,10 +4,11 @@
 #include <tm_kit/basic/simple_shared_chain/ChainReader.hpp>
 #include <tm_kit/basic/simple_shared_chain/ChainWriter.hpp>
 #include <tm_kit/basic/simple_shared_chain/OneShotChainWriter.hpp>
+#include <tm_kit/basic/simple_shared_chain/InMemoryWithLockChain.hpp>
+#include <tm_kit/basic/simple_shared_chain/InMemoryLockFreeChain.hpp>
 
 #include <tm_kit/transport/etcd_shared_chain/EtcdChain.hpp>
 #include <tm_kit/transport/redis_shared_chain/RedisChain.hpp>
-#include <tm_kit/transport/lock_free_in_memory_shared_chain/LockFreeInMemoryChain.hpp>
 #include <tm_kit/transport/lock_free_in_memory_shared_chain/LockFreeInBoostSharedMemoryChain.hpp>
 
 #include <tm_kit/transport/ConnectionLocator.hpp>
@@ -272,10 +273,10 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                 {
                     return shared_chain_utils::chainReaderHelper<App,ChainItemFolder,TriggerT>(
                         env
-                        , getChain<etcd_shared_chain::InMemoryChain<ChainData>>(
+                        , getChain<basic::simple_shared_chain::InMemoryWithLockChain<ChainData>>(
                             shared_chain_utils::makeSharedChainLocator(protocol, locator)
                             , []() {
-                                return new etcd_shared_chain::InMemoryChain<ChainData>();
+                                return new basic::simple_shared_chain::InMemoryWithLockChain<ChainData>();
                             }
                         )
                         , pollingPolicy
@@ -286,10 +287,10 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                 {
                     return shared_chain_utils::chainReaderHelper<App,ChainItemFolder,TriggerT>(
                         env
-                        , getChain<lock_free_in_memory_shared_chain::LockFreeInMemoryChain<ChainData>>(
+                        , getChain<basic::simple_shared_chain::InMemoryLockFreeChain<ChainData>>(
                             shared_chain_utils::makeSharedChainLocator(protocol, locator)
                             , []() {
-                                return new lock_free_in_memory_shared_chain::LockFreeInMemoryChain<ChainData>();
+                                return new basic::simple_shared_chain::InMemoryLockFreeChain<ChainData>();
                             }
                         )
                         , pollingPolicy
@@ -504,10 +505,10 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
             case SharedChainProtocol::InMemoryWithLock:
                 {
                     return shared_chain_utils::chainWriterHelper<App,ChainItemFolder,InputHandler,IdleLogic>(
-                        getChain<etcd_shared_chain::InMemoryChain<ChainData>>(
+                        getChain<basic::simple_shared_chain::InMemoryWithLockChain<ChainData>>(
                             shared_chain_utils::makeSharedChainLocator(protocol, locator)
                             , []() {
-                                return new etcd_shared_chain::InMemoryChain<ChainData>();
+                                return new basic::simple_shared_chain::InMemoryWithLockChain<ChainData>();
                             }
                         )
                         , pollingPolicy
@@ -519,10 +520,10 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
             case SharedChainProtocol::InMemoryLockFree:
                 {
                     return shared_chain_utils::chainWriterHelper<App,ChainItemFolder,InputHandler,IdleLogic>(
-                        getChain<lock_free_in_memory_shared_chain::LockFreeInMemoryChain<ChainData>>(
+                        getChain<basic::simple_shared_chain::InMemoryLockFreeChain<ChainData>>(
                             shared_chain_utils::makeSharedChainLocator(protocol, locator)
                             , []() {
-                                return new lock_free_in_memory_shared_chain::LockFreeInMemoryChain<ChainData>();
+                                return new basic::simple_shared_chain::InMemoryLockFreeChain<ChainData>();
                             }
                         )
                         , pollingPolicy
@@ -796,12 +797,12 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                 break;
             case SharedChainProtocol::InMemoryWithLock:
                 {
-                    return basic::simple_shared_chain::OneShotChainWriter<typename App::EnvironmentType,etcd_shared_chain::InMemoryChain<ChainData>>::write(
+                    return basic::simple_shared_chain::OneShotChainWriter<typename App::EnvironmentType,basic::simple_shared_chain::InMemoryWithLockChain<ChainData>>::write(
                         env
-                        , getChain<etcd_shared_chain::InMemoryChain<ChainData>>(
+                        , getChain<basic::simple_shared_chain::InMemoryWithLockChain<ChainData>>(
                             shared_chain_utils::makeSharedChainLocator(protocol, locator)
                             , []() {
-                                return new etcd_shared_chain::InMemoryChain<ChainData>();
+                                return new basic::simple_shared_chain::InMemoryWithLockChain<ChainData>();
                             }
                         )
                         , f 
@@ -811,12 +812,12 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                 break;
             case SharedChainProtocol::InMemoryLockFree:
                 {
-                    return basic::simple_shared_chain::OneShotChainWriter<typename App::EnvironmentType,lock_free_in_memory_shared_chain::LockFreeInMemoryChain<ChainData>>::write(
+                    return basic::simple_shared_chain::OneShotChainWriter<typename App::EnvironmentType,basic::simple_shared_chain::InMemoryLockFreeChain<ChainData>>::write(
                         env
-                        , getChain<lock_free_in_memory_shared_chain::LockFreeInMemoryChain<ChainData>>(
+                        , getChain<basic::simple_shared_chain::InMemoryLockFreeChain<ChainData>>(
                             shared_chain_utils::makeSharedChainLocator(protocol, locator)
                             , []() {
-                                return new lock_free_in_memory_shared_chain::LockFreeInMemoryChain<ChainData>();
+                                return new basic::simple_shared_chain::InMemoryLockFreeChain<ChainData>();
                             }
                         )
                         , f 
@@ -1041,12 +1042,12 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                 break;
             case SharedChainProtocol::InMemoryWithLock:
                 {
-                    return basic::simple_shared_chain::OneShotChainWriter<typename App::EnvironmentType,etcd_shared_chain::InMemoryChain<ChainData>>::tryWriteConstValue(
+                    return basic::simple_shared_chain::OneShotChainWriter<typename App::EnvironmentType,basic::simple_shared_chain::InMemoryWithLockChain<ChainData>>::tryWriteConstValue(
                         env
-                        , getChain<etcd_shared_chain::InMemoryChain<ChainData>>(
+                        , getChain<basic::simple_shared_chain::InMemoryWithLockChain<ChainData>>(
                             shared_chain_utils::makeSharedChainLocator(protocol, locator)
                             , []() {
-                                return new etcd_shared_chain::InMemoryChain<ChainData>();
+                                return new basic::simple_shared_chain::InMemoryWithLockChain<ChainData>();
                             }
                         )
                         , id 
@@ -1056,12 +1057,12 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                 break;
             case SharedChainProtocol::InMemoryLockFree:
                 {
-                    return basic::simple_shared_chain::OneShotChainWriter<typename App::EnvironmentType,lock_free_in_memory_shared_chain::LockFreeInMemoryChain<ChainData>>::tryWriteConstValue(
+                    return basic::simple_shared_chain::OneShotChainWriter<typename App::EnvironmentType,basic::simple_shared_chain::InMemoryLockFreeChain<ChainData>>::tryWriteConstValue(
                         env
-                        , getChain<lock_free_in_memory_shared_chain::LockFreeInMemoryChain<ChainData>>(
+                        , getChain<basic::simple_shared_chain::InMemoryLockFreeChain<ChainData>>(
                             shared_chain_utils::makeSharedChainLocator(protocol, locator)
                             , []() {
-                                return new lock_free_in_memory_shared_chain::LockFreeInMemoryChain<ChainData>();
+                                return new basic::simple_shared_chain::InMemoryLockFreeChain<ChainData>();
                             }
                         )
                         , id 
@@ -1286,12 +1287,12 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                 break;
             case SharedChainProtocol::InMemoryWithLock:
                 {
-                    basic::simple_shared_chain::OneShotChainWriter<typename App::EnvironmentType,etcd_shared_chain::InMemoryChain<ChainData>>::blockingWriteConstValue(
+                    basic::simple_shared_chain::OneShotChainWriter<typename App::EnvironmentType,basic::simple_shared_chain::InMemoryWithLockChain<ChainData>>::blockingWriteConstValue(
                         env
-                        , getChain<etcd_shared_chain::InMemoryChain<ChainData>>(
+                        , getChain<basic::simple_shared_chain::InMemoryWithLockChain<ChainData>>(
                             shared_chain_utils::makeSharedChainLocator(protocol, locator)
                             , []() {
-                                return new etcd_shared_chain::InMemoryChain<ChainData>();
+                                return new basic::simple_shared_chain::InMemoryWithLockChain<ChainData>();
                             }
                         )
                         , id 
@@ -1301,12 +1302,12 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                 break;
             case SharedChainProtocol::InMemoryLockFree:
                 {
-                    basic::simple_shared_chain::OneShotChainWriter<typename App::EnvironmentType,lock_free_in_memory_shared_chain::LockFreeInMemoryChain<ChainData>>::blockingWriteConstValue(
+                    basic::simple_shared_chain::OneShotChainWriter<typename App::EnvironmentType,basic::simple_shared_chain::InMemoryLockFreeChain<ChainData>>::blockingWriteConstValue(
                         env
-                        , getChain<lock_free_in_memory_shared_chain::LockFreeInMemoryChain<ChainData>>(
+                        , getChain<basic::simple_shared_chain::InMemoryLockFreeChain<ChainData>>(
                             shared_chain_utils::makeSharedChainLocator(protocol, locator)
                             , []() {
-                                return new lock_free_in_memory_shared_chain::LockFreeInMemoryChain<ChainData>();
+                                return new basic::simple_shared_chain::InMemoryLockFreeChain<ChainData>();
                             }
                         )
                         , id 
