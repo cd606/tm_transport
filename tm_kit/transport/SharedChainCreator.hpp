@@ -98,6 +98,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
             typename App::EnvironmentType *env
             , Chain *chain 
             , basic::simple_shared_chain::ChainPollingPolicy const &pollingPolicy
+            , ChainItemFolder &&folder
         ) 
             -> std::conditional_t<
                 std::is_same_v<TriggerT, void>
@@ -114,6 +115,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                 >::importer(
                     chain
                     , pollingPolicy
+                    , std::move(folder)
                 );
             } else {
                 return basic::simple_shared_chain::ChainReader<
@@ -124,6 +126,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                 >::action(
                     env
                     , chain
+                    , std::move(folder)
                 );
             }
         }
@@ -132,6 +135,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
         inline auto chainWriterHelper(
             Chain *chain 
             , basic::simple_shared_chain::ChainPollingPolicy const &pollingPolicy
+            , ChainItemFolder &&folder
             , InputHandler &&inputHandler
             , std::conditional_t<
                 std::is_same_v<IdleLogic, void>
@@ -155,6 +159,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                 >::onOrderFacility(
                     chain
                     , pollingPolicy
+                    , std::move(folder)
                     , std::move(inputHandler)
                     , std::move(idleLogic)
                 );
@@ -168,6 +173,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                 >::onOrderFacilityWithExternalEffects(
                     chain
                     , pollingPolicy
+                    , std::move(folder)
                     , std::move(inputHandler)
                     , std::move(idleLogic)
                 );
@@ -210,6 +216,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
             , ConnectionLocator const &locator
             , basic::simple_shared_chain::ChainPollingPolicy const &pollingPolicy = basic::simple_shared_chain::ChainPollingPolicy()
             , std::optional<ByteDataHookPair> hookPair = std::nullopt
+            , ChainItemFolder &&folder = ChainItemFolder {}
         )
             -> std::conditional_t<
                 std::is_same_v<TriggerT, void>
@@ -239,6 +246,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                                 }
                             )
                             , pollingPolicy
+                            , std::move(folder)
                         );
                     } else {
                         throw new std::runtime_error("sharedChainCreator::reader: Etcd chain is not supported by the environment");
@@ -263,6 +271,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                                 }
                             )
                             , pollingPolicy
+                            , std::move(folder)
                         );
                     } else {
                         throw new std::runtime_error("sharedChainCreator::reader: Redis chain is not supported by the environment");
@@ -280,6 +289,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                             }
                         )
                         , pollingPolicy
+                        , std::move(folder)
                     );
                 }
                 break;
@@ -294,6 +304,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                             }
                         )
                         , pollingPolicy
+                        , std::move(folder)
                     );
                 }
                 break;
@@ -347,6 +358,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                                     }
                                 )
                                 , pollingPolicy
+                                , std::move(folder)
                             );
                         } else {
                             return shared_chain_utils::chainReaderHelper<App,ChainItemFolder,TriggerT>(
@@ -388,6 +400,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                                     }
                                 )
                                 , pollingPolicy
+                                , std::move(folder)
                             );
                         }
                     } else {
@@ -407,6 +420,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
             , std::string const &locatorStr
             , basic::simple_shared_chain::ChainPollingPolicy const &pollingPolicy = basic::simple_shared_chain::ChainPollingPolicy()
             , std::optional<ByteDataHookPair> hookPair = std::nullopt
+            , ChainItemFolder &&folder = ChainItemFolder {}
         )
             -> std::conditional_t<
                 std::is_same_v<TriggerT, void>
@@ -417,7 +431,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
             auto parsed = shared_chain_utils::parseSharedChainLocator(locatorStr);
             if (parsed) {
                 return reader<ChainData,ChainItemFolder,TriggerT,ForceSeparateDataStorageIfPossible>(
-                    env, std::get<0>(*parsed), std::get<1>(*parsed), pollingPolicy, hookPair
+                    env, std::get<0>(*parsed), std::get<1>(*parsed), pollingPolicy, hookPair, std::move(folder)
                 );
             } else {
                 throw std::runtime_error(std::string("sharedChainCreator::reader: malformed connection locator string '")+locatorStr+"'");
@@ -431,6 +445,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
             , ConnectionLocator const &locator
             , basic::simple_shared_chain::ChainPollingPolicy const &pollingPolicy = basic::simple_shared_chain::ChainPollingPolicy()
             , std::optional<ByteDataHookPair> hookPair = std::nullopt
+            , ChainItemFolder &&folder = ChainItemFolder {}
             , InputHandler &&inputHandler = InputHandler()
             , std::conditional_t<
                 std::is_same_v<IdleLogic, void>
@@ -469,6 +484,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                                 }
                             )
                             , pollingPolicy
+                            , std::move(folder)
                             , std::move(inputHandler)
                             , std::move(idleLogic)
                         );
@@ -494,6 +510,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                                 }
                             )
                             , pollingPolicy
+                            , std::move(folder)
                             , std::move(inputHandler)
                             , std::move(idleLogic)
                         );
@@ -512,6 +529,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                             }
                         )
                         , pollingPolicy
+                        , std::move(folder)
                         , std::move(inputHandler)
                         , std::move(idleLogic)
                     );
@@ -527,6 +545,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                             }
                         )
                         , pollingPolicy
+                        , std::move(folder)
                         , std::move(inputHandler)
                         , std::move(idleLogic)
                     );
@@ -581,6 +600,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                                     }
                                 )
                                 , pollingPolicy
+                                , std::move(folder)
                                 , std::move(inputHandler)
                                 , std::move(idleLogic)
                             );
@@ -623,6 +643,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                                     }
                                 )
                                 , pollingPolicy
+                                , std::move(folder)
                                 , std::move(inputHandler)
                                 , std::move(idleLogic)
                             );
@@ -644,6 +665,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
             , std::string const &locatorStr
             , basic::simple_shared_chain::ChainPollingPolicy const &pollingPolicy = basic::simple_shared_chain::ChainPollingPolicy()
             , std::optional<ByteDataHookPair> hookPair = std::nullopt
+            , ChainItemFolder &&folder = ChainItemFolder {}
             , InputHandler &&inputHandler = InputHandler()
             , std::conditional_t<
                 std::is_same_v<IdleLogic, void>
@@ -664,7 +686,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
             auto parsed = shared_chain_utils::parseSharedChainLocator(locatorStr);
             if (parsed) {
                 return writer<ChainData,ChainItemFolder,InputHandler,IdleLogic,ForceSeparateDataStorageIfPossible>(
-                    env, std::get<0>(*parsed), std::get<1>(*parsed), pollingPolicy, hookPair, std::move(inputHandler), std::move(idleLogic)
+                    env, std::get<0>(*parsed), std::get<1>(*parsed), pollingPolicy, hookPair, std::move(folder), std::move(inputHandler), std::move(idleLogic)
                 );
             } else {
                 throw std::runtime_error(std::string("sharedChainCreator::writer: malformed connection locator string '")+locatorStr+"'");
@@ -677,6 +699,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
             , std::string const &locatorStr
             , basic::simple_shared_chain::ChainPollingPolicy const &pollingPolicy = basic::simple_shared_chain::ChainPollingPolicy()
             , std::optional<ByteDataHookPair> hookPair = std::nullopt
+            , ChainItemFolder &&folder = ChainItemFolder {}
         )
             -> std::conditional_t<
                 std::is_same_v<TriggerT, void>
@@ -684,9 +707,11 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                 , basic::simple_shared_chain::ChainReaderActionFactory<App, ChainItemFolder, TriggerT>
             >
         {
-            return [this,env,locatorStr,pollingPolicy,hookPair]() {
+            auto f = std::move(folder);
+            return [this,env,locatorStr,pollingPolicy,hookPair,f=std::move(f)]() {
+                auto f1 = std::move(f);
                 return reader<ChainData,ChainItemFolder,TriggerT,ForceSeparateDataStorageIfPossible>(
-                    env, locatorStr, pollingPolicy, hookPair
+                    env, locatorStr, pollingPolicy, hookPair, std::move(f1)
                 );
             };
         }
@@ -697,6 +722,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
             , std::string const &locatorStr
             , basic::simple_shared_chain::ChainPollingPolicy const &pollingPolicy = basic::simple_shared_chain::ChainPollingPolicy()
             , std::optional<ByteDataHookPair> hookPair = std::nullopt
+            , ChainItemFolder &&folder = ChainItemFolder {}
             , InputHandler &&inputHandler = InputHandler()
             , std::conditional_t<
                 std::is_same_v<IdleLogic, void>
@@ -714,13 +740,15 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                 , basic::simple_shared_chain::ChainWriterOnOrderFacilityWithExternalEffectsFactory<App, ChainItemFolder, InputHandler, IdleLogic>
             >
         {
+            ChainItemFolder f = std::move(folder);
             InputHandler h = std::move(inputHandler);
             std::conditional_t<
                 std::is_same_v<IdleLogic, void>
                 , basic::VoidStruct
                 , IdleLogic
             > l = std::move(idleLogic);
-            return [this,env,locatorStr,pollingPolicy,hookPair,h=std::move(h),l=std::move(l)]() {
+            return [this,env,locatorStr,pollingPolicy,hookPair,f=std::move(f),h=std::move(h),l=std::move(l)]() {
+                ChainItemFolder f1 = std::move(f);
                 InputHandler h1 = std::move(h);
                 std::conditional_t<
                     std::is_same_v<IdleLogic, void>
@@ -728,7 +756,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                     , IdleLogic
                 > l1 = std::move(l);
                 return writer<ChainData,ChainItemFolder,InputHandler,IdleLogic,ForceSeparateDataStorageIfPossible>(
-                    env, locatorStr, pollingPolicy, hookPair, std::move(h1), std::move(l1)
+                    env, locatorStr, pollingPolicy, hookPair, std::move(f1), std::move(h1), std::move(l1)
                 );
             };
         }
