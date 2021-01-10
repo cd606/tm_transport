@@ -200,8 +200,6 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
         ) {
             if constexpr (Chain::SupportsExtraData) {
                 chain->template saveExtraData<ExtraData>(key);
-            } else {
-                return std::nullopt;
             }
         }
     }
