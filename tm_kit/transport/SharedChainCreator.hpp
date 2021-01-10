@@ -199,7 +199,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
             , ExtraData const &data
         ) {
             if constexpr (Chain::SupportsExtraData) {
-                chain->template saveExtraData<ExtraData>(key);
+                chain->template saveExtraData<ExtraData>(key, data);
             }
         }
     }
