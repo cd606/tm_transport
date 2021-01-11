@@ -301,6 +301,103 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             freeReplyObject((void *) r);
             return ret;
         }
+        bool appendAfter(ItemType const &current, std::vector<ItemType> &&toBeWritten) {
+            if (toBeWritten.empty()) {
+                return true;
+            }
+            if (toBeWritten.size() == 1) {
+                return appendAfter(current, std::move(toBeWritten[0]));
+            }
+            if (current.nextID != "") {
+                return false;
+            }
+            if (!toBeWritten[0].data) {
+                throw RedisChainException("appendAfter: Cannot append a new first item whose data is empty");
+            }
+            if (toBeWritten.back().nextID != "") {
+                throw RedisChainException("appendAfter: Cannot append a new last item whose nextID is already non-empty");
+            }
+
+            std::size_t newItemCount = toBeWritten.size();
+            std::ostringstream luaStrOss;
+            luaStrOss << "local x = redis.call('GET',KEYS[1])";
+            for (auto ii=0; ii<newItemCount; ++ii) {
+                luaStrOss << "; local y" << ii << " = redis.call('GET',KEYS[" << (ii+1)*2 << "])";
+                luaStrOss << "; local z" << ii << " = redis.call('GET',KEYS[" << (ii+1)*2+1 << "])";
+            }
+            luaStrOss << "; if x == ''";
+            for (auto ii=0; ii<newItemCount; ++ii) {
+                luaStrOss << " and not y" << ii << " and not z" << ii;
+            }
+            luaStrOss << " then redis.call('SET',KEYS[1],ARGV[1])";
+            for (auto ii=0; ii<newItemCount; ++ii) {
+                luaStrOss << "; redis.call('SET',KEYS[" << (ii+1)*2 << "],ARGV[" << (ii+1)*2 << "])";
+                luaStrOss << "; redis.call('SET',KEYS[" << (ii+1)*2+1 << "],ARGV[" << (ii+1)*2+1 << "])";
+            }
+            luaStrOss << "; return 1 else return 0 end";
+
+            std::string luaStr = luaStrOss.str();
+
+            std::size_t argvCount = 2*(2*newItemCount+1)+3; //the three others are "EVAL", luaString, and key count 
+            using pChar = const char *;
+            const char **argv = new pChar[argvCount];
+            std::size_t *argvLen = new std::size_t[argvCount];
+            std::string cmd = "EVAL";
+            argv[0] = cmd.c_str();
+            argvLen[0] = cmd.length();
+            argv[1] = luaStr.c_str();
+            argvLen[1] = luaStr.length();
+            std::string keyCount = std::to_string(2*newItemCount+1);
+            argv[2] = keyCount.c_str();
+            argvLen[2] = keyCount.length();
+
+            std::string currentChainKey = configuration_.chainPrefix+":"+current.id;
+            argv[3] = currentChainKey.c_str();
+            argvLen[3] = currentChainKey.length();
+
+            std::vector<std::string> newDataKeys;
+            std::vector<std::string> newChainKeys;
+            std::vector<std::string> newDatas;
+            for (auto const &x : toBeWritten) {
+                newDataKeys.push_back(configuration_.dataPrefix+":"+x.id);
+                newChainKeys.push_back(configuration_.chainPrefix+":"+x.id);
+                newDatas.push_back(serialize<T>(*(x.data)));
+            }
+            for (auto ii=0; ii<newItemCount; ++ii) {
+                argv[2*ii+4] = newDataKeys[ii].c_str();
+                argvLen[2*ii+4] = newDataKeys[ii].length();
+                argv[2*ii+5] = newChainKeys[ii].c_str();
+                argvLen[2*ii+5] = newChainKeys[ii].length();
+            }
+            argv[2*newItemCount+4] = toBeWritten[0].id.c_str();
+            argvLen[2*newItemCount+4] = toBeWritten[0].id.length();
+            for (auto ii=0; ii<newItemCount; ++ii) {
+                argv[2*ii+2*newItemCount+5] = newDatas[ii].data();
+                argvLen[2*ii+2*newItemCount+5] = newDatas[ii].length();
+                argv[2*ii+2*newItemCount+6] = toBeWritten[ii].nextID.c_str();
+                argvLen[2*ii+2*newItemCount+6] = toBeWritten[ii].nextID.length();
+            }
+
+            redisReply *r = nullptr;
+            {
+                std::lock_guard<std::mutex> _(redisMutex_);
+                r = (redisReply *) redisCommandArgv(
+                    redisCtx_, argvCount, argv, argvLen
+                );
+            }
+            delete[] argvLen;
+            delete[] argv;
+
+            if (r == nullptr || r->type != REDIS_REPLY_INTEGER) {
+                if (r != nullptr) {
+                    freeReplyObject((void *) r);
+                }
+                throw RedisChainException("appendAfter: Redis chain compare set error for "+currentChainKey+","+newDataKeys[0]+","+newChainKeys[0]);
+            }
+            bool ret = (r->integer != 0);
+            freeReplyObject((void *) r);
+            return ret;
+        }
         //These two are helper functions to store and load data under extraDataPrefix
         template <class ExtraData>
         void saveExtraData(std::string const &key, ExtraData const &data) {
@@ -348,6 +445,19 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             return ItemType {
                 itemID, {std::move(itemData)}, ""
             };
+        }
+        static std::vector<ItemType> formChainItems(std::vector<std::tuple<StorageIDType, T>> &&itemDatas) {
+            std::vector<ItemType> ret;
+            bool first = true;
+            for (auto &&x: itemDatas) {
+                auto *p = (first?nullptr:&(ret.back()));
+                if (p) {
+                    p->nextID = std::get<0>(x);
+                }
+                ret.push_back(formChainItem(std::get<0>(x), std::move(std::get<1>(x))));
+                first = false;
+            }
+            return ret;
         }
         static StorageIDType extractStorageID(ItemType const &p) {
             return p.id;

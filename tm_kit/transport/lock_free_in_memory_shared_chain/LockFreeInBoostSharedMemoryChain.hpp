@@ -293,6 +293,33 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             }
             return ret;
         }
+        bool appendAfter(ItemType const &current, std::vector<ItemType> &&toBeWritten) {
+            if (toBeWritten.empty()) {
+                return true;
+            }
+            if (toBeWritten.size() == 1) {
+                return appendAfter(current, std::move(toBeWritten[0]));
+            }
+            if (!current.ptr) {
+                throw LockFreeInBoostSharedMemoryChainException("AppendAfter on nullptr");
+            }
+            if (!toBeWritten[0].ptr) {
+                throw LockFreeInBoostSharedMemoryChainException("AppendAfter trying to append nullptr");
+            }
+            if (toBeWritten.back().ptr->next != 0) {
+                throw LockFreeInBoostSharedMemoryChainException("AppendAfter trying to append a last item with non-zero next");
+            }
+            std::ptrdiff_t x = 0;
+            bool ret = std::atomic_compare_exchange_strong<std::ptrdiff_t>(
+                &(current.ptr->next)
+                , &x
+                , (reinterpret_cast<char const *>(toBeWritten[0].ptr)-reinterpret_cast<char const *>(current.ptr))
+            );
+            if (!ret) {
+                destroyItem(std::move(toBeWritten[0]));
+            }
+            return ret;
+        }
         template <class ExtraData>
         void saveExtraData(std::string const &key, ExtraData const &data) {
             static_assert(EDPS != BoostSharedMemoryChainExtraDataProtectionStrategy::DontSupportExtraData, "LockFreeInBoostSharedMemoryChain supports storing extra data only if enabled in template signature");
@@ -512,15 +539,35 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 };
             }
         }
-        void destroyItem(ItemType &&p) {
-            if (p.ptr) {
+        std::vector<ItemType> formChainItems(std::vector<std::tuple<StorageIDType, T>> &&data) {
+            std::vector<ItemType> ret;
+            bool first = true;
+            for (auto &&x : data) {
+                auto *p = (first?nullptr:&(ret.back()));
+                auto newItem = formChainItem(std::get<0>(x), std::move(std::get<1>(x)));
+                if (p) {
+                    p->ptr->next.store(reinterpret_cast<char const *>(newItem.ptr)-reinterpret_cast<char const *>(p->ptr));
+                }
+                ret.push_back(newItem);
+                first = false;
+            }
+            return ret;
+        }
+        void destroyPtr(decltype(((ItemType *) nullptr)->ptr) ptr) {
+            if (ptr) {
+                if (ptr->next != 0) {
+                    destroyPtr(reinterpret_cast<decltype(ptr)>(reinterpret_cast<char *>(ptr)+ptr->next));
+                }
                 if constexpr (ForceSeparate || !std::is_trivially_copyable_v<T>) {
-                    if (p.ptr->data != 0) {
-                        mem_.destroy_ptr(reinterpret_cast<char *>(p.ptr)+p.ptr->data);
+                    if (ptr->data != 0) {
+                        mem_.destroy_ptr(reinterpret_cast<char const *>(ptr)+ptr->data);
                     }
                 }
-                mem_.destroy_ptr(p.ptr);
+                mem_.destroy_ptr(ptr);
             }
+        }
+        void destroyItem(ItemType &&p) {
+            destroyPtr(p.ptr);
         }
         static StorageIDType extractStorageID(ItemType const &p) {
             return p.id;
@@ -687,6 +734,33 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             );
             if (!ret) {
                 destroyItem(std::move(toBeWritten));
+            }
+            return ret;
+        }
+        bool appendAfter(ItemType const &current, std::vector<ItemType> &&toBeWritten) {
+            if (toBeWritten.empty()) {
+                return true;
+            }
+            if (toBeWritten.size() == 1) {
+                return appendAfter(current, std::move(toBeWritten[0]));
+            }
+            if (!current.ptr) {
+                throw LockFreeInBoostSharedMemoryChainException("AppendAfter on nullptr");
+            }
+            if (!toBeWritten[0].ptr) {
+                throw LockFreeInBoostSharedMemoryChainException("AppendAfter trying to append nullptr");
+            }
+            if (toBeWritten.back().ptr->next != 0) {
+                throw LockFreeInBoostSharedMemoryChainException("AppendAfter trying to append a last item with non-zero next");
+            }
+            std::ptrdiff_t x = 0;
+            bool ret = std::atomic_compare_exchange_strong<std::ptrdiff_t>(
+                &(current.ptr->next)
+                , &x
+                , (reinterpret_cast<char const *>(toBeWritten[0].ptr)-reinterpret_cast<char const *>(current.ptr))
+            );
+            if (!ret) {
+                destroyItem(std::move(toBeWritten[0]));
             }
             return ret;
         }
@@ -911,15 +985,35 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         ItemType formChainItem(std::string const &notUsed, T &&data) {
             return formChainItem((StorageIDType) 0, std::move(data));
         }
-        void destroyItem(ItemType &&p) {
-            if (p.ptr) {
+        std::vector<ItemType> formChainItems(std::vector<std::tuple<std::string, T>> &&data) {
+            std::vector<ItemType> ret;
+            bool first = true;
+            for (auto &&x : data) {
+                auto *p = (first?nullptr:&(ret.back()));
+                auto newItem = formChainItem(std::get<0>(x), std::move(std::get<1>(x)));
+                if (p) {
+                    p->ptr->next.store(reinterpret_cast<char const *>(newItem.ptr)-reinterpret_cast<char const *>(p->ptr));
+                }
+                ret.push_back(newItem);
+                first = false;
+            }
+            return ret;
+        }
+        void destroyPtr(decltype(((ItemType *) nullptr)->ptr) ptr) {
+            if (ptr) {
+                if (ptr->next != 0) {
+                    destroyPtr(reinterpret_cast<decltype(ptr)>(reinterpret_cast<char *>(ptr)+ptr->next));
+                }
                 if constexpr (ForceSeparate || !std::is_trivially_copyable_v<T>) {
-                    if (p.ptr->data != 0) {
-                        mem_.destroy_ptr(reinterpret_cast<char const *>(p.ptr)+p.ptr->data);
+                    if (ptr->data != 0) {
+                        mem_.destroy_ptr(reinterpret_cast<char const *>(ptr)+ptr->data);
                     }
                 }
-                mem_.destroy_ptr(p.ptr);
+                mem_.destroy_ptr(ptr);
             }
+        }
+        void destroyItem(ItemType &&p) {
+            destroyPtr(p.ptr);
         }
         static StorageIDType extractStorageID(ItemType const &p) {
             return p.offset;

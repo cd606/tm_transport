@@ -816,6 +816,150 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 return ret;
             }
         }
+        bool appendAfter(ItemType const &current, std::vector<ItemType> &&toBeWritten) {
+            if (toBeWritten.empty()) {
+                return true;
+            }
+            if (toBeWritten.size() == 1) {
+                return appendAfter(current, std::move(toBeWritten[0]));
+            }
+            if (current.nextID != "") {
+                return false;
+            } 
+            if (!(toBeWritten[0].data)) {
+                throw EtcdChainException("Cannot append new items whose first data is empty");
+            }
+            if (toBeWritten.back().nextID != "") {
+                throw EtcdChainException("Cannot append new items whose last nextID is already non-empty");
+            }
+            std::string currentChainKey = configuration_.chainPrefix+":"+current.id;
+            if (configuration_.saveDataOnSeparateStorage) {
+                etcdserverpb::TxnRequest txn;
+                auto *cmp = txn.add_compare();
+                cmp->set_result(etcdserverpb::Compare::EQUAL);
+                cmp->set_target(etcdserverpb::Compare::VALUE);
+                cmp->set_key(currentChainKey);
+                cmp->set_value("");
+                for (auto const &x : toBeWritten) {
+                    std::string newDataKey = configuration_.dataPrefix+":"+x.id;
+                    std::string newChainKey = configuration_.chainPrefix+":"+x.id;
+                    cmp = txn.add_compare();
+                    cmp->set_result(etcdserverpb::Compare::EQUAL);
+                    cmp->set_target(etcdserverpb::Compare::VERSION);
+                    cmp->set_key(newDataKey);
+                    cmp->set_version(0);
+                    cmp = txn.add_compare();
+                    cmp->set_result(etcdserverpb::Compare::EQUAL);
+                    cmp->set_target(etcdserverpb::Compare::VERSION);
+                    cmp->set_key(newChainKey);
+                    cmp->set_version(0);
+                }
+                auto *action = txn.add_success();
+                auto *put = action->mutable_request_put();
+                put->set_key(currentChainKey);
+                put->set_value(toBeWritten[0].id); 
+                if (configuration_.automaticallyDuplicateToRedis) {
+                    for (auto const &x : toBeWritten) {
+                        std::string newDataKey = configuration_.dataPrefix+":"+x.id;
+                        std::string newChainKey = configuration_.chainPrefix+":"+x.id;
+                        action = txn.add_success();
+                        put = action->mutable_request_put();
+                        put->set_key(newDataKey);
+                        put->set_value(serialize<T>(*(x.data))); 
+                        action = txn.add_success();
+                        put = action->mutable_request_put();
+                        put->set_key(newChainKey);
+                        put->set_value(x.nextID); 
+                    }
+                } else {
+                    for (auto &&x : std::move(toBeWritten)) {
+                        std::string newDataKey = configuration_.dataPrefix+":"+x.id;
+                        std::string newChainKey = configuration_.chainPrefix+":"+x.id;
+                        action = txn.add_success();
+                        put = action->mutable_request_put();
+                        put->set_key(newDataKey);
+                        put->set_value(serialize<T>(std::move(*(x.data)))); 
+                        action = txn.add_success();
+                        put = action->mutable_request_put();
+                        put->set_key(newChainKey);
+                        put->set_value(std::move(x.nextID)); 
+                    }
+                }
+                etcdserverpb::TxnResponse txnResp;
+                grpc::ClientContext txnCtx;
+                txnCtx.set_deadline(std::chrono::system_clock::now()+std::chrono::hours(24));
+                stub_->Txn(&txnCtx, txn, &txnResp);
+
+                bool ret = txnResp.succeeded();
+                if (ret) {
+                    auto rev = txnResp.responses(txnResp.responses_size()-1).response_put().header().revision();
+                    if (configuration_.useWatchThread) {
+                        latestModRevision_.store(rev, std::memory_order_release);
+                    }
+                    if (configuration_.automaticallyDuplicateToRedis) {
+                        duplicateToRedis(rev, current.id, (current.data?*(current.data):T{}), toBeWritten[0].id);     
+                        for (auto ii=0; ii<toBeWritten.size()-1; ++ii) {
+                            duplicateToRedis(rev, toBeWritten[ii].id, *(toBeWritten[ii].data), toBeWritten[ii+1].id);
+                        }
+                    }
+                }
+                return ret;
+            } else {
+                etcdserverpb::TxnRequest txn;
+                auto *cmp = txn.add_compare();
+                cmp->set_result(etcdserverpb::Compare::EQUAL);
+                cmp->set_target(etcdserverpb::Compare::MOD);
+                cmp->set_key(currentChainKey);
+                cmp->set_mod_revision(current.revision);
+                for (auto const &x : toBeWritten) {
+                    std::string newChainKey = configuration_.chainPrefix+":"+x.id;
+                    cmp = txn.add_compare();
+                    cmp->set_result(etcdserverpb::Compare::EQUAL);
+                    cmp->set_target(etcdserverpb::Compare::VERSION);
+                    cmp->set_key(newChainKey);
+                    cmp->set_version(0);
+                }
+                auto *action = txn.add_success();
+                auto *put = action->mutable_request_put();
+                put->set_key(currentChainKey);
+                put->set_value(serialize<MapData>(MapData {(current.data?*(current.data):T{}), toBeWritten[0].id})); 
+                action = txn.add_success();
+                if (configuration_.automaticallyDuplicateToRedis) {
+                    for (auto const &x : toBeWritten) {
+                        std::string newChainKey = configuration_.chainPrefix+":"+x.id;
+                        put = action->mutable_request_put();
+                        put->set_key(newChainKey);
+                        put->set_value(serialize<MapData>(MapData {*(x.data), x.nextID})); 
+                    }
+                } else {
+                    for (auto &&x : std::move(toBeWritten)) {
+                        std::string newChainKey = configuration_.chainPrefix+":"+x.id;
+                        put = action->mutable_request_put();
+                        put->set_key(newChainKey);
+                        put->set_value(serialize<MapData>(MapData {std::move(*(x.data)), std::move(x.nextID)})); 
+                    }
+                }
+                
+                etcdserverpb::TxnResponse txnResp;
+                grpc::ClientContext txnCtx;
+                txnCtx.set_deadline(std::chrono::system_clock::now()+std::chrono::hours(24));
+                stub_->Txn(&txnCtx, txn, &txnResp);
+                bool ret = txnResp.succeeded();
+                if (ret) {
+                    auto rev = txnResp.responses(txnResp.responses_size()-1).response_put().header().revision();
+                    if (configuration_.useWatchThread) {
+                        latestModRevision_.store(rev, std::memory_order_release);
+                    }
+                    if (configuration_.automaticallyDuplicateToRedis) {
+                        duplicateToRedis(rev, current.id, (current.data?*(current.data):T{}), toBeWritten[0].id);     
+                        for (auto ii=0; ii<toBeWritten.size()-1; ++ii) {
+                            duplicateToRedis(rev, toBeWritten[ii].id, *(toBeWritten[ii].data), toBeWritten[ii+1].id);
+                        }
+                    }
+                }
+                return ret;
+            }
+        }
         void duplicateToRedis(int64_t rev, std::string const &id, T const &data, std::string const &nextID) {
             duplicateToRedis(nullptr, rev, id, data, nextID, configuration_.redisTTLSeconds);
         }
@@ -899,6 +1043,19 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             return ItemType {
                 0, itemID, {std::move(itemData)}, ""
             };
+        }
+        static std::vector<ItemType> formChainItems(std::vector<std::tuple<StorageIDType, T>> &&itemDatas) {
+            std::vector<ItemType> ret;
+            bool first = true;
+            for (auto &&x: itemDatas) {
+                auto *p = (first?nullptr:&(ret.back()));
+                if (p) {
+                    p->nextID = std::get<0>(x);
+                }
+                ret.push_back(formChainItem(std::get<0>(x), std::move(std::get<1>(x))));
+                first = false;
+            }
+            return ret;
         }
         static StorageIDType extractStorageID(ItemType const &p) {
             return p.id;
