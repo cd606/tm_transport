@@ -93,17 +93,18 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                 ;
         }
         
-        template <class App, class ChainItemFolder, class TriggerT, class Chain>
+        template <class App, class ChainItemFolder, class TriggerT, class ResultTransformer, class Chain>
         inline auto chainReaderHelper(
             typename App::EnvironmentType *env
             , Chain *chain 
             , basic::simple_shared_chain::ChainPollingPolicy const &pollingPolicy
             , ChainItemFolder &&folder
+            , std::conditional_t<std::is_same_v<ResultTransformer, void>, bool, ResultTransformer> &&resultTransformer = std::conditional_t<std::is_same_v<ResultTransformer, void>, bool, ResultTransformer>()
         ) 
             -> std::conditional_t<
                 std::is_same_v<TriggerT, void>
-                , std::shared_ptr<typename App::template Importer<typename ChainItemFolder::ResultType>>
-                , std::shared_ptr<typename App::template Action<TriggerT, typename ChainItemFolder::ResultType>> 
+                , std::shared_ptr<typename App::template Importer<std::conditional_t<std::is_same_v<ResultTransformer, void>, typename ChainItemFolder::ResultType, typename basic::simple_shared_chain::ResultTypeExtractor<ResultTransformer>::TheType>>>
+                , std::shared_ptr<typename App::template Action<TriggerT, std::conditional_t<std::is_same_v<ResultTransformer, void>, typename ChainItemFolder::ResultType, typename basic::simple_shared_chain::ResultTypeExtractor<ResultTransformer>::TheType>>> 
             >
         {
             if constexpr (std::is_same_v<TriggerT, void>) {
@@ -112,10 +113,12 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                     , Chain
                     , ChainItemFolder
                     , void
+                    , ResultTransformer
                 >::importer(
                     chain
                     , pollingPolicy
                     , std::move(folder)
+                    , std::move(resultTransformer)
                 );
             } else {
                 return basic::simple_shared_chain::ChainReader<
@@ -123,10 +126,12 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                     , Chain
                     , ChainItemFolder
                     , TriggerT
+                    , ResultTransformer
                 >::action(
                     env
                     , chain
                     , std::move(folder)
+                    , std::move(resultTransformer)
                 );
             }
         }
@@ -232,7 +237,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
             chains_.clear();
         }
 
-        template <class ChainData, class ChainItemFolder, class TriggerT=void, bool ForceSeparateDataStorageIfPossible=false>
+        template <class ChainData, class ChainItemFolder, class TriggerT=void, class ResultTransformer=void, bool ForceSeparateDataStorageIfPossible=false>
         auto reader(
             typename App::EnvironmentType *env
             , SharedChainProtocol protocol
@@ -240,11 +245,12 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
             , basic::simple_shared_chain::ChainPollingPolicy const &pollingPolicy = basic::simple_shared_chain::ChainPollingPolicy()
             , std::optional<ByteDataHookPair> hookPair = std::nullopt
             , ChainItemFolder &&folder = ChainItemFolder {}
+            , std::conditional_t<std::is_same_v<ResultTransformer, void>, bool, ResultTransformer> &&resultTransformer = std::conditional_t<std::is_same_v<ResultTransformer, void>, bool, ResultTransformer>()
         )
             -> std::conditional_t<
                 std::is_same_v<TriggerT, void>
-                , std::shared_ptr<typename App::template Importer<typename ChainItemFolder::ResultType>>
-                , std::shared_ptr<typename App::template Action<TriggerT, typename ChainItemFolder::ResultType>> 
+                , std::shared_ptr<typename App::template Importer<std::conditional_t<std::is_same_v<ResultTransformer, void>, typename ChainItemFolder::ResultType, typename basic::simple_shared_chain::ResultTypeExtractor<ResultTransformer>::TheType>>>
+                , std::shared_ptr<typename App::template Action<TriggerT, std::conditional_t<std::is_same_v<ResultTransformer, void>, typename ChainItemFolder::ResultType, typename basic::simple_shared_chain::ResultTypeExtractor<ResultTransformer>::TheType>>> 
             >
         {
             switch (protocol) {
@@ -255,7 +261,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                         if constexpr (ForceSeparateDataStorageIfPossible) {
                             conf.SaveDataOnSeparateStorage(true);
                         }
-                        return shared_chain_utils::chainReaderHelper<App,ChainItemFolder,TriggerT>(
+                        return shared_chain_utils::chainReaderHelper<App,ChainItemFolder,TriggerT,ResultTransformer>(
                             env
                             , getChain<etcd_shared_chain::EtcdChain<ChainData>>(
                                 shared_chain_utils::makeSharedChainLocator(protocol, locator)
@@ -270,6 +276,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                             )
                             , pollingPolicy
                             , std::move(folder)
+                            , std::move(resultTransformer)
                         );
                     } else {
                         throw new std::runtime_error("sharedChainCreator::reader: Etcd chain is not supported by the environment");
@@ -280,7 +287,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                 {
                     if constexpr (std::is_convertible_v<typename App::EnvironmentType *, redis_shared_chain::RedisChainComponent *>) {
                         auto conf = shared_chain_utils::redisChainConfigurationFromConnectionLocator(locator);
-                        return shared_chain_utils::chainReaderHelper<App,ChainItemFolder,TriggerT>(
+                        return shared_chain_utils::chainReaderHelper<App,ChainItemFolder,TriggerT,ResultTransformer>(
                             env
                             , getChain<redis_shared_chain::RedisChain<ChainData>>(
                                 shared_chain_utils::makeSharedChainLocator(protocol, locator)
@@ -295,6 +302,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                             )
                             , pollingPolicy
                             , std::move(folder)
+                            , std::move(resultTransformer)
                         );
                     } else {
                         throw new std::runtime_error("sharedChainCreator::reader: Redis chain is not supported by the environment");
@@ -303,7 +311,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                 break;
             case SharedChainProtocol::InMemoryWithLock:
                 {
-                    return shared_chain_utils::chainReaderHelper<App,ChainItemFolder,TriggerT>(
+                    return shared_chain_utils::chainReaderHelper<App,ChainItemFolder,TriggerT,ResultTransformer>(
                         env
                         , getChain<basic::simple_shared_chain::InMemoryWithLockChain<ChainData>>(
                             shared_chain_utils::makeSharedChainLocator(protocol, locator)
@@ -313,12 +321,13 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                         )
                         , pollingPolicy
                         , std::move(folder)
+                        , std::move(resultTransformer)
                     );
                 }
                 break;
             case SharedChainProtocol::InMemoryLockFree:
                 {
-                    return shared_chain_utils::chainReaderHelper<App,ChainItemFolder,TriggerT>(
+                    return shared_chain_utils::chainReaderHelper<App,ChainItemFolder,TriggerT,ResultTransformer>(
                         env
                         , getChain<basic::simple_shared_chain::InMemoryLockFreeChain<ChainData>>(
                             shared_chain_utils::makeSharedChainLocator(protocol, locator)
@@ -328,6 +337,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                         )
                         , pollingPolicy
                         , std::move(folder)
+                        , std::move(resultTransformer)
                     );
                 }
                 break;
@@ -342,7 +352,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                         }
                         bool useName = (locator.query("useName", "false") == "true");                       
                         if (useName) {
-                            return shared_chain_utils::chainReaderHelper<App,ChainItemFolder,TriggerT>(
+                            return shared_chain_utils::chainReaderHelper<App,ChainItemFolder,TriggerT,ResultTransformer>(
                                 env
                                 , getChain<lock_free_in_memory_shared_chain::LockFreeInBoostSharedMemoryChain<
                                     ChainData
@@ -382,9 +392,10 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                                 )
                                 , pollingPolicy
                                 , std::move(folder)
+                                , std::move(resultTransformer)
                             );
                         } else {
-                            return shared_chain_utils::chainReaderHelper<App,ChainItemFolder,TriggerT>(
+                            return shared_chain_utils::chainReaderHelper<App,ChainItemFolder,TriggerT,ResultTransformer>(
                                 env 
                                 , getChain<lock_free_in_memory_shared_chain::LockFreeInBoostSharedMemoryChain<
                                     ChainData
@@ -424,6 +435,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                                 )
                                 , pollingPolicy
                                 , std::move(folder)
+                                , std::move(resultTransformer)
                             );
                         }
                     } else {
@@ -437,24 +449,25 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
             }
         }
 
-        template <class ChainData, class ChainItemFolder, class TriggerT=void, bool ForceSeparateDataStorageIfPossible=false>
+        template <class ChainData, class ChainItemFolder, class TriggerT=void, class ResultTransformer=void, bool ForceSeparateDataStorageIfPossible=false>
         auto reader(
             typename App::EnvironmentType *env
             , std::string const &locatorStr
             , basic::simple_shared_chain::ChainPollingPolicy const &pollingPolicy = basic::simple_shared_chain::ChainPollingPolicy()
             , std::optional<ByteDataHookPair> hookPair = std::nullopt
             , ChainItemFolder &&folder = ChainItemFolder {}
+            , std::conditional_t<std::is_same_v<ResultTransformer, void>, bool, ResultTransformer> &&resultTransformer = std::conditional_t<std::is_same_v<ResultTransformer, void>, bool, ResultTransformer>()
         )
             -> std::conditional_t<
                 std::is_same_v<TriggerT, void>
-                , std::shared_ptr<typename App::template Importer<typename ChainItemFolder::ResultType>>
-                , std::shared_ptr<typename App::template Action<TriggerT, typename ChainItemFolder::ResultType>> 
+                , std::shared_ptr<typename App::template Importer<std::conditional_t<std::is_same_v<ResultTransformer, void>, typename ChainItemFolder::ResultType, typename basic::simple_shared_chain::ResultTypeExtractor<ResultTransformer>::TheType>>>
+                , std::shared_ptr<typename App::template Action<TriggerT, std::conditional_t<std::is_same_v<ResultTransformer, void>, typename ChainItemFolder::ResultType, typename basic::simple_shared_chain::ResultTypeExtractor<ResultTransformer>::TheType>>> 
             >
         {
             auto parsed = shared_chain_utils::parseSharedChainLocator(locatorStr);
             if (parsed) {
-                return reader<ChainData,ChainItemFolder,TriggerT,ForceSeparateDataStorageIfPossible>(
-                    env, std::get<0>(*parsed), std::get<1>(*parsed), pollingPolicy, hookPair, std::move(folder)
+                return reader<ChainData,ChainItemFolder,TriggerT,ResultTransformer,ForceSeparateDataStorageIfPossible>(
+                    env, std::get<0>(*parsed), std::get<1>(*parsed), pollingPolicy, hookPair, std::move(folder),std::move(resultTransformer)
                 );
             } else {
                 throw std::runtime_error(std::string("sharedChainCreator::reader: malformed connection locator string '")+locatorStr+"'");
@@ -716,44 +729,48 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
             }
         }
 
-        template <class ChainData, class ChainItemFolder, class TriggerT=void, bool ForceSeparateDataStorageIfPossible=false>
+        template <class ChainData, class ChainItemFolder, class TriggerT=void, class ResultTransformer=void, bool ForceSeparateDataStorageIfPossible=false>
         auto readerFactoryWithHook(
             typename App::EnvironmentType *env
             , std::string const &locatorStr
             , basic::simple_shared_chain::ChainPollingPolicy const &pollingPolicy = basic::simple_shared_chain::ChainPollingPolicy()
             , std::optional<ByteDataHookPair> hookPair = std::nullopt
             , ChainItemFolder &&folder = ChainItemFolder {}
+            , std::conditional_t<std::is_same_v<ResultTransformer, void>, bool, ResultTransformer> &&resultTransformer = std::conditional_t<std::is_same_v<ResultTransformer, void>, bool, ResultTransformer>()
         )
             -> std::conditional_t<
                 std::is_same_v<TriggerT, void>
-                , basic::simple_shared_chain::ChainReaderImporterFactory<App, ChainItemFolder>
-                , basic::simple_shared_chain::ChainReaderActionFactory<App, ChainItemFolder, TriggerT>
+                , basic::simple_shared_chain::ChainReaderImporterFactory<App, ChainItemFolder, ResultTransformer>
+                , basic::simple_shared_chain::ChainReaderActionFactory<App, ChainItemFolder, TriggerT, ResultTransformer>
             >
         {
             auto f = std::move(folder);
-            return [this,env,locatorStr,pollingPolicy,hookPair,f=std::move(f)]() {
+            auto t = std::move(resultTransformer);
+            return [this,env,locatorStr,pollingPolicy,hookPair,f=std::move(f),t=std::move(t)]() {
                 auto f1 = std::move(f);
-                return reader<ChainData,ChainItemFolder,TriggerT,ForceSeparateDataStorageIfPossible>(
-                    env, locatorStr, pollingPolicy, hookPair, std::move(f1)
+                auto t1 = std::move(t);
+                return reader<ChainData,ChainItemFolder,TriggerT,ResultTransformer,ForceSeparateDataStorageIfPossible>(
+                    env, locatorStr, pollingPolicy, hookPair, std::move(f1), std::move(t1)
                 );
             };
         }
 
-        template <class ChainData, class ChainItemFolder, class TriggerT=void, bool ForceSeparateDataStorageIfPossible=false>
+        template <class ChainData, class ChainItemFolder, class TriggerT=void, class ResultTransformer=void, bool ForceSeparateDataStorageIfPossible=false>
         auto readerFactory(
             typename App::EnvironmentType *env
             , std::string const &locatorStr
             , basic::simple_shared_chain::ChainPollingPolicy const &pollingPolicy = basic::simple_shared_chain::ChainPollingPolicy()
             , ChainItemFolder &&folder = ChainItemFolder {}
+            , std::conditional_t<std::is_same_v<ResultTransformer, void>, bool, ResultTransformer> &&resultTransformer = std::conditional_t<std::is_same_v<ResultTransformer, void>, bool, ResultTransformer>()
         )
             -> std::conditional_t<
                 std::is_same_v<TriggerT, void>
-                , basic::simple_shared_chain::ChainReaderImporterFactory<App, ChainItemFolder>
-                , basic::simple_shared_chain::ChainReaderActionFactory<App, ChainItemFolder, TriggerT>
+                , basic::simple_shared_chain::ChainReaderImporterFactory<App, ChainItemFolder, ResultTransformer>
+                , basic::simple_shared_chain::ChainReaderActionFactory<App, ChainItemFolder, TriggerT, ResultTransformer>
             >
         {
-            return readerFactoryWithHook<ChainData, ChainItemFolder, TriggerT, ForceSeparateDataStorageIfPossible>(
-                env, locatorStr, pollingPolicy, std::nullopt, std::move(folder)
+            return readerFactoryWithHook<ChainData, ChainItemFolder, TriggerT, ResultTransformer, ForceSeparateDataStorageIfPossible>(
+                env, locatorStr, pollingPolicy, std::nullopt, std::move(folder), std::move(resultTransformer)
             );
         }
 
