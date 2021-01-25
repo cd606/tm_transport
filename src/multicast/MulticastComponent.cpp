@@ -12,6 +12,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
     private:
         class OneMulticastSubscription {
         private:
+            MulticastComponentTopicEncodingChoice encodingChoice_;
             ConnectionLocator locator_;
             boost::asio::ip::udp::socket sock_;
             boost::asio::ip::udp::endpoint senderPoint_;
@@ -45,7 +46,30 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                     return;
                 }
                 if (!err) {
-                    auto parseRes = basic::bytedata_utils::RunCBORDeserializer<basic::ByteDataWithTopic>::apply(std::string_view {buffer_.data(), bytesReceived}, 0);
+                    std::optional<std::tuple<basic::ByteDataWithTopic, std::size_t>> parseRes;
+                    if (encodingChoice_ == MulticastComponentTopicEncodingChoice::CBOR) {
+                        parseRes = basic::bytedata_utils::RunCBORDeserializer<basic::ByteDataWithTopic>::apply(std::string_view {buffer_.data(), bytesReceived}, 0);
+                    } else {
+                        if (bytesReceived < sizeof(uint32_t)) {
+                            parseRes = std::nullopt;
+                        } else {
+                            uint32_t topicLen;
+                            std::memcpy(&topicLen, buffer_.data(), sizeof(uint32_t));
+                            if (bytesReceived < topicLen+sizeof(uint32_t)) {
+                                parseRes = std::nullopt;
+                            } else {
+                                basic::ByteDataWithTopic res;
+                                res.topic.resize(topicLen);
+                                std::memcpy(res.topic.data(), buffer_.data()+sizeof(uint32_t), topicLen);
+                                res.content.resize(bytesReceived-sizeof(uint32_t)-topicLen);
+                                std::memcpy(res.content.data(), buffer_.data()+sizeof(uint32_t)+topicLen, bytesReceived-sizeof(uint32_t)-topicLen);
+                                parseRes = std::tuple<basic::ByteDataWithTopic, std::size_t> {
+                                    std::move(res)
+                                    , bytesReceived
+                                };
+                            }
+                        }
+                    }
                     if (parseRes && std::get<1>(*parseRes) == bytesReceived) {
                         basic::ByteDataWithTopic data = std::move(std::get<0>(*parseRes));
 
@@ -76,8 +100,8 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 }
             }
         public:
-            OneMulticastSubscription(boost::asio::io_service *service, ConnectionLocator const &locator) 
-                : locator_(locator), sock_(*service), senderPoint_(), mcastAddr_(), buffer_()
+            OneMulticastSubscription(MulticastComponentTopicEncodingChoice encodingChoice, boost::asio::io_service *service, ConnectionLocator const &locator) 
+                : encodingChoice_(encodingChoice), locator_(locator), sock_(*service), senderPoint_(), mcastAddr_(), buffer_()
                 , noFilterClients_(), stringMatchClients_(), regexMatchClients_()
                 , mutex_(), running_(true)
             {
@@ -184,6 +208,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         
         class OneMulticastSender {
         private:
+            MulticastComponentTopicEncodingChoice encodingChoice_;
             boost::asio::ip::udp::socket sock_;
             boost::asio::ip::udp::endpoint destination_;
             std::mutex mutex_;
@@ -191,8 +216,8 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             void handleSend(boost::system::error_code const &) {
             }
         public:
-            OneMulticastSender(boost::asio::io_service *service, ConnectionLocator const &locator)
-                : sock_(*service), destination_(), mutex_(), ttl_(0)
+            OneMulticastSender(MulticastComponentTopicEncodingChoice encodingChoice, boost::asio::io_service *service, ConnectionLocator const &locator)
+                : encodingChoice_(encodingChoice), sock_(*service), destination_(), mutex_(), ttl_(0)
             {
                 boost::asio::ip::udp::resolver resolver(*service);
                 boost::asio::ip::udp::resolver::query query(locator.host(), std::to_string(locator.port()));
@@ -203,7 +228,17 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 sock_.set_option(boost::asio::ip::udp::socket::send_buffer_size(16*1024*1024));
             }
             void publish(basic::ByteDataWithTopic &&data, int ttl) {
-                auto v = basic::bytedata_utils::RunCBORSerializer<basic::ByteDataWithTopic>::apply(data);     
+                std::string v;
+                if (encodingChoice_ == MulticastComponentTopicEncodingChoice::CBOR) {
+                    v = basic::bytedata_utils::RunCBORSerializer<basic::ByteDataWithTopic>::apply(data);
+                } else {
+                    v.resize(sizeof(uint32_t)+data.topic.length()+data.content.length());
+                    char *p = v.data();
+                    uint32_t topicLen = (uint32_t) (data.topic.length());
+                    std::memcpy(p, &topicLen, sizeof(uint32_t));
+                    std::memcpy(p+sizeof(uint32_t), data.topic.data(), topicLen);
+                    std::memcpy(p+sizeof(uint32_t)+topicLen, data.content.data(), data.content.length());
+                }
                 std::lock_guard<std::mutex> _(mutex_);
                 if (ttl != ttl_) {
                     sock_.set_option(boost::asio::ip::multicast::hops(ttl));
@@ -228,13 +263,15 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         std::unordered_map<uint32_t, OneMulticastSubscription *> idToSubscriptionMap_;
         std::mutex idMutex_;
 
+        MulticastComponentTopicEncodingChoice encodingChoice_;
+
         OneMulticastSubscription *getOrStartSubscription(ConnectionLocator const &d) {
             ConnectionLocator hostAndPort {d.host(), d.port()};
             std::lock_guard<std::mutex> _(mutex_);
             auto iter = subscriptions_.find(hostAndPort);
             if (iter == subscriptions_.end()) {
                 std::unique_ptr<boost::asio::io_service> svc = std::make_unique<boost::asio::io_service>();
-                iter = subscriptions_.insert({hostAndPort, std::make_unique<OneMulticastSubscription>(svc.get(), hostAndPort)}).first;
+                iter = subscriptions_.insert({hostAndPort, std::make_unique<OneMulticastSubscription>(encodingChoice_, svc.get(), hostAndPort)}).first;
                 std::thread th([svc=std::move(svc)] {
                     boost::asio::io_service::work work(*svc);
                     svc->run();
@@ -261,14 +298,14 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             }
             auto iter = senders_.find(hostAndPort);
             if (iter == senders_.end()) {
-                iter = senders_.insert({hostAndPort, std::make_unique<OneMulticastSender>(&senderService_, hostAndPort)}).first;
+                iter = senders_.insert({hostAndPort, std::make_unique<OneMulticastSender>(encodingChoice_, &senderService_, hostAndPort)}).first;
             }
             return iter->second.get();
         }
     public:
-        MulticastComponentImpl()
+        MulticastComponentImpl(MulticastComponentTopicEncodingChoice choice)
             : subscriptions_(), senders_(), senderService_(), senderThread_(), mutex_(), senderThreadStarted_(false)
-            , counter_(0), idToSubscriptionMap_(), idMutex_()
+            , counter_(0), idToSubscriptionMap_(), idMutex_(), encodingChoice_(choice)
         {            
         }
         ~MulticastComponentImpl() {
@@ -332,8 +369,10 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         }
     };
 
-    MulticastComponent::MulticastComponent() : impl_(std::make_unique<MulticastComponentImpl>()) {}
+    MulticastComponent::MulticastComponent(MulticastComponentTopicEncodingChoice choice) : impl_(std::make_unique<MulticastComponentImpl>(choice)) {}
     MulticastComponent::~MulticastComponent() {}
+    MulticastComponent::MulticastComponent(MulticastComponent &&) = default;
+    MulticastComponent &MulticastComponent::operator=(MulticastComponent &&) = default;
     uint32_t MulticastComponent::multicast_addSubscriptionClient(ConnectionLocator const &locator,
         std::variant<MulticastComponent::NoTopicSelection, std::string, std::regex> const &topic,
         std::function<void(basic::ByteDataWithTopic &&)> client,

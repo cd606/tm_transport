@@ -17,11 +17,18 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
     
     class MulticastComponentImpl;
 
+    enum class MulticastComponentTopicEncodingChoice {
+        CBOR
+        , BinaryAdHoc
+    };
+
     class MulticastComponent {
     private:
         std::unique_ptr<MulticastComponentImpl> impl_;
     public:
-        MulticastComponent();
+        MulticastComponent(MulticastComponentTopicEncodingChoice choice = MulticastComponentTopicEncodingChoice::CBOR);
+        MulticastComponent(MulticastComponent &&);
+        MulticastComponent &operator=(MulticastComponent &&);
         ~MulticastComponent();
         //only host and port are needed in the locators
         struct NoTopicSelection {};
