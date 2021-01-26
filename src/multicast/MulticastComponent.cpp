@@ -8,6 +8,20 @@
 #include <tm_kit/transport/multicast/MulticastComponent.hpp>
 
 namespace dev { namespace cd606 { namespace tm { namespace transport { namespace multicast {
+    
+    enum class MulticastComponentTopicEncodingChoice {
+        CBOR
+        , BinaryAdHoc
+    };
+
+    MulticastComponentTopicEncodingChoice parseEncodingChoice(std::string const &s) {
+        if (s == "binary" || s == "binary-adhoc") {
+            return MulticastComponentTopicEncodingChoice::BinaryAdHoc;
+        } else {
+            return MulticastComponentTopicEncodingChoice::CBOR;
+        }
+    }
+
     class MulticastComponentImpl {
     private:
         class OneMulticastSubscription {
@@ -263,15 +277,14 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         std::unordered_map<uint32_t, OneMulticastSubscription *> idToSubscriptionMap_;
         std::mutex idMutex_;
 
-        MulticastComponentTopicEncodingChoice encodingChoice_;
-
         OneMulticastSubscription *getOrStartSubscription(ConnectionLocator const &d) {
             ConnectionLocator hostAndPort {d.host(), d.port()};
             std::lock_guard<std::mutex> _(mutex_);
             auto iter = subscriptions_.find(hostAndPort);
             if (iter == subscriptions_.end()) {
+                auto choice = parseEncodingChoice(d.query("envelop", "cbor"));
                 std::unique_ptr<boost::asio::io_service> svc = std::make_unique<boost::asio::io_service>();
-                iter = subscriptions_.insert({hostAndPort, std::make_unique<OneMulticastSubscription>(encodingChoice_, svc.get(), hostAndPort)}).first;
+                iter = subscriptions_.insert({hostAndPort, std::make_unique<OneMulticastSubscription>(choice, svc.get(), hostAndPort)}).first;
                 std::thread th([svc=std::move(svc)] {
                     boost::asio::io_service::work work(*svc);
                     svc->run();
@@ -298,14 +311,15 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             }
             auto iter = senders_.find(hostAndPort);
             if (iter == senders_.end()) {
-                iter = senders_.insert({hostAndPort, std::make_unique<OneMulticastSender>(encodingChoice_, &senderService_, hostAndPort)}).first;
+                auto choice = parseEncodingChoice(d.query("envelop", "cbor"));
+                iter = senders_.insert({hostAndPort, std::make_unique<OneMulticastSender>(choice, &senderService_, hostAndPort)}).first;
             }
             return iter->second.get();
         }
     public:
-        MulticastComponentImpl(MulticastComponentTopicEncodingChoice choice)
+        MulticastComponentImpl()
             : subscriptions_(), senders_(), senderService_(), senderThread_(), mutex_(), senderThreadStarted_(false)
-            , counter_(0), idToSubscriptionMap_(), idMutex_(), encodingChoice_(choice)
+            , counter_(0), idToSubscriptionMap_(), idMutex_()
         {            
         }
         ~MulticastComponentImpl() {
@@ -369,10 +383,8 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         }
     };
 
-    MulticastComponent::MulticastComponent(MulticastComponentTopicEncodingChoice choice) : impl_(std::make_unique<MulticastComponentImpl>(choice)) {}
+    MulticastComponent::MulticastComponent() : impl_(std::make_unique<MulticastComponentImpl>()) {}
     MulticastComponent::~MulticastComponent() {}
-    MulticastComponent::MulticastComponent(MulticastComponent &&) = default;
-    MulticastComponent &MulticastComponent::operator=(MulticastComponent &&) = default;
     uint32_t MulticastComponent::multicast_addSubscriptionClient(ConnectionLocator const &locator,
         std::variant<MulticastComponent::NoTopicSelection, std::string, std::regex> const &topic,
         std::function<void(basic::ByteDataWithTopic &&)> client,
