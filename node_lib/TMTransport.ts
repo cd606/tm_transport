@@ -214,12 +214,28 @@ export class MultiTransportListener {
         } 
         
         let sock = dgram.createSocket({ type: 'udp4', reuseAddr: true });
+        
+        let useBinaryEnvelop = (('envelop' in locator.properties) && (locator.properties.envelop == 'binary'));
+        
         sock.on('message', function(msg : Buffer, _rinfo) {
             try {
-                let decoded = cbor.decode(msg);
-                let t = decoded[0] as string;
-                if (filter(t)) {
-                    stream.push([t, decoded[1] as Buffer]);
+                if (useBinaryEnvelop) {
+                    if (msg.length >= 4) {
+                        let topicLen = msg.readInt32LE(0);
+                        if (msg.length >= topicLen+4) {
+                            let topic = msg.toString('ascii', 4, topicLen+4);
+                            let data = msg.slice(topicLen+4);
+                            if (filter(topic)) {
+                                stream.push([topic, data]);
+                            }
+                        }
+                    }
+                } else {
+                    let decoded = cbor.decode(msg);
+                    let t = decoded[0] as string;
+                    if (filter(t)) {
+                        stream.push([t, decoded[1] as Buffer]);
+                    }
                 }
             } catch (e) {
             }
@@ -396,8 +412,19 @@ export class MultiTransportPublisher {
             }
             sock.addMembership(locator.host);
         });
-        return function(chunk : [string, Buffer], _encoding : BufferEncoding) {
-            sock.send(Buffer.from(cbor.encode(chunk)), locator.port, locator.host);
+        let useBinaryEnvelop = (('envelop' in locator.properties) && (locator.properties.envelop == 'binary'));
+        if (useBinaryEnvelop) {
+            return function(chunk : [string, Buffer], _encoding : BufferEncoding) {
+                let sendBuffer = Buffer.alloc(4+chunk[0].length+chunk[1].byteLength);
+                sendBuffer.writeInt32LE(chunk[0].length, 0);
+                sendBuffer.write(chunk[0], 4);
+                chunk[1].copy(sendBuffer, 4+chunk[0].length);
+                sock.send(sendBuffer, locator.port, locator.host);
+            }
+        } else {
+            return function(chunk : [string, Buffer], _encoding : BufferEncoding) {
+                sock.send(Buffer.from(cbor.encode(chunk)), locator.port, locator.host);
+            }
         }
     }
     private static async rabbitmqWrite(locator : ConnectionLocator) : Promise<(chunk : [string, Buffer], encoding : BufferEncoding) => void> {

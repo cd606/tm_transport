@@ -2,6 +2,7 @@ using System;
 using System.Threading;
 using System.Net;
 using System.Net.Sockets;
+using System.IO;
 using Here;
 using PeterO.Cbor;
 using Dev.CD606.TM.Infra;
@@ -39,11 +40,13 @@ namespace Dev.CD606.TM.Transport
             private WireToUserHook hook;
             private ConnectionLocator locator;
             private TopicSpec topicSpec;
+            private bool binaryEnvelop;
             public BinaryImporter(ConnectionLocator locator, TopicSpec topicSpec, WireToUserHook hook = null)
             {
                 this.locator = locator;
                 this.topicSpec = topicSpec;
                 this.hook = hook;
+                this.binaryEnvelop = (locator.GetProperty("envelop", "cbor").Equals("binary"));
             }
             public override void start(Env env)
             {
@@ -55,32 +58,70 @@ namespace Dev.CD606.TM.Transport
                         msg = receiver();
                         if (msg != null && msg.Length > 0)
                         {
-                            var cborObj = CBORObject.DecodeFromBytes(msg);
-                            if (cborObj.Type != CBORType.Array || cborObj.Count != 2)
-                            {
-                                continue;
-                            }
-                            var topic = cborObj[0].AsString();
-                            if (topicSpec.Match(topic))
-                            {
-                                var b = cborObj[1].ToObject<byte[]>();
-                                if (hook != null)
-                                {
-                                    var processed = hook.hook(b);
-                                    if (processed)
-                                    {
-                                        b = processed.Value;
-                                    }
-                                    else
-                                    {
-                                        return;
-                                    }
+                            if (binaryEnvelop) {
+                                if (msg.Length < 4) {
+                                    continue;
                                 }
-                                publish(InfraUtils.pureTimedDataWithEnvironment<Env, ByteDataWithTopic>(
-                                    env
-                                    , new ByteDataWithTopic(topic, b)
-                                    , false
-                                ));
+                                var s = new MemoryStream(msg);
+                                var r = new BinaryReader(s);
+                                var topicLen = r.ReadInt32();
+                                if (msg.Length < topicLen+4) {
+                                    continue;
+                                }
+                                var topic = r.ReadChars(topicLen).ToString();
+                                var data = r.ReadBytes(msg.Length-4-topicLen);
+                                if (topicSpec.Match(topic))
+                                {
+                                    if (hook != null)
+                                    {
+                                        var processed = hook.hook(data);
+                                        if (processed)
+                                        {
+                                            data = processed.Value;
+                                        }
+                                        else
+                                        {
+                                            return;
+                                        }
+                                    }
+                                    publish(InfraUtils.pureTimedDataWithEnvironment<Env, ByteDataWithTopic>(
+                                        env
+                                        , new ByteDataWithTopic(topic, data)
+                                        , false
+                                    ));
+                                }
+                            } else {
+                                try {
+                                    var cborObj = CBORObject.DecodeFromBytes(msg);
+                                    if (cborObj.Type != CBORType.Array || cborObj.Count != 2)
+                                    {
+                                        continue;
+                                    }
+                                    var topic = cborObj[0].AsString();
+                                    if (topicSpec.Match(topic))
+                                    {
+                                        var b = cborObj[1].ToObject<byte[]>();
+                                        if (hook != null)
+                                        {
+                                            var processed = hook.hook(b);
+                                            if (processed)
+                                            {
+                                                b = processed.Value;
+                                            }
+                                            else
+                                            {
+                                                return;
+                                            }
+                                        }
+                                        publish(InfraUtils.pureTimedDataWithEnvironment<Env, ByteDataWithTopic>(
+                                            env
+                                            , new ByteDataWithTopic(topic, b)
+                                            , false
+                                        ));
+                                    }
+                                } catch (CBORException) {
+                                    continue;
+                                }
                             }
                         }
                     }
@@ -97,16 +138,14 @@ namespace Dev.CD606.TM.Transport
             private ConnectionLocator locator;
             private TopicSpec topicSpec;
             private WireToUserHook hook;
+            private bool binaryEnvelop;
             public TypedImporter(Func<byte[],Option<T>> decoder, ConnectionLocator locator, TopicSpec topicSpec, WireToUserHook hook = null)
             {
                 this.decoder = decoder;
                 this.locator = locator;
                 this.topicSpec = topicSpec;
                 this.hook = hook;
-                if (this.topicSpec.MatchType != TopicMatchType.MatchExact)
-                {
-                    throw new Exception($"RabbitMQ topic must be exact string");
-                }
+                this.binaryEnvelop = (locator.GetProperty("envelop", "cbor").Equals("binary"));
             }
             public override void start(Env env)
             {
@@ -118,35 +157,77 @@ namespace Dev.CD606.TM.Transport
                         msg = receiver();
                         if (msg != null && msg.Length > 0)
                         {
-                            var cborObj = CBORObject.DecodeFromBytes(msg);
-                            if (cborObj.Type != CBORType.Array || cborObj.Count != 2)
-                            {
-                                continue;
-                            }
-                            var topic = cborObj[0].AsString();
-                            if (topicSpec.Match(topic))
-                            {
-                                var b = cborObj[1].ToObject<byte[]>();
-                                if (hook != null)
+                            if (binaryEnvelop) {
+                                if (msg.Length < 4) {
+                                    continue;
+                                }
+                                var s = new MemoryStream(msg);
+                                var r = new BinaryReader(s);
+                                var topicLen = r.ReadInt32();
+                                if (msg.Length < topicLen+4) {
+                                    continue;
+                                }
+                                var topic = r.ReadChars(topicLen).ToString();
+                                var data = r.ReadBytes(msg.Length-4-topicLen);
+                                if (topicSpec.Match(topic))
                                 {
-                                    var processed = hook.hook(b);
-                                    if (processed)
+                                    if (hook != null)
                                     {
-                                        b = processed.Value;
+                                        var processed = hook.hook(data);
+                                        if (processed)
+                                        {
+                                            data = processed.Value;
+                                        }
+                                        else
+                                        {
+                                            return;
+                                        }
                                     }
-                                    else
+                                    var t = decoder(data);
+                                    if (t.HasValue)
                                     {
-                                        return;
+                                        publish(InfraUtils.pureTimedDataWithEnvironment<Env, TypedDataWithTopic<T>>(
+                                            env
+                                            , new TypedDataWithTopic<T>(topic, t.Value)
+                                            , false
+                                        ));
                                     }
                                 }
-                                var t = decoder(b);
-                                if (t.HasValue)
-                                {
-                                    publish(InfraUtils.pureTimedDataWithEnvironment<Env, TypedDataWithTopic<T>>(
-                                        env
-                                        , new TypedDataWithTopic<T>(topic, t.Value)
-                                        , false
-                                    ));
+                            } else {
+                                try {
+                                    var cborObj = CBORObject.DecodeFromBytes(msg);
+                                    if (cborObj.Type != CBORType.Array || cborObj.Count != 2)
+                                    {
+                                        continue;
+                                    }
+                                    var topic = cborObj[0].AsString();
+                                    if (topicSpec.Match(topic))
+                                    {
+                                        var b = cborObj[1].ToObject<byte[]>();
+                                        if (hook != null)
+                                        {
+                                            var processed = hook.hook(b);
+                                            if (processed)
+                                            {
+                                                b = processed.Value;
+                                            }
+                                            else
+                                            {
+                                                return;
+                                            }
+                                        }
+                                        var t = decoder(b);
+                                        if (t.HasValue)
+                                        {
+                                            publish(InfraUtils.pureTimedDataWithEnvironment<Env, TypedDataWithTopic<T>>(
+                                                env
+                                                , new TypedDataWithTopic<T>(topic, t.Value)
+                                                , false
+                                            ));
+                                        }
+                                    }
+                                } catch(CBORException) {
+                                    continue;
                                 }
                             }
                         }
@@ -163,11 +244,13 @@ namespace Dev.CD606.TM.Transport
             private ConnectionLocator locator;
             private UserToWireHook hook;
             private Action<byte[]> publisher;
+            private bool binaryEnvelop;
             public BinaryExporter(ConnectionLocator locator, UserToWireHook hook = null)
             {
                 this.locator = locator;
                 this.hook = hook;
                 this.publisher = null;
+                this.binaryEnvelop = (locator.GetProperty("envelop", "cbor").Equals("binary"));
             }
             public void start(Env env)
             {
@@ -177,12 +260,21 @@ namespace Dev.CD606.TM.Transport
             {
                 lock(this)
                 {
-                    publisher(
-                        CBORObject.NewArray()
-                            .Add(data.timedData.value.topic)
-                            .Add(data.timedData.value.content)
-                            .EncodeToBytes()
-                    );
+                    if (binaryEnvelop) {
+                        var s = new MemoryStream();
+                        var w = new BinaryWriter(s);
+                        w.Write((int) (data.timedData.value.topic.Length));
+                        w.Write(data.timedData.value.topic);
+                        w.Write(data.timedData.value.content);
+                        publisher(s.ToArray());
+                    } else {
+                        publisher(
+                            CBORObject.NewArray()
+                                .Add(data.timedData.value.topic)
+                                .Add(data.timedData.value.content)
+                                .EncodeToBytes()
+                        );
+                    }
                 }
             }
         }
@@ -196,12 +288,14 @@ namespace Dev.CD606.TM.Transport
             private ConnectionLocator locator;
             private UserToWireHook hook;
             private Action<byte[]> publisher;
+            private bool binaryEnvelop;
             public TypedExporter(Func<T,byte[]> encoder, ConnectionLocator locator, UserToWireHook hook = null)
             {
                 this.encoder = encoder;
                 this.locator = locator;
                 this.hook = hook;
                 this.publisher = null;
+                this.binaryEnvelop = (locator.GetProperty("envelop", "cbor").Equals("binary"));
             }
             public void start(Env env)
             {
@@ -216,12 +310,21 @@ namespace Dev.CD606.TM.Transport
                 }
                 lock(this)
                 {
-                    publisher(
-                        CBORObject.NewArray()
-                            .Add(data.timedData.value.topic)
-                            .Add(b)
-                            .EncodeToBytes()
-                    );
+                    if (binaryEnvelop) {
+                        var s = new MemoryStream();
+                        var w = new BinaryWriter(s);
+                        w.Write((int) (data.timedData.value.topic.Length));
+                        w.Write(data.timedData.value.topic);
+                        w.Write(b);
+                        publisher(s.ToArray());
+                    } else {
+                        publisher(
+                            CBORObject.NewArray()
+                                .Add(data.timedData.value.topic)
+                                .Add(b)
+                                .EncodeToBytes()
+                        );
+                    }
                 }
             }
         }
