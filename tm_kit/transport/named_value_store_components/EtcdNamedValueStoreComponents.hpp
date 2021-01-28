@@ -143,7 +143,6 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                         break;
                     }
                     auto tagNum = reinterpret_cast<intptr_t>(tag);
-                    std::cerr << "Got tag num " << (int) tagNum << '\n';
                     switch (tagNum) {
                     case 1:
                         {
