@@ -493,7 +493,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             }
 
             template <class A, class B>
-            static std::future<B> typedOneShotRemoteCall(Env *env, ConnectionLocator const &rpcQueueLocator, A &&request, std::optional<ByteDataHookPair> hooks = std::nullopt) {
+            static std::future<B> typedOneShotRemoteCall(Env *env, ConnectionLocator const &rpcQueueLocator, A &&request, std::optional<ByteDataHookPair> hooks = std::nullopt, bool autoDisconnect=false) {
                 std::shared_ptr<std::promise<B>> ret = std::make_shared<std::promise<B>>();
                 basic::ByteData byteData = { basic::SerializationActions<M>::template serializeFunc<A>(request) };
                 typename M::template Key<basic::ByteData> keyInput = infra::withtime_utils::keyify<basic::ByteData,typename M::EnvironmentType>(std::move(byteData));
@@ -503,12 +503,18 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                     , [env]() {
                         return Env::id_to_string(env->new_id());
                     }
-                    , [ret](bool isFinal, basic::ByteDataWithID &&data) {
+                    , [autoDisconnect,rpcQueueLocator,env,ret](bool isFinal, basic::ByteDataWithID &&data) {
                         auto val = basic::bytedata_utils::RunDeserializer<B>::apply(data.content);
                         if (!val) {
                             return;
                         }
                         ret->set_value(std::move(*val));
+                        if (autoDisconnect) {
+                            std::thread([env,rpcQueueLocator]() {
+                                std::this_thread::sleep_for(std::chrono::milliseconds(100));
+                                env->redis_removeRPCClient(rpcQueueLocator);
+                            }).detach();
+                        }
                     }
                     , DefaultHookFactory<Env>::template supplyFacilityHookPair_ClientSide<A,B>(env, hooks)
                 );
@@ -520,7 +526,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             }
 
             template <class A>
-            static void typedOneShotRemoteCallNoReply(Env *env, ConnectionLocator const &rpcQueueLocator, A &&request, std::optional<ByteDataHookPair> hooks = std::nullopt) {
+            static void typedOneShotRemoteCallNoReply(Env *env, ConnectionLocator const &rpcQueueLocator, A &&request, std::optional<ByteDataHookPair> hooks = std::nullopt, bool autoDisconnect=false) {
                 basic::ByteData byteData = { basic::SerializationActions<M>::template serializeFunc<A>(request) };
                 typename M::template Key<basic::ByteData> keyInput = infra::withtime_utils::keyify<basic::ByteData,typename M::EnvironmentType>(std::move(byteData));
                 
@@ -537,6 +543,9 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                     Env::id_to_string(keyInput.id())
                     , std::move(keyInput.key().content)
                 });
+                if (autoDisconnect) {
+                    env->redis_removeRPCClient(rpcQueueLocator);
+                }
             }
         };
         
@@ -862,7 +871,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             }
 
             template <class A, class B>
-            static std::future<B> typedOneShotRemoteCall(Env *env, ConnectionLocator const &rpcQueueLocator, A &&request, std::optional<ByteDataHookPair> hooks = std::nullopt) {
+            static std::future<B> typedOneShotRemoteCall(Env *env, ConnectionLocator const &rpcQueueLocator, A &&request, std::optional<ByteDataHookPair> hooks = std::nullopt, bool autoDisconnect=false) {
                 std::shared_ptr<std::promise<B>> ret = std::make_shared<std::promise<B>>();
                 basic::ByteData byteData = { basic::SerializationActions<M>::template serializeFunc<A>(request) };
                 typename M::template Key<basic::ByteData> keyInput = infra::withtime_utils::keyify<basic::ByteData,typename M::EnvironmentType>(std::move(byteData));
@@ -872,7 +881,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                     , [env]() {
                         return Env::id_to_string(env->new_id());
                     }
-                    , [ret,env](bool isFinal, basic::ByteDataWithID &&data) {
+                    , [autoDisconnect,rpcQueueLocator,ret,env](bool isFinal, basic::ByteDataWithID &&data) {
                         auto processRes = static_cast<ClientSideAbstractIdentityAttacherComponent<Identity,A> *>(env)->process_incoming_data(
                             basic::ByteData {std::move(data.content)}
                         );
@@ -882,6 +891,12 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                                 return;
                             }
                             ret->set_value(std::move(*val));
+                        }
+                        if (autoDisconnect) {
+                            std::thread([env,rpcQueueLocator]() {
+                                std::this_thread::sleep_for(std::chrono::milliseconds(100));
+                                env->redis_removeRPCClient(rpcQueueLocator);
+                            }).detach();
                         }
                     }
                     , DefaultHookFactory<Env>::template supplyFacilityHookPair_ClientSide<A,B>(env, hooks)
@@ -894,7 +909,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             }
 
             template <class A>
-            static void typedOneShotRemoteCallNoReply(Env *env, ConnectionLocator const &rpcQueueLocator, A &&request, std::optional<ByteDataHookPair> hooks = std::nullopt) {
+            static void typedOneShotRemoteCallNoReply(Env *env, ConnectionLocator const &rpcQueueLocator, A &&request, std::optional<ByteDataHookPair> hooks = std::nullopt, bool autoDisconnect=false) {
                 basic::ByteData byteData = { basic::SerializationActions<M>::template serializeFunc<A>(request) };
                 typename M::template Key<basic::ByteData> keyInput = infra::withtime_utils::keyify<basic::ByteData,typename M::EnvironmentType>(std::move(byteData));
                 auto requester = env->redis_setRPCClient(
@@ -910,6 +925,9 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                     Env::id_to_string(keyInput.id())
                     , std::move(keyInput.key().content)
                 });
+                if (autoDisconnect) {
+                    env->redis_removeRPCClient(rpcQueueLocator);
+                }
             }
         };
     public:
@@ -1185,24 +1203,24 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         }
 
         template <class A, class B>
-        static std::future<B> typedOneShotRemoteCall(Env *env, ConnectionLocator const &rpcQueueLocator, A &&request, std::optional<ByteDataHookPair> hooks = std::nullopt) {
+        static std::future<B> typedOneShotRemoteCall(Env *env, ConnectionLocator const &rpcQueueLocator, A &&request, std::optional<ByteDataHookPair> hooks = std::nullopt, bool autoDisconnect=false) {
             if constexpr(DetermineClientSideIdentityForRequest<Env, A>::HasIdentity) {
                 return WithIdentity<typename DetermineClientSideIdentityForRequest<Env, A>::IdentityType>
-                    ::template typedOneShotRemoteCall<A,B>(env, rpcQueueLocator, std::move(request), hooks);
+                    ::template typedOneShotRemoteCall<A,B>(env, rpcQueueLocator, std::move(request), hooks, autoDisconnect);
             } else {
                 return WithoutIdentity
-                    ::template typedOneShotRemoteCall<A,B>(env, rpcQueueLocator, std::move(request), hooks);
+                    ::template typedOneShotRemoteCall<A,B>(env, rpcQueueLocator, std::move(request), hooks, autoDisconnect);
             }
         }
 
         template <class A>
-        static void typedOneShotRemoteCallNoReply(Env *env, ConnectionLocator const &rpcQueueLocator, A &&request, std::optional<ByteDataHookPair> hooks = std::nullopt) {
+        static void typedOneShotRemoteCallNoReply(Env *env, ConnectionLocator const &rpcQueueLocator, A &&request, std::optional<ByteDataHookPair> hooks = std::nullopt, bool autoDisconnect=false) {
             if constexpr(DetermineClientSideIdentityForRequest<Env, A>::HasIdentity) {
                 WithIdentity<typename DetermineClientSideIdentityForRequest<Env, A>::IdentityType>
-                    ::template typedOneShotRemoteCallNoReply<A>(env, rpcQueueLocator, std::move(request), hooks);
+                    ::template typedOneShotRemoteCallNoReply<A>(env, rpcQueueLocator, std::move(request), hooks, autoDisconnect);
             } else {
                 WithoutIdentity
-                    ::template typedOneShotRemoteCallNoReply<A>(env, rpcQueueLocator, std::move(request), hooks);
+                    ::template typedOneShotRemoteCallNoReply<A>(env, rpcQueueLocator, std::move(request), hooks, autoDisconnect);
             }
         }
 

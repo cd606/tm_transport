@@ -513,11 +513,12 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
             , ConnectionLocator const &locator
             , A &&request
             , std::optional<ByteDataHookPair> hooks = std::nullopt
+            , bool autoDisconnect = false
         ) {
             if (connType == MultiTransportRemoteFacilityConnectionType::RabbitMQ) {
                 if constexpr (std::is_convertible_v<Env *, rabbitmq::RabbitMQComponent *>) {
                     return rabbitmq::RabbitMQOnOrderFacility<Env>::template typedOneShotRemoteCall<A,B>(
-                        env, locator, std::move(request), hooks
+                        env, locator, std::move(request), hooks, autoDisconnect
                     );
                 } else {
                     throw std::runtime_error("OneShotMultiTransportRemoteFacilityCall::call: connection type RabbitMQ not supported in environment");
@@ -525,7 +526,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
             } else if (connType == MultiTransportRemoteFacilityConnectionType::Redis) {
                 if constexpr (std::is_convertible_v<Env *, redis::RedisComponent *>) {
                     return redis::RedisOnOrderFacility<Env>::template typedOneShotRemoteCall<A,B>(
-                        env, locator, std::move(request), hooks
+                        env, locator, std::move(request), hooks, autoDisconnect
                     );
                 } else {
                     throw std::runtime_error("OneShotMultiTransportRemoteFacilityCall::call: connection type Redis not supported in environment");
@@ -540,10 +541,11 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
             , std::string const &facilityDescriptor
             , A &&request
             , std::optional<ByteDataHookPair> hooks = std::nullopt
+            , bool autoDisconnect = false
         ) {
             auto parseRes = parseMultiTransportRemoteFacilityChannel(facilityDescriptor);
             if (parseRes) {
-                return call<A,B>(env, std::get<0>(*parseRes), std::get<1>(*parseRes), std::move(request), hooks);
+                return call<A,B>(env, std::get<0>(*parseRes), std::get<1>(*parseRes), std::move(request), hooks, autoDisconnect);
             } else {
                 throw std::runtime_error("OneShotMultiTransportRemoteFacilityCall::call: bad facility descriptor '"+facilityDescriptor+"'");
             }
@@ -555,11 +557,12 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
             , ConnectionLocator const &locator
             , A &&request
             , std::optional<ByteDataHookPair> hooks = std::nullopt
+            , bool autoDisconnect = false
         ) {
             if (connType == MultiTransportRemoteFacilityConnectionType::RabbitMQ) {
                 if constexpr (std::is_convertible_v<Env *, rabbitmq::RabbitMQComponent *>) {
                     rabbitmq::RabbitMQOnOrderFacility<Env>::template typedOneShotRemoteCallNoReply<A,B>(
-                        env, locator, std::move(request), hooks
+                        env, locator, std::move(request), hooks, autoDisconnect
                     );
                 } else {
                     throw std::runtime_error("OneShotMultiTransportRemoteFacilityCall::callNoReply: connection type RabbitMQ not supported in environment");
@@ -567,7 +570,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
             } else if (connType == MultiTransportRemoteFacilityConnectionType::Redis) {
                 if constexpr (std::is_convertible_v<Env *, redis::RedisComponent *>) {
                     return redis::RedisOnOrderFacility<Env>::template typedOneShotRemoteCallNoReply<A,B>(
-                        env, locator, std::move(request), hooks
+                        env, locator, std::move(request), hooks, autoDisconnect
                     );
                 } else {
                     throw std::runtime_error("OneShotMultiTransportRemoteFacilityCall::callNoReply: connection type Redis not supported in environment");
@@ -582,10 +585,11 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
             , std::string const &facilityDescriptor
             , A &&request
             , std::optional<ByteDataHookPair> hooks = std::nullopt
+            , bool autoDisconnect = false
         ) {
             auto parseRes = parseMultiTransportRemoteFacilityChannel(facilityDescriptor);
             if (parseRes) {
-                callNoReply<A,B>(env, std::get<0>(*parseRes), std::get<1>(*parseRes), std::move(request), hooks);
+                callNoReply<A,B>(env, std::get<0>(*parseRes), std::get<1>(*parseRes), std::move(request), hooks, autoDisconnect);
             } else {
                 throw std::runtime_error("OneShotMultiTransportRemoteFacilityCall::callNoReply: bad facility descriptor '"+facilityDescriptor+"'");
             }
