@@ -151,6 +151,9 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             {
                 ctx_ = redisConnect(locator.host().c_str(), locator.port());
             }
+            ~OneRedisSender() {
+                redisFree(ctx_);
+            }
             void publish(basic::ByteDataWithTopic &&data) {
                 std::lock_guard<std::mutex> _(mutex_);
                 redisReply *r = (redisReply *) redisCommand(
@@ -343,6 +346,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                         callback_(std::move(std::get<0>(*innerParseRes)));
                     }
                 }
+                redisFree(ctx_);
             }
         public:
             OneRedisRPCServerConnection(ConnectionLocator const &locator, std::function<void(basic::ByteDataWithID &&)> callback, std::optional<WireToUserHook> wireToUserHook, OneRedisSender *sender)

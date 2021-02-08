@@ -241,6 +241,9 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 sock_.set_option(boost::asio::ip::udp::socket::reuse_address(true));
                 sock_.set_option(boost::asio::ip::udp::socket::send_buffer_size(16*1024*1024));
             }
+            ~OneMulticastSender() {
+                sock_.close();
+            }
             void publish(basic::ByteDataWithTopic &&data, int ttl) {
                 std::string v;
                 if (encodingChoice_ == MulticastComponentTopicEncodingChoice::CBOR) {
