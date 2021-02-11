@@ -448,13 +448,22 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                             reinterpret_cast<char *>(clientListHead_)+clientRec->tailOffsetFromClientList.load()
                         );
                         while (true) {
-                            auto n = tail->nextOffsetFromClientList.load();
-                            while (n != 0) {
+                            while (true) {
+                                auto n = tail->nextOffsetFromClientList.load();
+                                if (n == 0) {
+                                    break;
+                                }
+                                std::ptrdiff_t old = clientRec->tailOffsetFromClientList.load();
+                                if (!clientRec->tailOffsetFromClientList.compare_exchange_strong(
+                                    old, n
+                                )) {
+                                    continue;
+                                }
                                 tail = reinterpret_cast<SharedMemoryItem *>(
                                     reinterpret_cast<char *>(clientListHead_)+n
                                 );
-                                n = tail->nextOffsetFromClientList.load();
                             }
+                            n = 0;
                             if (tail->nextOffsetFromClientList.compare_exchange_strong(
                                 n, offset
                             )) {
