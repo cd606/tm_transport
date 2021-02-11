@@ -20,6 +20,7 @@
 #include <tm_kit/transport/zeromq/ZeroMQComponent.hpp>
 #include <tm_kit/transport/redis/RedisComponent.hpp>
 #include <tm_kit/transport/nng/NNGComponent.hpp>
+#include <tm_kit/transport/shared_memory_broadcast/SharedMemoryBroadcastComponent.hpp>
 #include <tm_kit/transport/AbstractHookFactoryComponent.hpp>
 #include <tm_kit/transport/MultiTransportBroadcastListener.hpp>
 
@@ -202,6 +203,15 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                 );
             } else {
                 throw std::runtime_error("initializeHeartbeatAndAlertComponent: connection type NNG not supported in environment");
+            }
+            break;
+        case MultiTransportBroadcastListenerConnectionType::SharedMemoryBroadcast:
+            if constexpr (std::is_convertible_v<Env *, shared_memory_broadcast::SharedMemoryBroadcastComponent *>) {
+                HeartbeatAndAlertComponentInitializer<Env, shared_memory_broadcast::SharedMemoryBroadcastComponent>()(
+                    env, identity, locator, hook
+                );
+            } else {
+                throw std::runtime_error("initializeHeartbeatAndAlertComponent: connection type SharedMemoryBroadcast not supported in environment");
             }
             break;
         default:

@@ -8,6 +8,7 @@
 #include <tm_kit/transport/redis/RedisImporterExporter.hpp>
 #include <tm_kit/transport/zeromq/ZeroMQImporterExporter.hpp>
 #include <tm_kit/transport/nng/NNGImporterExporter.hpp>
+#include <tm_kit/transport/shared_memory_broadcast/SharedMemoryBroadcastImporterExporter.hpp>
 
 #include <tm_kit/basic/CommonFlowUtils.hpp>
 #include <tm_kit/basic/AppRunnerUtils.hpp>
@@ -166,6 +167,18 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                             r.registerImporter(prefix+"/"+spec.name, sub);
                         } else {
                             r.environment()->log(infra::LogLevel::Warning, "[MultiTransportBroadcastListenerManagingUtils::setupBroadcastListeners_internal] Trying to create nng publisher with channel spec '"+spec.channel+"', but nng is unsupported in the environment");
+                        }
+                        break;
+                    case MultiTransportBroadcastListenerConnectionType::SharedMemoryBroadcast:
+                        if constexpr (std::is_convertible_v<Env *, shared_memory_broadcast::SharedMemoryBroadcastComponent *>) {
+                            sub = shared_memory_broadcast::SharedMemoryBroadcastImporterExporter<Env>::template createTypedImporter<FirstInputType>(
+                                std::get<1>(*parsedSpec)
+                                , MultiTransportBroadcastListenerTopicHelper<shared_memory_broadcast::SharedMemoryBroadcastComponent>::parseTopic(getTopic_internal(std::get<0>(*parsedSpec), spec.topicDescription))
+                                , hookFactory(spec.name)
+                            );
+                            r.registerImporter(prefix+"/"+spec.name, sub);
+                        } else {
+                            r.environment()->log(infra::LogLevel::Warning, "[MultiTransportBroadcastListenerManagingUtils::setupBroadcastListeners_internal] Trying to create shared memory broadcast publisher with channel spec '"+spec.channel+"', but shared memory broadcast is unsupported in the environment");
                         }
                         break;
                     default:
@@ -397,6 +410,19 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                     return r.importItem(sub);
                 } else {
                     throw std::runtime_error("[MultiTransportBroadcastListenerManagingUtils::oneByteDataBroadcastListener] Trying to create nng publisher with channel spec '"+channelSpec+"', but nng is unsupported in the environment");
+                }
+                break;
+            case MultiTransportBroadcastListenerConnectionType::SharedMemoryBroadcast:
+                if constexpr (std::is_convertible_v<Env *, shared_memory_broadcast::SharedMemoryBroadcastComponent *>) {
+                    auto sub = shared_memory_broadcast::SharedMemoryBroadcastImporterExporter<Env>::createImporter(
+                        std::get<1>(*parsed)
+                        , MultiTransportBroadcastListenerTopicHelper<shared_memory_broadcast::SharedMemoryBroadcastComponent>::parseTopic(getTopic_internal(std::get<0>(*parsed), topicDescription))
+                        , hook
+                    );
+                    r.registerImporter(name, sub);
+                    return r.importItem(sub);
+                } else {
+                    throw std::runtime_error("[MultiTransportBroadcastListenerManagingUtils::oneByteDataBroadcastListener] Trying to create shared memory broadcast publisher with channel spec '"+channelSpec+"', but shared memory broadcast is unsupported in the environment");
                 }
                 break;
             default:

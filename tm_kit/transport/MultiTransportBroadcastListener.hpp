@@ -11,6 +11,7 @@
 #include <tm_kit/transport/redis/RedisComponent.hpp>
 #include <tm_kit/transport/zeromq/ZeroMQComponent.hpp>
 #include <tm_kit/transport/nng/NNGComponent.hpp>
+#include <tm_kit/transport/shared_memory_broadcast/SharedMemoryBroadcastComponent.hpp>
 #include <tm_kit/transport/AbstractHookFactoryComponent.hpp>
 
 #include <type_traits>
@@ -26,6 +27,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
         , public redis::RedisComponent
         , public zeromq::ZeroMQComponent
         , public nng::NNGComponent
+        , public shared_memory_broadcast::SharedMemoryBroadcastComponent
     {};
 
     enum class MultiTransportBroadcastListenerConnectionType {
@@ -34,13 +36,15 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
         , Redis 
         , ZeroMQ 
         , NNG
+        , SharedMemoryBroadcast
     };
-    inline const std::array<std::string,5> MULTI_TRANSPORT_SUBSCRIBER_CONNECTION_TYPE_STR = {
+    inline const std::array<std::string,6> MULTI_TRANSPORT_SUBSCRIBER_CONNECTION_TYPE_STR = {
         "multicast"
         , "rabbitmq"
         , "redis"
         , "zeromq"
         , "nng"
+        , "shared_memory_broadcast"
     };
     inline auto parseMultiTransportBroadcastChannel(std::string const &s) 
         -> std::optional<std::tuple<MultiTransportBroadcastListenerConnectionType, ConnectionLocator>>
@@ -393,6 +397,51 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                         } else {
                             std::ostringstream errOss;
                             errOss << "[MultiTransportBroadcastListner::actuallyHandle] trying to set up nng channel " << x.connectionLocator << " but nng is unsupported in the environment";
+                            env->log(infra::LogLevel::Warning, errOss.str());
+                            this->FacilityParent::publish(
+                                env
+                                , typename M::template Key<MultiTransportBroadcastListenerOutput> {
+                                    id
+                                    , MultiTransportBroadcastListenerOutput { {
+                                        MultiTransportBroadcastListenerAddSubscriptionResponse {0}
+                                    } }
+                                }
+                                , true
+                            );
+                        }
+                        break;
+                    case MultiTransportBroadcastListenerConnectionType::SharedMemoryBroadcast:
+                        if constexpr (std::is_convertible_v<Env *, shared_memory_broadcast::SharedMemoryBroadcastComponent *>) {
+                            auto *component = static_cast<shared_memory_broadcast::SharedMemoryBroadcastComponent *>(env);
+                            auto actualHook = wireToUserHook_;
+                            if (!actualHook) {
+                                actualHook = DefaultHookFactory<Env>::template incomingHook<T>(env);
+                            }
+                            auto res = component->shared_memory_broadcast_addSubscriptionClient(
+                                x.connectionLocator
+                                , MultiTransportBroadcastListenerTopicHelper<shared_memory_broadcast::SharedMemoryBroadcastComponent>::parseTopic(x.topicDescription)
+                                , [this,env](basic::ByteDataWithTopic &&d) {
+                                    TM_INFRA_IMPORTER_TRACER_WITH_SUFFIX(env, ":data");
+                                    auto t = basic::bytedata_utils::RunDeserializer<T>::apply(d.content);
+                                    if (t) {
+                                        this->ImporterParent::publish(M::template pureInnerData<basic::TypedDataWithTopic<T>>(env, {std::move(d.topic), std::move(*t)}));
+                                    }
+                                }
+                                , actualHook
+                            );
+                            this->FacilityParent::publish(
+                                env
+                                , typename M::template Key<MultiTransportBroadcastListenerOutput> {
+                                    id
+                                    , MultiTransportBroadcastListenerOutput { {
+                                        MultiTransportBroadcastListenerAddSubscriptionResponse {res}
+                                    } }
+                                }
+                                , true
+                            );
+                        } else {
+                            std::ostringstream errOss;
+                            errOss << "[MultiTransportBroadcastListner::actuallyHandle] trying to set up shared memory broadcast channel " << x.connectionLocator << " but shared memory broadcast is unsupported in the environment";
                             env->log(infra::LogLevel::Warning, errOss.str());
                             this->FacilityParent::publish(
                                 env
