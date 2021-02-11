@@ -536,7 +536,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             std::lock_guard<std::mutex> _(mutex_);
             auto iter = subscriptions_.find(idOnly);
             if (iter == subscriptions_.end()) {
-                auto memSize = std::stoul(d.query("size", std::to_string(4*1024*1024*1024L)));
+                auto memSize = std::stoul(d.query("size", std::to_string(4*1024*1024*1024UL)));
                 iter = subscriptions_.insert({idOnly, std::make_unique<OneSharedMemoryBroadcastSubscription>(idOnly, memSize)}).first;
             }
             return iter->second.get();
@@ -552,7 +552,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             std::lock_guard<std::mutex> _(mutex_);
             auto iter = senders_.find(idOnly);
             if (iter == senders_.end()) {
-                auto memSize = std::stoul(d.query("size", std::to_string(4*1024*1024*1024L)));
+                auto memSize = std::stoul(d.query("size", std::to_string(4*1024*1024*1024UL)));
                 iter = senders_.insert({idOnly, std::make_unique<OneSharedMemoryBroadcastSender>(idOnly, memSize)}).first;
             }
             return iter->second.get();
@@ -619,12 +619,18 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         std::variant<SharedMemoryBroadcastComponent::NoTopicSelection, std::string, std::regex> const &topic,
         std::function<void(basic::ByteDataWithTopic &&)> client,
         std::optional<WireToUserHook> wireToUserHook) {
+#ifdef _MSC_VER
+        throw std::runtime_exception("Due to boost::interprocess::interprocess_condition_variable's blocking behavior on Windows, shared memory broadcast is disabled for Windows");
+#endif
         return impl_->addSubscriptionClient(locator, topic, client, wireToUserHook);
     }
     void SharedMemoryBroadcastComponent::shared_memory_broadcast_removeSubscriptionClient(uint32_t id) {
         impl_->removeSubscriptionClient(id);
     }
     std::function<void(basic::ByteDataWithTopic &&)> SharedMemoryBroadcastComponent::shared_memory_broadcast_getPublisher(ConnectionLocator const &locator, std::optional<UserToWireHook> userToWireHook) {
+#ifdef _MSC_VER
+        throw std::runtime_exception("Due to boost::interprocess::interprocess_condition_variable's blocking behavior on Windows, shared memory broadcast is disabled for Windows");
+#endif
         return impl_->getPublisher(locator, userToWireHook);
     }
 } } } } }
