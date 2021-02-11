@@ -620,7 +620,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         std::function<void(basic::ByteDataWithTopic &&)> client,
         std::optional<WireToUserHook> wireToUserHook) {
 #ifdef _MSC_VER
-        throw std::runtime_exception("Due to boost::interprocess::interprocess_condition_variable's blocking behavior on Windows, shared memory broadcast is disabled for Windows");
+        throw std::runtime_error("Due to boost::interprocess::interprocess_condition_variable's blocking behavior on Windows, shared memory broadcast is disabled for Windows");
 #endif
         return impl_->addSubscriptionClient(locator, topic, client, wireToUserHook);
     }
@@ -629,7 +629,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
     }
     std::function<void(basic::ByteDataWithTopic &&)> SharedMemoryBroadcastComponent::shared_memory_broadcast_getPublisher(ConnectionLocator const &locator, std::optional<UserToWireHook> userToWireHook) {
 #ifdef _MSC_VER
-        throw std::runtime_exception("Due to boost::interprocess::interprocess_condition_variable's blocking behavior on Windows, shared memory broadcast is disabled for Windows");
+        throw std::runtime_error("Due to boost::interprocess::interprocess_condition_variable's blocking behavior on Windows, shared memory broadcast is disabled for Windows");
 #endif
         return impl_->getPublisher(locator, userToWireHook);
     }
