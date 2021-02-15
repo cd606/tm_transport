@@ -31,11 +31,13 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
     struct SharedMemoryBroadcastClientRecord {
         std::atomic<int64_t> latestHeartbeat;
         std::atomic<std::ptrdiff_t> tailOffsetFromClientList;
+        bool busyLoop;
         boost::interprocess::interprocess_condition cond;
 
         SharedMemoryBroadcastClientRecord()
             : latestHeartbeat(static_cast<int64_t>(std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count()))
               , tailOffsetFromClientList(0)
+              , busyLoop(false)
               , cond()
         {}
     };
@@ -59,6 +61,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
 #else
             boost::interprocess::managed_shared_memory mem_;
 #endif
+            bool busyLoop_;
             ConnectionLocator locator_;
             std::string recordIDInSharedMem_;
             SharedMemoryBroadcastClientListItem *clientListHead_;
@@ -128,27 +131,49 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 std::size_t dataSize = 0;
                 char *data = nullptr;
                 boost::interprocess::interprocess_mutex m;
+                int oldHeadIdx = headIdx_;
 
                 while (running_) {
-                    boost::interprocess::scoped_lock<boost::interprocess::interprocess_mutex> lock(m);
-                    recordInSharedMem_->cond.timed_wait(lock, boost::posix_time::second_clock::universal_time()+boost::posix_time::seconds(1));
-                    if (!running_) {
-                        lock.unlock();
-                        break;
-                    }
-                    recordInSharedMem_->latestHeartbeat.store(static_cast<int64_t>(std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count()));
-                    std::ptrdiff_t newV = headOffsets_[1-headIdx_];
-                    int oldHeadIdx = headIdx_;
-                    headIdx_ = 1-headIdx_;
-                    while (true) {
-                        std::ptrdiff_t oldV = recordInSharedMem_->tailOffsetFromClientList.load();
-                        if (recordInSharedMem_->tailOffsetFromClientList.compare_exchange_strong(
-                            oldV, newV
-                        )) {
+                    if (busyLoop_) {
+                        if (!running_) {
                             break;
                         }
+                        if (heads_[headIdx_].nextOffsetFromClientList.load() == 0) {
+                            continue;
+                        }
+                        recordInSharedMem_->latestHeartbeat.store(static_cast<int64_t>(std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count()));
+                        std::ptrdiff_t newV = headOffsets_[1-headIdx_];
+                        oldHeadIdx = headIdx_;
+                        headIdx_ = 1-headIdx_;
+                        while (true) {
+                            std::ptrdiff_t oldV = recordInSharedMem_->tailOffsetFromClientList.load();
+                            if (recordInSharedMem_->tailOffsetFromClientList.compare_exchange_strong(
+                                oldV, newV
+                            )) {
+                                break;
+                            }
+                        }
+                    } else {
+                        boost::interprocess::scoped_lock<boost::interprocess::interprocess_mutex> lock(m);
+                        recordInSharedMem_->cond.timed_wait(lock, boost::posix_time::second_clock::universal_time()+boost::posix_time::seconds(1));
+                        if (!running_) {
+                            lock.unlock();
+                            break;
+                        }
+                        recordInSharedMem_->latestHeartbeat.store(static_cast<int64_t>(std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count()));
+                        std::ptrdiff_t newV = headOffsets_[1-headIdx_];
+                        oldHeadIdx = headIdx_;
+                        headIdx_ = 1-headIdx_;
+                        while (true) {
+                            std::ptrdiff_t oldV = recordInSharedMem_->tailOffsetFromClientList.load();
+                            if (recordInSharedMem_->tailOffsetFromClientList.compare_exchange_strong(
+                                oldV, newV
+                            )) {
+                                break;
+                            }
+                        }
+                        lock.unlock();
                     }
-                    lock.unlock();
 
                     auto *p = &heads_[oldHeadIdx];
                     auto n = p->nextOffsetFromClientList.load();
@@ -180,13 +205,14 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 }
             }
         public:
-            OneSharedMemoryBroadcastSubscription(ConnectionLocator const &locator, std::size_t memSize) 
+            OneSharedMemoryBroadcastSubscription(ConnectionLocator const &locator, std::size_t memSize, bool busyLoop) 
                 : 
                     mem_(
                         boost::interprocess::open_or_create
                         , locator.identifier().c_str()
                         , memSize
                     )
+                    , busyLoop_(busyLoop)
                     , locator_(locator)
                     , recordIDInSharedMem_(boost::lexical_cast<std::string>(boost::uuids::random_generator()()))
                     , clientListHead_(
@@ -213,6 +239,8 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                     headOffsets_[ii] = reinterpret_cast<char *>(&heads_[ii])-reinterpret_cast<char *>(clientListHead_);
                 }
                 recordInSharedMem_->tailOffsetFromClientList = headOffsets_[0];
+
+                recordInSharedMem_->busyLoop = busyLoop_;
 
                 SharedMemoryBroadcastClientListItem *clientItem =
                     mem_.construct<SharedMemoryBroadcastClientListItem>(boost::interprocess::anonymous_instance)();
@@ -470,7 +498,9 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                                 break;
                             }
                         }
-                        clientRec->cond.notify_one();
+                        if (!clientRec->busyLoop) {
+                            clientRec->cond.notify_one();
+                        }
                     }
                 }
 
@@ -537,7 +567,8 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             auto iter = subscriptions_.find(idOnly);
             if (iter == subscriptions_.end()) {
                 auto memSize = std::stoul(d.query("size", std::to_string(4*1024*1024*1024UL)));
-                iter = subscriptions_.insert({idOnly, std::make_unique<OneSharedMemoryBroadcastSubscription>(idOnly, memSize)}).first;
+                bool busyLoop = (d.query("busyLoop", "false") == "true");
+                iter = subscriptions_.insert({idOnly, std::make_unique<OneSharedMemoryBroadcastSubscription>(idOnly, memSize, busyLoop)}).first;
             }
             return iter->second.get();
         }
