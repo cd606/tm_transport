@@ -138,10 +138,10 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                         if (!running_) {
                             break;
                         }
+                        recordInSharedMem_->latestHeartbeat.store(static_cast<int64_t>(std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count()));
                         if (heads_[headIdx_].nextOffsetFromClientList.load() == 0) {
                             continue;
                         }
-                        recordInSharedMem_->latestHeartbeat.store(static_cast<int64_t>(std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count()));
                         std::ptrdiff_t newV = headOffsets_[1-headIdx_];
                         oldHeadIdx = headIdx_;
                         headIdx_ = 1-headIdx_;
@@ -161,6 +161,10 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                             break;
                         }
                         recordInSharedMem_->latestHeartbeat.store(static_cast<int64_t>(std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count()));
+                        if (heads_[headIdx_].nextOffsetFromClientList.load() == 0) {
+                            lock.unlock();
+                            continue;
+                        }
                         std::ptrdiff_t newV = headOffsets_[1-headIdx_];
                         oldHeadIdx = headIdx_;
                         headIdx_ = 1-headIdx_;
