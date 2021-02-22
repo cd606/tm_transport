@@ -59,6 +59,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         class OneExchangeSubscriptionConnection {
         private:
             AmqpClient::Channel::ptr_t channel_;
+            ConnectionLocator locator_;
             std::function<void(basic::ByteDataWithTopic &&)> callback_;
             std::optional<WireToUserHook> wireToUserHook_;
             std::thread th_;
@@ -89,6 +90,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         public:
             OneExchangeSubscriptionConnection(ConnectionLocator const &l, std::string const &topic, std::function<void(basic::ByteDataWithTopic &&)> callback, std::optional<WireToUserHook> wireToUserHook)
                 : channel_(createChannel(l))
+                , locator_(l)
                 , callback_(callback)
                 , wireToUserHook_(wireToUserHook)
                 , th_()
@@ -124,6 +126,12 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                     th_.join();
                 } catch (std::system_error const &) {
                 }
+            }
+            std::thread::native_handle_type getThreadHandle() {
+                return th_.native_handle();
+            }
+            ConnectionLocator const &connectionLocator() const {
+                return locator_;
             }
         };
         std::unordered_map<uint32_t, std::unique_ptr<OneExchangeSubscriptionConnection>> exchangeSubscriptionConnections_;
@@ -232,6 +240,9 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
 #endif                
                 publishing_->publishOnQueue(rpcQueue_, msg);           
             }
+            std::thread::native_handle_type getThreadHandle() {
+                return th_.native_handle();
+            }
         };
         std::unordered_map<ConnectionLocator, std::unique_ptr<OneRPCQueueClientConnection>> rpcQueueClientConnections_;
         
@@ -324,6 +335,9 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                     msg->ContentType("final");
                 }
                 publishing_->publishOnQueue(replyQueue, msg);            
+            }
+            std::thread::native_handle_type getThreadHandle() {
+                return th_.native_handle();
             }
         };
         std::unordered_map<ConnectionLocator, std::unique_ptr<OneRPCQueueServerConnection>> rpcQueueServerConnections_;
@@ -459,6 +473,20 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 };
             }
         }
+        std::unordered_map<ConnectionLocator, std::thread::native_handle_type> threadHandles() {
+            std::unordered_map<ConnectionLocator, std::thread::native_handle_type> retVal;
+            std::lock_guard<std::mutex> _(mutex_);
+            for (auto &item : exchangeSubscriptionConnections_) {
+                retVal[item.second->connectionLocator()] = item.second->getThreadHandle();
+            }
+            for (auto &item : rpcQueueClientConnections_) {
+                retVal[item.first] = item.second->getThreadHandle();
+            }
+            for (auto &item : rpcQueueServerConnections_) {
+                retVal[item.first] = item.second->getThreadHandle();
+            }
+            return retVal;
+        }
     };
 
     RabbitMQComponent::RabbitMQComponent() : impl_(std::make_unique<RabbitMQComponentImpl>()) {}
@@ -488,6 +516,9 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         std::function<void(basic::ByteDataWithID &&)> server,
         std::optional<ByteDataHookPair> hookPair) {
         return impl_->setRPCQueueServer(locator, server, hookPair);
+    }
+    std::unordered_map<ConnectionLocator, std::thread::native_handle_type> RabbitMQComponent::rabbitmq_threadHandles() {
+        return impl_->threadHandles();
     }
 
 } } } } }

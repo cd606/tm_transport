@@ -40,6 +40,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             std::vector<ClientCB> noFilterClients_;
             std::vector<std::tuple<std::string, ClientCB>> stringMatchClients_;
             std::vector<std::tuple<std::regex, ClientCB>> regexMatchClients_;
+            std::optional<std::thread::native_handle_type> thHandle_;
             std::mutex mutex_;
 
             std::atomic<bool> running_;
@@ -117,6 +118,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             OneMulticastSubscription(MulticastComponentTopicEncodingChoice encodingChoice, boost::asio::io_service *service, ConnectionLocator const &locator) 
                 : encodingChoice_(encodingChoice), locator_(locator), sock_(*service), senderPoint_(), mcastAddr_(), buffer_()
                 , noFilterClients_(), stringMatchClients_(), regexMatchClients_()
+                , thHandle_()
                 , mutex_(), running_(true)
             {
                 boost::asio::ip::udp::resolver resolver(*service);
@@ -217,6 +219,14 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                     return false;
                 }
             }
+            void setThreadHandle(std::thread::native_handle_type h) {
+                std::lock_guard<std::mutex> _(mutex_);
+                thHandle_ = h;
+            }
+            std::optional<std::thread::native_handle_type> getThreadHandle() {
+                std::lock_guard<std::mutex> _(mutex_);
+                return thHandle_;
+            }
         };
         std::unordered_map<ConnectionLocator, std::unique_ptr<OneMulticastSubscription>> subscriptions_;
         
@@ -293,6 +303,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                     svc->run();
                 });
                 th.detach();
+                iter->second->setThreadHandle(th.native_handle());
             }
             return iter->second.get();
         }
@@ -384,6 +395,20 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 };
             }
         }
+        std::unordered_map<ConnectionLocator, std::thread::native_handle_type> threadHandles() {
+            std::unordered_map<ConnectionLocator, std::thread::native_handle_type> retVal;
+            std::lock_guard<std::mutex> _(mutex_);
+            if (senderThreadStarted_) {
+                retVal[ConnectionLocator()] = senderThread_.native_handle();
+            }
+            for (auto &item : subscriptions_) {
+                auto h = item.second->getThreadHandle();
+                if (h) {
+                    retVal[item.first] = *h;
+                }
+            }
+            return retVal;
+        }
     };
 
     MulticastComponent::MulticastComponent() : impl_(std::make_unique<MulticastComponentImpl>()) {}
@@ -399,5 +424,8 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
     }
     std::function<void(basic::ByteDataWithTopic &&, int)> MulticastComponent::multicast_getPublisher(ConnectionLocator const &locator, std::optional<UserToWireHook> userToWireHook) {
         return impl_->getPublisher(locator, userToWireHook);
+    }
+    std::unordered_map<ConnectionLocator, std::thread::native_handle_type> MulticastComponent::multicast_threadHandles() {
+        return impl_->threadHandles();
     }
 } } } } }

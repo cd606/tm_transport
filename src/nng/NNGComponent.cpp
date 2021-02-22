@@ -195,6 +195,9 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             ConnectionLocator const &locator() const {
                 return locator_;
             }
+            std::thread::native_handle_type getThreadHandle() {
+                return th_.native_handle();
+            }
         };
         std::unordered_map<ConnectionLocator, std::unique_ptr<OneNNGSubscription>> subscriptions_;
         
@@ -314,6 +317,14 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 };
             }
         }
+        std::unordered_map<ConnectionLocator, std::thread::native_handle_type> threadHandles() {
+            std::unordered_map<ConnectionLocator, std::thread::native_handle_type> retVal;
+            std::lock_guard<std::mutex> _(mutex_);
+            for (auto &item : subscriptions_) {
+                retVal[item.first] = item.second->getThreadHandle();
+            }
+            return retVal;
+        }
     };
 
     NNGComponent::NNGComponent() : impl_(std::make_unique<NNGComponentImpl>()) {}
@@ -329,5 +340,8 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
     }
     std::function<void(basic::ByteDataWithTopic &&)> NNGComponent::nng_getPublisher(ConnectionLocator const &locator, std::optional<UserToWireHook> userToWireHook) {
         return impl_->getPublisher(locator, userToWireHook);
+    }
+    std::unordered_map<ConnectionLocator, std::thread::native_handle_type> NNGComponent::nng_threadHandles() {
+        return impl_->threadHandles();
     }
 } } } } }

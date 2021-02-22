@@ -7,6 +7,8 @@
 #include <regex>
 #include <variant>
 #include <string>
+#include <unordered_map>
+#include <thread>
 
 #include <tm_kit/infra/WithTimeData.hpp>
 #include <tm_kit/basic/ByteData.hpp>
@@ -31,6 +33,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                         std::optional<WireToUserHook> wireToUserHook = std::nullopt);
         void zeroMQ_removeSubscriptionClient(uint32_t id);
         std::function<void(basic::ByteDataWithTopic &&)> zeroMQ_getPublisher(ConnectionLocator const &locator, std::optional<UserToWireHook> userToWireHook = std::nullopt);
+        std::unordered_map<ConnectionLocator, std::thread::native_handle_type> zeromq_threadHandles();
     };
 
 } } } } }

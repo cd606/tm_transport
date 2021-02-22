@@ -371,6 +371,9 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                     return false;
                 }
             }
+            std::thread::native_handle_type getThreadHandle() {
+                return th_.native_handle();
+            }
         };
         std::unordered_map<ConnectionLocator, std::unique_ptr<OneSharedMemoryBroadcastSubscription>> subscriptions_;
         
@@ -646,6 +649,14 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 };
             }
         }
+        std::unordered_map<ConnectionLocator, std::thread::native_handle_type> threadHandles() {
+            std::unordered_map<ConnectionLocator, std::thread::native_handle_type> retVal;
+            std::lock_guard<std::mutex> _(mutex_);
+            for (auto &item : subscriptions_) {
+                retVal[item.first] = item.second->getThreadHandle();
+            }
+            return retVal;
+        }
     };
 
     SharedMemoryBroadcastComponent::SharedMemoryBroadcastComponent() : impl_(std::make_unique<SharedMemoryBroadcastComponentImpl>()) {}
@@ -667,5 +678,8 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         throw std::runtime_error("Due to boost::interprocess::interprocess_condition_variable's blocking behavior on Windows, shared memory broadcast is disabled for Windows");
 #endif
         return impl_->getPublisher(locator, userToWireHook);
+    }
+    std::unordered_map<ConnectionLocator, std::thread::native_handle_type> SharedMemoryBroadcastComponent::shared_memory_broadcast_threadHandles() {
+        return impl_->threadHandles();
     }
 } } } } }

@@ -137,6 +137,9 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             ConnectionLocator const &locator() const {
                 return locator_;
             }
+            std::thread::native_handle_type getThreadHandle() {
+                return th_.native_handle();
+            }
         };
         
         std::unordered_map<ConnectionLocator, std::unordered_map<std::string, std::unique_ptr<OneRedisSubscription>>> subscriptions_;
@@ -270,6 +273,9 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 auto encodedDataAndTopic = basic::bytedata_utils::RunSerializer<basic::CBOR<basic::ByteDataWithTopic>>::apply({myCommunicationID_, std::move(encodedData)});
                 sender_->publish(basic::ByteDataWithTopic {rpcTopic_, std::move(encodedDataAndTopic)});       
             }
+            std::thread::native_handle_type getThreadHandle() {
+                return th_.native_handle();
+            }
         };
 
         std::unordered_map<ConnectionLocator, std::unique_ptr<OneRedisRPCClientConnection>> rpcClientConnections_;
@@ -389,6 +395,9 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 }
                 auto encodedData = basic::bytedata_utils::RunSerializer<basic::CBOR<std::tuple<bool,basic::ByteDataWithID>>>::apply({{isFinal, std::move(data)}});
                 sender_->publish(basic::ByteDataWithTopic {replyTopic, std::move(encodedData)});           
+            }
+            std::thread::native_handle_type getThreadHandle() {
+                return th_.native_handle();
             }
         };
         std::unordered_map<ConnectionLocator, std::unique_ptr<OneRedisRPCServerConnection>> rpcServerConnections_;
@@ -557,6 +566,23 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 };
             }
         }
+        std::unordered_map<ConnectionLocator, std::thread::native_handle_type> threadHandles() {
+            std::unordered_map<ConnectionLocator, std::thread::native_handle_type> retVal;
+            std::lock_guard<std::mutex> _(mutex_);
+            for (auto &item : subscriptions_) {
+                for (auto &innerItem : item.second) {
+                    ConnectionLocator l {item.first.host(), item.first.port(), "", "", innerItem.first};
+                    retVal[l] = innerItem.second->getThreadHandle();
+                }
+            }
+            for (auto &item : rpcClientConnections_) {
+                retVal[item.first] = item.second->getThreadHandle();
+            }
+            for (auto &item : rpcServerConnections_) {
+                retVal[item.first] = item.second->getThreadHandle();
+            }
+            return retVal;
+        }
     };
 
     RedisComponent::RedisComponent() : impl_(std::make_unique<RedisComponentImpl>()) {}
@@ -588,6 +614,9 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                     std::function<void(basic::ByteDataWithID &&)> server,
                     std::optional<ByteDataHookPair> hookPair) {
         return impl_->setRPCServer(locator, server, hookPair);
+    }
+    std::unordered_map<ConnectionLocator, std::thread::native_handle_type> RedisComponent::redis_threadHandles() {
+        return impl_->threadHandles();
     }
 
 } } } } }

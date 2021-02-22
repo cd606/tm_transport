@@ -30,6 +30,37 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
         , public shared_memory_broadcast::SharedMemoryBroadcastComponent
     {};
 
+    template <class Env>
+    inline std::unordered_map<
+        std::string,
+        std::unordered_map<ConnectionLocator, std::thread::native_handle_type> 
+    >
+    networkTransportComponents_threadHandles(Env *env) {
+        std::unordered_map<
+            std::string
+            , std::unordered_map<ConnectionLocator, std::thread::native_handle_type> 
+        > retVal;
+        if constexpr (std::is_convertible_v<Env *, multicast::MulticastComponent *>) {
+            retVal["multicast"] = env->multicast_threadHandles();
+        }
+        if constexpr (std::is_convertible_v<Env *, nng::NNGComponent *>) {
+            retVal["nng"] = env->nng_threadHandles();
+        }
+        if constexpr (std::is_convertible_v<Env *, rabbitmq::RabbitMQComponent *>) {
+            retVal["rabbitmq"] = env->rabbitmq_threadHandles();
+        }
+        if constexpr (std::is_convertible_v<Env *, redis::RedisComponent *>) {
+            retVal["redis"] = env->redis_threadHandles();
+        }
+        if constexpr (std::is_convertible_v<Env *, shared_memory_broadcast::SharedMemoryBroadcastComponent *>) {
+            retVal["shared_memory_broadcast"] = env->shared_memory_broadcast_threadHandles();
+        }
+        if constexpr (std::is_convertible_v<Env *, zeromq::ZeroMQComponent *>) {
+            retVal["zeromq"] = env->zeromq_threadHandles();
+        }
+        return retVal;
+    }
+
     enum class MultiTransportBroadcastListenerConnectionType {
         Multicast
         , RabbitMQ

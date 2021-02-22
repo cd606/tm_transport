@@ -7,6 +7,8 @@
 #include <regex>
 #include <variant>
 #include <string>
+#include <unordered_map>
+#include <thread>
 
 #include <tm_kit/infra/WithTimeData.hpp>
 #include <tm_kit/basic/ByteData.hpp>
@@ -32,6 +34,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         void multicast_removeSubscriptionClient(uint32_t id);
         //the "int" parameter is the ttl
         std::function<void(basic::ByteDataWithTopic &&, int)> multicast_getPublisher(ConnectionLocator const &locator, std::optional<UserToWireHook> userToWireHook = std::nullopt);
+        std::unordered_map<ConnectionLocator, std::thread::native_handle_type> multicast_threadHandles();
     };
 
 } } } } }

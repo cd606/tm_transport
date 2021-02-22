@@ -5,6 +5,8 @@
 #include <functional>
 #include <optional>
 #include <exception>
+#include <unordered_map>
+#include <thread>
 
 #include <tm_kit/infra/WithTimeData.hpp>
 #include <tm_kit/basic/ByteData.hpp>
@@ -46,6 +48,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         std::function<void(bool, basic::ByteDataWithID &&)> rabbitmq_setRPCQueueServer(ConnectionLocator const &locator,
                         std::function<void(basic::ByteDataWithID &&)> server,
                         std::optional<ByteDataHookPair> hookPair = std::nullopt); //the return value is the replier, where bool means whether it is the final reply
+        std::unordered_map<ConnectionLocator, std::thread::native_handle_type> rabbitmq_threadHandles();
     };
 
 } } } } }
