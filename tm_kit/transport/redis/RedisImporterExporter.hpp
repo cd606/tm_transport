@@ -7,6 +7,7 @@
 
 #include <tm_kit/infra/RealTimeApp.hpp>
 #include <tm_kit/infra/TraceNodesComponent.hpp>
+#include <tm_kit/infra/ControllableNode.hpp>
 #include <tm_kit/basic/ByteData.hpp>
 #include <tm_kit/transport/redis/RedisComponent.hpp>
 #include <tm_kit/transport/HeartbeatAndAlertComponent.hpp>
@@ -19,18 +20,19 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
     public:
         using M = infra::RealTimeApp<Env>;
         static std::shared_ptr<typename M::template Importer<basic::ByteDataWithTopic>> createImporter(ConnectionLocator const &locator, std::string const &topic="*", std::optional<WireToUserHook> wireToUserHook=std::nullopt) {
-            class LocalI final : public M::template AbstractImporter<basic::ByteDataWithTopic> {
+            class LocalI final : public M::template AbstractImporter<basic::ByteDataWithTopic>, public infra::IControllableNode<Env> {
             private:
                 ConnectionLocator locator_;
                 std::string topic_;
                 std::optional<WireToUserHook> wireToUserHook_;
+                std::optional<uint32_t> client_;
             public:
                 LocalI(ConnectionLocator const &locator, std::string const &topic, std::optional<WireToUserHook> wireToUserHook)
-                    : locator_(locator), topic_(topic), wireToUserHook_(wireToUserHook)
+                    : locator_(locator), topic_(topic), wireToUserHook_(wireToUserHook), client_(std::nullopt)
                 {
                 }
                 virtual void start(Env *env) override final {
-                    env->redis_addSubscriptionClient(
+                    client_ = env->redis_addSubscriptionClient(
                         locator_
                         , topic_
                         , [this,env](basic::ByteDataWithTopic &&d) {
@@ -40,26 +42,34 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                         , wireToUserHook_
                     );
                 }
+                virtual void control(Env *env, std::string const &command, std::vector<std::string> const &params) override final {
+                    if (command == "stop") {
+                        if (client_) {
+                            env->redis_removeSubscriptionClient(*client_);
+                        }
+                    }
+                }
             };
             return M::importer(new LocalI(locator, topic, wireToUserHook));
         }
         template <class T>
         static std::shared_ptr<typename M::template Importer<basic::TypedDataWithTopic<T>>> createTypedImporter(ConnectionLocator const &locator, std::string const &topic="*", std::optional<WireToUserHook> wireToUserHook=std::nullopt) {
-            class LocalI final : public M::template AbstractImporter<basic::TypedDataWithTopic<T>> {
+            class LocalI final : public M::template AbstractImporter<basic::TypedDataWithTopic<T>>, public infra::IControllableNode<Env> {
             private:
                 ConnectionLocator locator_;
                 std::string topic_;
                 std::optional<WireToUserHook> wireToUserHook_;
+                std::optional<uint32_t> client_;
             public:
                 LocalI(ConnectionLocator const &locator, std::string const &topic, std::optional<WireToUserHook> wireToUserHook)
-                    : locator_(locator), topic_(topic), wireToUserHook_(wireToUserHook)
+                    : locator_(locator), topic_(topic), wireToUserHook_(wireToUserHook), client_(std::nullopt)
                 {
                 }
                 virtual void start(Env *env) override final {
                     if (!wireToUserHook_) {
                         wireToUserHook_ = DefaultHookFactory<Env>::template incomingHook<T>(env);
                     }
-                    env->redis_addSubscriptionClient(
+                    client_ = env->redis_addSubscriptionClient(
                        locator_
                         , topic_
                         , [this,env](basic::ByteDataWithTopic &&d) {
@@ -71,6 +81,13 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                         }
                         , wireToUserHook_
                     );
+                }
+                virtual void control(Env *env, std::string const &command, std::vector<std::string> const &params) override final {
+                    if (command == "stop") {
+                        if (client_) {
+                            env->redis_removeSubscriptionClient(*client_);
+                        }
+                    }
                 }
             };
             return M::importer(new LocalI(locator, topic, wireToUserHook));

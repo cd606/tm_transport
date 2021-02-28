@@ -8,6 +8,7 @@
 
 #include <tm_kit/infra/RealTimeApp.hpp>
 #include <tm_kit/infra/TraceNodesComponent.hpp>
+#include <tm_kit/infra/ControllableNode.hpp>
 #include <tm_kit/basic/ByteData.hpp>
 #include <tm_kit/transport/rabbitmq/RabbitMQComponent.hpp>
 #include <tm_kit/transport/AbstractIdentityCheckerComponent.hpp>
@@ -184,7 +185,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             static std::shared_ptr<typename M::template OnOrderFacility<A, B>> createTypedRPCOnOrderFacility(
                 ConnectionLocator const &locator
                 , std::optional<ByteDataHookPair> hooks = std::nullopt) {
-                class LocalCore final : public virtual infra::RealTimeAppComponents<Env>::IExternalComponent, public virtual infra::RealTimeAppComponents<Env>::template AbstractOnOrderFacility<A,B> {
+                class LocalCore final : public virtual infra::RealTimeAppComponents<Env>::IExternalComponent, public virtual infra::RealTimeAppComponents<Env>::template AbstractOnOrderFacility<A,B>, public infra::IControllableNode<Env> {
                 private:
                     Env *env_;
                     ConnectionLocator locator_;
@@ -213,6 +214,11 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                                 , std::move(s.content)
                             });
                         }     
+                    }
+                    virtual void control(Env *env, std::string const &command, std::vector<std::string> const &params) override final {
+                        if (command == "stop") {
+                            env->rabbitmq_removeRPCQueueClient(locator_);
+                        }
                     }
                 };
                 return M::fromAbstractOnOrderFacility(new LocalCore(locator, hooks));
@@ -535,7 +541,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             static std::shared_ptr<typename M::template OnOrderFacility<A, B>> createTypedRPCOnOrderFacility(
                 ConnectionLocator const &locator
                 , std::optional<ByteDataHookPair> hooks = std::nullopt) {
-                class LocalCore final : public virtual infra::RealTimeAppComponents<Env>::IExternalComponent, public virtual infra::RealTimeAppComponents<Env>::template AbstractOnOrderFacility<A,B> {
+                class LocalCore final : public virtual infra::RealTimeAppComponents<Env>::IExternalComponent, public virtual infra::RealTimeAppComponents<Env>::template AbstractOnOrderFacility<A,B>, public infra::IControllableNode<Env> {
                 private:
                     Env *env_;
                     ConnectionLocator locator_;
@@ -569,6 +575,11 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                                 , std::move(s.content)
                             });
                         }     
+                    }
+                    virtual void control(Env *env, std::string const &command, std::vector<std::string> const &params) override final {
+                        if (command == "stop") {
+                            env->rabbitmq_removeRPCQueueClient(locator_);
+                        }
                     }
                 };
                 return M::fromAbstractOnOrderFacility(new LocalCore(locator, hooks));
