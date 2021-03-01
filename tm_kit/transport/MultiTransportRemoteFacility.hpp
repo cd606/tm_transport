@@ -594,6 +594,70 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                 throw std::runtime_error("OneShotMultiTransportRemoteFacilityCall::callNoReply: bad facility descriptor '"+facilityDescriptor+"'");
             }
         }
+        static void removeClient(
+            Env *env
+            , MultiTransportRemoteFacilityConnectionType connType
+            , ConnectionLocator const &locator
+        ) {
+            if (connType == MultiTransportRemoteFacilityConnectionType::RabbitMQ) {
+                if constexpr (std::is_convertible_v<Env *, rabbitmq::RabbitMQComponent *>) {
+                    env->rabbitmq_removeRPCQueueClient(locator);
+                } else {
+                    throw std::runtime_error("OneShotMultiTransportRemoteFacilityCall::removeClient: connection type RabbitMQ not supported in environment");
+                }
+            } else if (connType == MultiTransportRemoteFacilityConnectionType::Redis) {
+                if constexpr (std::is_convertible_v<Env *, redis::RedisComponent *>) {
+                    env->redis_removeRPCClient(locator);
+                } else {
+                    throw std::runtime_error("OneShotMultiTransportRemoteFacilityCall::removeClient: connection type Redis not supported in environment");
+                }
+            } else {
+                throw std::runtime_error("OneShotMultiTransportRemoteFacilityCall::removeClient: unknown connection type");
+            }
+        }
+        static void removeClient(
+            Env *env
+            , std::string const &facilityDescriptor
+        ) {
+            auto parseRes = parseMultiTransportRemoteFacilityChannel(facilityDescriptor);
+            if (parseRes) {
+                return removeClient(env, std::get<0>(*parseRes), std::get<1>(*parseRes));
+            } else {
+                throw std::runtime_error("OneShotMultiTransportRemoteFacilityCall::removeClient: bad facility descriptor '"+facilityDescriptor+"'");
+            }
+        }
+        template <class A, class B>
+        static std::optional<B> callWithTimeout(
+            Env *env
+            , MultiTransportRemoteFacilityConnectionType connType
+            , ConnectionLocator const &locator
+            , A &&request
+            , std::chrono::system_clock::duration const &timeOut
+            , std::optional<ByteDataHookPair> hooks = std::nullopt
+        ) {
+            auto ret = call<A,B>(env, connType, locator, std::move(request), hooks, true);
+            if (ret.wait_for(timeOut) == std::future_status::ready) {
+                return {std::move(ret.get())};
+            } else {
+                removeClient(env, connType, locator);
+                return std::nullopt;
+            }
+        }
+        template <class A, class B>
+        static std::optional<B> callWithTimeout(
+            Env *env
+            , std::string const &facilityDescriptor
+            , A &&request
+            , std::chrono::system_clock::duration const &timeOut
+            , std::optional<ByteDataHookPair> hooks = std::nullopt
+        ) {
+            auto parseRes = parseMultiTransportRemoteFacilityChannel(facilityDescriptor);
+            if (parseRes) {
+                return callWithTimeout<A,B>(env, std::get<0>(*parseRes), std::get<1>(*parseRes), std::move(request), timeOut, hooks);
+            } else {
+                throw std::runtime_error("OneShotMultiTransportRemoteFacilityCall::callWithTimeout: bad facility descriptor '"+facilityDescriptor+"'");
+            }
+        }
     };
 
 } } } }

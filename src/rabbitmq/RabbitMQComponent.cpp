@@ -64,37 +64,57 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             std::optional<WireToUserHook> wireToUserHook_;
             std::thread th_;
             std::atomic<bool> running_;
+            RabbitMQComponent::ExceptionPolicy exceptionPolicy_;
             void run(std::string const &tag) {
                 while (running_) {
-                    AmqpClient::Envelope::ptr_t msg;
-                    if (channel_->BasicConsumeMessage(tag, msg, 1000)) {
-                        if (running_) {
-                            if (wireToUserHook_) {
-                                auto b = (wireToUserHook_->hook)(basic::ByteDataView {std::string_view(msg->Message()->Body())});
-                                if (b) {
-                                    callback_({ 
+                    try {
+                        AmqpClient::Envelope::ptr_t msg;
+                        if (channel_->BasicConsumeMessage(tag, msg, 1000)) {
+                            if (running_) {
+                                if (wireToUserHook_) {
+                                    auto b = (wireToUserHook_->hook)(basic::ByteDataView {std::string_view(msg->Message()->Body())});
+                                    if (b) {
+                                        callback_({ 
+                                            msg->RoutingKey()
+                                            , std::move(b->content)
+                                        });
+                                    }
+                                } else {
+                                    callback_({
                                         msg->RoutingKey()
-                                        , std::move(b->content)
+                                        , msg->Message()->Body()
                                     });
                                 }
-                            } else {
-                                callback_({
-                                    msg->RoutingKey()
-                                    , msg->Message()->Body()
-                                });
                             }
+                        }
+                    } catch (std::exception &ex) {
+                        switch (exceptionPolicy_) {
+                        case RabbitMQComponent::ExceptionPolicy::Throw:
+                            throw;
+                            break;
+                        case RabbitMQComponent::ExceptionPolicy::IgnoreForWriteAndThrowForRead:
+                            throw;
+                            break;
+                        case RabbitMQComponent::ExceptionPolicy::IgnoreForWriteAndStopForRead:
+                            std::cerr << "RabbitMQComponent exchange subscription client exception: " << ex.what() << "\n";
+                            running_ = false;
+                            break;
+                        default:
+                            throw;
+                            break;
                         }
                     }
                 }
             }
         public:
-            OneExchangeSubscriptionConnection(ConnectionLocator const &l, std::string const &topic, std::function<void(basic::ByteDataWithTopic &&)> callback, std::optional<WireToUserHook> wireToUserHook)
+            OneExchangeSubscriptionConnection(RabbitMQComponent::ExceptionPolicy exceptionPolicy, ConnectionLocator const &l, std::string const &topic, std::function<void(basic::ByteDataWithTopic &&)> callback, std::optional<WireToUserHook> wireToUserHook)
                 : channel_(createChannel(l))
                 , locator_(l)
                 , callback_(callback)
                 , wireToUserHook_(wireToUserHook)
                 , th_()
                 , running_(true)
+                , exceptionPolicy_(exceptionPolicy)
             {
                 channel_->DeclareExchange(
                     l.identifier()
@@ -140,10 +160,12 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         private:
             AmqpClient::Channel::ptr_t channel_;
             std::mutex mutex_;
+            RabbitMQComponent::ExceptionPolicy exceptionPolicy_;
         public:
-            OnePublishingConnection(ConnectionLocator const &l) 
+            OnePublishingConnection(RabbitMQComponent::ExceptionPolicy exceptionPolicy, ConnectionLocator const &l) 
                 : channel_(createChannel(l))
                 , mutex_()
+                , exceptionPolicy_(exceptionPolicy)
             {
             }
             ~OnePublishingConnection() {
@@ -155,22 +177,52 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                     msg->DeliveryMode(AmqpClient::BasicMessage::dm_nonpersistent);
 #if !((SIMPLEAMQPCLIENT_VERSION_MAJOR >= 3) || (SIMPLEAMQPCLIENT_VERSION_MAJOR == 2 && SIMPLEAMQPCLIENT_VERSION_MINOR >= 6))
                     msg->Expiration("1000");
-#endif                    
-                    channel_->BasicPublish(
-                        exchange
-                        , data.topic
-                        , msg
-                    );
+#endif              
+                    try {     
+                        channel_->BasicPublish(
+                            exchange
+                            , data.topic
+                            , msg
+                        );
+                    } catch (std::exception &ex) {
+                        switch (exceptionPolicy_) {
+                        case RabbitMQComponent::ExceptionPolicy::Throw:
+                            throw;
+                            break;
+                        case RabbitMQComponent::ExceptionPolicy::IgnoreForWriteAndThrowForRead:
+                        case RabbitMQComponent::ExceptionPolicy::IgnoreForWriteAndStopForRead:
+                            std::cerr << "RabbitMQComponent publishing exception: " << ex.what() << "\n";
+                            break;
+                        default:
+                            throw;
+                            break;
+                        }
+                    }
                 }
             }
             void publishOnQueue(std::string const &queue, AmqpClient::BasicMessage::ptr_t message) {
                 {
                     std::lock_guard<std::mutex> _(mutex_);
-                    channel_->BasicPublish(
-                        ""
-                        , queue
-                        , message
-                    );
+                    try {
+                        channel_->BasicPublish(
+                            ""
+                            , queue
+                            , message
+                        );
+                    } catch (std::exception &ex) {
+                        switch (exceptionPolicy_) {
+                        case RabbitMQComponent::ExceptionPolicy::Throw:
+                            throw;
+                            break;
+                        case RabbitMQComponent::ExceptionPolicy::IgnoreForWriteAndThrowForRead:
+                        case RabbitMQComponent::ExceptionPolicy::IgnoreForWriteAndStopForRead:
+                            std::cerr << "RabbitMQComponent publishing exception: " << ex.what() << "\n";
+                            break;
+                        default:
+                            throw;
+                            break;
+                        }
+                    }
                 }
             }
         };
@@ -186,27 +238,47 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             std::atomic<bool> running_;
             OnePublishingConnection *publishing_;
             bool persistent_;
+            RabbitMQComponent::ExceptionPolicy exceptionPolicy_;
+
             void run() {
                 while (running_) {
-                    AmqpClient::Envelope::ptr_t msg;
-                    if (channel_->BasicConsumeMessage(localQueue_, msg, 1000)) {
-                        if (running_) {
-                            std::string corrID = msg->Message()->CorrelationId();
-                            bool isFinal = (msg->Message()->ContentTypeIsSet() && msg->Message()->ContentType() == "final");
-                            if (wireToUserHook_) {
-                                auto d = (wireToUserHook_->hook)(basic::ByteDataView {std::string_view(msg->Message()->Body())});
-                                if (d) {
-                                    callback_(isFinal, {corrID, std::move(d->content)});
+                    try {
+                        AmqpClient::Envelope::ptr_t msg;
+                        if (channel_->BasicConsumeMessage(localQueue_, msg, 1000)) {
+                            if (running_) {
+                                std::string corrID = msg->Message()->CorrelationId();
+                                bool isFinal = (msg->Message()->ContentTypeIsSet() && msg->Message()->ContentType() == "final");
+                                if (wireToUserHook_) {
+                                    auto d = (wireToUserHook_->hook)(basic::ByteDataView {std::string_view(msg->Message()->Body())});
+                                    if (d) {
+                                        callback_(isFinal, {corrID, std::move(d->content)});
+                                    }
+                                } else {
+                                    callback_(isFinal, {corrID, msg->Message()->Body()});
                                 }
-                            } else {
-                                callback_(isFinal, {corrID, msg->Message()->Body()});
                             }
+                        }
+                    } catch (std::exception const &ex) {
+                        switch (exceptionPolicy_) {
+                        case RabbitMQComponent::ExceptionPolicy::Throw:
+                            throw;
+                            break;
+                        case RabbitMQComponent::ExceptionPolicy::IgnoreForWriteAndThrowForRead:
+                            throw;
+                            break;
+                        case RabbitMQComponent::ExceptionPolicy::IgnoreForWriteAndStopForRead:
+                            std::cerr << "RabbitMQComponent RPC queue client exception: " << ex.what() << "\n";
+                            running_ = false;
+                            break;
+                        default:
+                            throw;
+                            break;
                         }
                     }
                 }
             }
         public:
-            OneRPCQueueClientConnection(ConnectionLocator const &l, std::function<void(bool, basic::ByteDataWithID &&)> callback, std::optional<WireToUserHook> wireToUserHook, OnePublishingConnection *publishing)
+            OneRPCQueueClientConnection(RabbitMQComponent::ExceptionPolicy exceptionPolicy, ConnectionLocator const &l, std::function<void(bool, basic::ByteDataWithID &&)> callback, std::optional<WireToUserHook> wireToUserHook, OnePublishingConnection *publishing)
                 : channel_(createChannel(l))
                 , rpcQueue_(l.identifier())
                 , localQueue_(channel_->DeclareQueue(""))
@@ -216,6 +288,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 , running_(true)
                 , publishing_(publishing)
                 , persistent_(l.query("persistent", "false") == "true")
+                , exceptionPolicy_(exceptionPolicy)
             {
                 channel_->BasicConsume(
                     localQueue_
@@ -257,31 +330,50 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             std::mutex mutex_;
             std::atomic<bool> running_;
             OnePublishingConnection *publishing_;
+            RabbitMQComponent::ExceptionPolicy exceptionPolicy_;
             void run() {
                 while (running_) {
                     AmqpClient::Envelope::ptr_t msg;
-                    if (channel_->BasicConsumeMessage(rpcQueue_, msg, 1000)) {
-                        channel_->BasicAck(msg);
-                        if (running_) {
-                            std::string corrID = msg->Message()->CorrelationId();
-                            {
-                                std::lock_guard<std::mutex> _(mutex_);
-                                replyQueueMap_[corrID] = msg->Message()->ReplyTo();
-                            }
-                            if (wireToUserHook_) {
-                                auto d = (wireToUserHook_->hook)(basic::ByteDataView {std::string_view(msg->Message()->Body())});
-                                if (d) {
-                                    callback_({corrID, std::move(d->content)});
+                    try {
+                        if (channel_->BasicConsumeMessage(rpcQueue_, msg, 1000)) {
+                            channel_->BasicAck(msg);
+                            if (running_) {
+                                std::string corrID = msg->Message()->CorrelationId();
+                                {
+                                    std::lock_guard<std::mutex> _(mutex_);
+                                    replyQueueMap_[corrID] = msg->Message()->ReplyTo();
                                 }
-                            } else {
-                                callback_({corrID, msg->Message()->Body()});
+                                if (wireToUserHook_) {
+                                    auto d = (wireToUserHook_->hook)(basic::ByteDataView {std::string_view(msg->Message()->Body())});
+                                    if (d) {
+                                        callback_({corrID, std::move(d->content)});
+                                    }
+                                } else {
+                                    callback_({corrID, msg->Message()->Body()});
+                                }
                             }
+                        }
+                    } catch (std::exception &ex) {
+                        switch (exceptionPolicy_) {
+                        case RabbitMQComponent::ExceptionPolicy::Throw:
+                            throw;
+                            break;
+                        case RabbitMQComponent::ExceptionPolicy::IgnoreForWriteAndThrowForRead:
+                            throw;
+                            break;
+                        case RabbitMQComponent::ExceptionPolicy::IgnoreForWriteAndStopForRead:
+                            std::cerr << "RabbitMQComponent RPC queue server exception: " << ex.what() << "\n";
+                            running_ = false;
+                            break;
+                        default:
+                            throw;
+                            break;
                         }
                     }                   
                 }
             }
         public:
-            OneRPCQueueServerConnection(ConnectionLocator const &l, std::function<void(basic::ByteDataWithID &&)> callback, std::optional<WireToUserHook> wireToUserHook, OnePublishingConnection *publishing)
+            OneRPCQueueServerConnection(RabbitMQComponent::ExceptionPolicy exceptionPolicy, ConnectionLocator const &l, std::function<void(basic::ByteDataWithID &&)> callback, std::optional<WireToUserHook> wireToUserHook, OnePublishingConnection *publishing)
                 : channel_(createChannel(l))
                 , rpcQueue_(l.identifier())
                 , callback_(callback)
@@ -291,6 +383,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 , mutex_()
                 , running_(true)
                 , publishing_(publishing)
+                , exceptionPolicy_(exceptionPolicy)
             {
                 channel_->DeclareQueue(
                     rpcQueue_
@@ -345,6 +438,8 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         std::mutex mutex_;
         uint32_t counter_;
 
+        RabbitMQComponent::ExceptionPolicy exceptionPolicy_;
+
         OnePublishingConnection *publishingConnection(ConnectionLocator const &l) {
             std::lock_guard<std::mutex> _(mutex_);
             return publishingConnectionNoLock(l);
@@ -354,7 +449,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             auto iter = publishingConnections_.find(basicPortion);
             if (iter == publishingConnections_.end()) {
                 iter = publishingConnections_.insert(
-                    {basicPortion, std::make_unique<OnePublishingConnection>(basicPortion)}
+                    {basicPortion, std::make_unique<OnePublishingConnection>(exceptionPolicy_, basicPortion)}
                 ).first;
             }
             return iter->second.get();
@@ -366,7 +461,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 throw RabbitMQComponentException("Cannot create duplicate RPC Queue client connection for "+l.toSerializationFormat());
             }
             iter = rpcQueueClientConnections_.insert(
-                {l, std::make_unique<OneRPCQueueClientConnection>(l, client, wireToUserHook, publishingConnectionNoLock(l))}
+                {l, std::make_unique<OneRPCQueueClientConnection>(exceptionPolicy_, l, client, wireToUserHook, publishingConnectionNoLock(l))}
             ).first;
             return iter->second.get();
         }
@@ -377,12 +472,20 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 throw RabbitMQComponentException("Cannot create duplicate RPC Queue server connection for "+l.toSerializationFormat());
             }
             iter = rpcQueueServerConnections_.insert(
-                {l, std::make_unique<OneRPCQueueServerConnection>(l, handler, wireToUserHook, publishingConnectionNoLock(l))}
+                {l, std::make_unique<OneRPCQueueServerConnection>(exceptionPolicy_, l, handler, wireToUserHook, publishingConnectionNoLock(l))}
             ).first;
             return iter->second.get();
         }
     public:
-        RabbitMQComponentImpl() = default;
+        RabbitMQComponentImpl(RabbitMQComponent::ExceptionPolicy exceptionPolicy) :
+            exchangeSubscriptionConnections_()
+            , publishingConnections_()
+            , rpcQueueClientConnections_()
+            , rpcQueueServerConnections_()
+            , mutex_()
+            , counter_(0)
+            , exceptionPolicy_(exceptionPolicy)
+        {}
         ~RabbitMQComponentImpl() {
             std::lock_guard<std::mutex> _(mutex_);
             exchangeSubscriptionConnections_.clear();
@@ -399,7 +502,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 std::make_pair(
                     ++counter_
                     , std::make_unique<OneExchangeSubscriptionConnection>(
-                        locator, topic, client, wireToUserHook
+                        exceptionPolicy_, locator, topic, client, wireToUserHook
                     )
                 )
             );
@@ -489,7 +592,9 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         }
     };
 
-    RabbitMQComponent::RabbitMQComponent() : impl_(std::make_unique<RabbitMQComponentImpl>()) {}
+    RabbitMQComponent::RabbitMQComponent(RabbitMQComponent::ExceptionPolicy exceptionPolicy) : impl_(std::make_unique<RabbitMQComponentImpl>(exceptionPolicy)) {}
+    RabbitMQComponent::RabbitMQComponent(RabbitMQComponent &&) = default;
+    RabbitMQComponent &RabbitMQComponent::operator=(RabbitMQComponent &&) = default;
     RabbitMQComponent::~RabbitMQComponent() = default;
 
     uint32_t RabbitMQComponent::rabbitmq_addExchangeSubscriptionClient(ConnectionLocator const &locator,

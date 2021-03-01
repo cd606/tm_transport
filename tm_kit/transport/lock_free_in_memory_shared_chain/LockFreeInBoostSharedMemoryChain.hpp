@@ -263,7 +263,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             }
             auto next = current.ptr->next.load(std::memory_order_acquire);
             if (next != 0) {
-                auto *p = reinterpret_cast<BoostSharedMemoryStorageItem<T, ForceSeparate> *>(reinterpret_cast<char *>(current.ptr)+next);
+                auto *p = std::launder(reinterpret_cast<BoostSharedMemoryStorageItem<T, ForceSeparate> *>(reinterpret_cast<char *>(current.ptr)+next));
                 return fromIDAndPtr(
                     mem_.get_instance_name(p)
                     , p
@@ -348,7 +348,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                     auto *loc = mem_.find<std::atomic<std::ptrdiff_t>>(key.c_str()).first;
                     if (loc) {
                         auto diff = loc->load(std::memory_order_acquire);
-                        auto *dataPtr = reinterpret_cast<ExtraData *>(reinterpret_cast<char *>(loc)+diff);
+                        auto *dataPtr = std::launder(reinterpret_cast<ExtraData *>(reinterpret_cast<char *>(loc)+diff));
                         return *dataPtr;
                     } else {
                         return std::nullopt;
@@ -556,7 +556,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         void destroyPtr(decltype(((ItemType *) nullptr)->ptr) ptr) {
             if (ptr) {
                 if (ptr->next != 0) {
-                    destroyPtr(reinterpret_cast<decltype(ptr)>(reinterpret_cast<char *>(ptr)+ptr->next));
+                    destroyPtr(std::launder(reinterpret_cast<decltype(ptr)>(reinterpret_cast<char *>(ptr)+ptr->next)));
                 }
                 if constexpr (ForceSeparate || !std::is_trivially_copyable_v<T>) {
                     if (ptr->data != 0) {
@@ -689,7 +689,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         }
         ItemType loadUntil(void *env, StorageIDType const &id) {
             return fromPtr(
-                reinterpret_cast<BoostSharedMemoryStorageItem<T, ForceSeparate> *>(reinterpret_cast<char *>(head_)+id)
+                std::launder(reinterpret_cast<BoostSharedMemoryStorageItem<T, ForceSeparate> *>(reinterpret_cast<char *>(head_)+id))
             );
         }
         ItemType loadUntil(void *env, std::string const &id) {
@@ -710,7 +710,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             auto next = current.ptr->next.load(std::memory_order_acquire);
             if (next != 0) {
                 return fromPtr(
-                    reinterpret_cast<BoostSharedMemoryStorageItem<T, ForceSeparate> *>(reinterpret_cast<char *>(current.ptr)+next)
+                    std::launder(reinterpret_cast<BoostSharedMemoryStorageItem<T, ForceSeparate> *>(reinterpret_cast<char *>(current.ptr)+next))
                 );
             } else {
                 return std::nullopt;
@@ -792,7 +792,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                     auto *loc = mem_.find<std::atomic<std::ptrdiff_t>>(key.c_str()).first;
                     if (loc) {
                         auto diff = loc->load(std::memory_order_acquire);
-                        auto *dataPtr = reinterpret_cast<ExtraData *>(reinterpret_cast<char *>(loc)+diff);
+                        auto *dataPtr = std::launder(reinterpret_cast<ExtraData *>(reinterpret_cast<char *>(loc)+diff));
                         return *dataPtr;
                     } else {
                         return std::nullopt;
@@ -1002,7 +1002,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         void destroyPtr(decltype(((ItemType *) nullptr)->ptr) ptr) {
             if (ptr) {
                 if (ptr->next != 0) {
-                    destroyPtr(reinterpret_cast<decltype(ptr)>(reinterpret_cast<char *>(ptr)+ptr->next));
+                    destroyPtr(std::launder(reinterpret_cast<decltype(ptr)>(reinterpret_cast<char *>(ptr)+ptr->next)));
                 }
                 if constexpr (ForceSeparate || !std::is_trivially_copyable_v<T>) {
                     if (ptr->data != 0) {

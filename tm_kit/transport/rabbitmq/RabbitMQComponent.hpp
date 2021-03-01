@@ -26,7 +26,14 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
     private:
         std::unique_ptr<RabbitMQComponentImpl> impl_;
     public:
-        RabbitMQComponent();
+        enum ExceptionPolicy {
+            Throw
+            , IgnoreForWriteAndThrowForRead
+            , IgnoreForWriteAndStopForRead
+        };
+        RabbitMQComponent(ExceptionPolicy exceptionPolicy=ExceptionPolicy::Throw);
+        RabbitMQComponent(RabbitMQComponent &&);
+        RabbitMQComponent &operator=(RabbitMQComponent &&);
         ~RabbitMQComponent();
 
         //The bool parameters in the std::function signatures are the

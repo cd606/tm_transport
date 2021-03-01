@@ -182,9 +182,9 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                     auto *p = &heads_[oldHeadIdx];
                     auto n = p->nextOffsetFromClientList.load();
                     if (n != 0) {
-                        p = reinterpret_cast<SharedMemoryItem *>(
+                        p = std::launder(reinterpret_cast<SharedMemoryItem *>(
                             reinterpret_cast<char *>(clientListHead_)+n
-                        );
+                        ));
                         while (true) {
                             if (p->dataOffsetFromClientList != 0) {
                                 data = reinterpret_cast<char *>(clientListHead_)+p->dataOffsetFromClientList;
@@ -200,9 +200,9 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                             if (n == 0) {
                                 break;
                             }
-                            p = reinterpret_cast<SharedMemoryItem *>(
+                            p = std::launder(reinterpret_cast<SharedMemoryItem *>(
                                 reinterpret_cast<char *>(clientListHead_)+n
-                            );
+                            ));
                         }
                     }
                     heads_[oldHeadIdx].nextOffsetFromClientList.store(0);
@@ -258,9 +258,9 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                         if (n == 0) {
                             break;
                         }
-                        p = reinterpret_cast<SharedMemoryBroadcastClientListItem *>(
+                        p = std::launder(reinterpret_cast<SharedMemoryBroadcastClientListItem *>(
                             reinterpret_cast<char *>(p)+n
-                        );
+                        ));
                     }
                     auto diff = reinterpret_cast<char *>(clientItem)-reinterpret_cast<char *>(p);
                     std::ptrdiff_t expected = 0;
@@ -287,9 +287,9 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                     if (n == 0) {
                         break;
                     }
-                    p = reinterpret_cast<SharedMemoryItem *>(
+                    p = std::launder(reinterpret_cast<SharedMemoryItem *>(
                         reinterpret_cast<char *>(clientListHead_)+n
-                    );
+                    ));
                     n = p->nextOffsetFromClientList.load();
                     while (true) {
                         if (p->dataOffsetFromClientList != 0) {
@@ -300,9 +300,9 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                         if (n == 0) {
                             break;
                         }
-                        p = reinterpret_cast<SharedMemoryItem *>(
+                        p = std::launder(reinterpret_cast<SharedMemoryItem *>(
                             reinterpret_cast<char *>(clientListHead_)+n
-                        );
+                        ));
                         n = p->nextOffsetFromClientList.load();
                     }
                 }
@@ -391,9 +391,9 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 auto *clientRec = mem_.find<SharedMemoryBroadcastClientRecord>(p->id).first;
                 if (clientRec != nullptr) {
                     try {
-                        auto *q = reinterpret_cast<SharedMemoryItem *>(
+                        auto *q = std::launder(reinterpret_cast<SharedMemoryItem *>(
                             reinterpret_cast<char *>(clientListHead_)+clientRec->tailOffsetFromClientList.load()
-                        );
+                        ));
                         auto n = q->nextOffsetFromClientList.load();
                         while (true) {
                             if (q->dataOffsetFromClientList != 0) {
@@ -404,9 +404,9 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                             if (n == 0) {
                                 break;
                             }
-                            q = reinterpret_cast<SharedMemoryItem *>(
+                            q = std::launder(reinterpret_cast<SharedMemoryItem *>(
                                 reinterpret_cast<char *>(clientListHead_)+n
-                            );
+                            ));
                             n = q->nextOffsetFromClientList.load();
                         }
                         //It is not a good idea to try release clientRec itself
@@ -453,9 +453,9 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                     if (n == 0) {
                         break;
                     }
-                    p = reinterpret_cast<SharedMemoryBroadcastClientListItem *>(
+                    p = std::launder(reinterpret_cast<SharedMemoryBroadcastClientListItem *>(
                             reinterpret_cast<char *>(p)+n
-                        );
+                        ));
                     if (!(p->active.load())) {
                         hasInactive = true;
                         continue;
@@ -479,9 +479,9 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                         newItem->dataOffsetFromClientList = offset;
                         newItem->nextOffsetFromClientList = 0;
                         offset = reinterpret_cast<char *>(newItem)-reinterpret_cast<char *>(clientListHead_);
-                        auto *tail = reinterpret_cast<SharedMemoryItem *>(
+                        auto *tail = std::launder(reinterpret_cast<SharedMemoryItem *>(
                             reinterpret_cast<char *>(clientListHead_)+clientRec->tailOffsetFromClientList.load()
-                        );
+                        ));
                         while (true) {
                             while (true) {
                                 auto n = tail->nextOffsetFromClientList.load();
@@ -494,9 +494,9 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                                 )) {
                                     continue;
                                 }
-                                tail = reinterpret_cast<SharedMemoryItem *>(
+                                tail = std::launder(reinterpret_cast<SharedMemoryItem *>(
                                     reinterpret_cast<char *>(clientListHead_)+n
-                                );
+                                ));
                             }
                             n = 0;
                             if (tail->nextOffsetFromClientList.compare_exchange_strong(
@@ -516,9 +516,9 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                     auto *q = p;
                     std::ptrdiff_t n;
                     if ((n = p->next.load()) != 0) {
-                        q = reinterpret_cast<SharedMemoryBroadcastClientListItem *>(
+                        q = std::launder(reinterpret_cast<SharedMemoryBroadcastClientListItem *>(
                             reinterpret_cast<char *>(p)+n
-                        );
+                        ));
                         while (true) {
                             if (!(q->active.load())) {
                                 std::ptrdiff_t pNext = p->next.load();
@@ -537,9 +537,9 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                                         releaseClientData(oldQ);
                                         break;
                                     }
-                                    q = reinterpret_cast<SharedMemoryBroadcastClientListItem *>(
+                                    q = std::launder(reinterpret_cast<SharedMemoryBroadcastClientListItem *>(
                                         reinterpret_cast<char *>(q)+qNext
-                                    );
+                                    ));
                                     releaseClientData(oldQ);
                                 } else {
                                     //somebody else is modifying, break
@@ -551,9 +551,9 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                                     break;
                                 }
                                 p = q;
-                                q = reinterpret_cast<SharedMemoryBroadcastClientListItem *>(
+                                q = std::launder(reinterpret_cast<SharedMemoryBroadcastClientListItem *>(
                                         reinterpret_cast<char *>(q)+qNext
-                                    );
+                                    ));
                             }
                         }
                     }
