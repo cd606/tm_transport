@@ -131,26 +131,166 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         }
     };
 
-    template <
-        class T
-        , BoostSharedMemoryChainFastRecoverSupport FRS
-    > struct LockFreeInBoostSharedMemoryChainBase {};
-    
+    enum class BoostSharedMemoryChainDataLockStrategy {
+        None 
+        , NamedMutex 
+        , SpinLock
+    };
+
+    template <BoostSharedMemoryChainDataLockStrategy>
+    struct BoostSharedMemoryChainDataLock {};
+
+    template <>
+    struct BoostSharedMemoryChainDataLock<BoostSharedMemoryChainDataLockStrategy::None> {
+        BoostSharedMemoryChainDataLock(
+            std::string const &name
+#ifdef _MSC_VER
+            , boost::interprocess::managed_windows_shared_memory *mem
+#else
+            , boost::interprocess::managed_shared_memory *mem
+#endif
+        ) {}
+        static constexpr void lock() {}
+        static constexpr void unlock() {}
+    };
+    template <>
+    struct BoostSharedMemoryChainDataLock<BoostSharedMemoryChainDataLockStrategy::NamedMutex> {
+    private:
+        boost::interprocess::named_mutex mutex_;
+    public:
+        BoostSharedMemoryChainDataLock(
+            std::string const &name
+#ifdef _MSC_VER
+            , boost::interprocess::managed_windows_shared_memory *mem
+#else
+            , boost::interprocess::managed_shared_memory *mem
+#endif
+        ) : mutex_(
+                boost::interprocess::open_or_create
+                , (name+"_data_mutex").c_str()
+            )
+        {}
+        void lock() {
+            mutex_.lock();
+        }
+        void unlock() {
+            mutex_.unlock();
+        }
+    };
+    template <>
+    struct BoostSharedMemoryChainDataLock<BoostSharedMemoryChainDataLockStrategy::SpinLock> {
+    private:
+        int64_t myPid_;
+#ifdef _MSC_VER
+        boost::interprocess::managed_windows_shared_memory *mem_;
+#else
+        boost::interprocess::managed_shared_memory *mem_;
+#endif
+        std::atomic<uint64_t> *numberDispenser_;
+        std::atomic<uint64_t> *serviceRegistrar_;
+        std::atomic<int64_t> *ownerRegistrar_;
+    public:
+        BoostSharedMemoryChainDataLock(
+            std::string const &name
+#ifdef _MSC_VER
+            , boost::interprocess::managed_windows_shared_memory *mem
+#else
+            , boost::interprocess::managed_shared_memory *mem
+#endif
+        ) :
+            myPid_(infra::pid_util::getpid())
+            , mem_(mem)
+            , numberDispenser_(
+                mem_->find_or_construct<std::atomic<uint64_t>>((name+"_number_dispenser").c_str())(0)
+            )
+            , serviceRegistrar_(
+                mem_->find_or_construct<std::atomic<uint64_t>>((name+"_queue_registrar").c_str())(0)
+            )
+            , ownerRegistrar_(
+                mem_->find_or_construct<std::atomic<int64_t>>((name+"_owner_registrar").c_str())(0)
+            )
+        {}
+        void lock() {
+            uint64_t myNumber = 0;
+            bool acquired = false;
+            uint16_t count = 0; 
+            int64_t lastOwner = 0;
+            while (true) {
+                myNumber = numberDispenser_->fetch_add(1);
+                acquired = false;
+                count = 0;
+                lastOwner = 0;
+                while (true) {
+                    uint64_t currentlyServing = serviceRegistrar_->load();
+                    if (currentlyServing > myNumber) {
+                        //we got skipped, start again
+                        break;
+                    } else if (currentlyServing == myNumber) {
+                        //our turn
+                        if (serviceRegistrar_->compare_exchange_strong(
+                            currentlyServing, myNumber
+                        )) {
+                            acquired = true;
+                            ownerRegistrar_->store(myPid_);
+                            break;
+                        }
+                    } else {
+                        //optionally check if the process in front has quit
+                        ++count;
+                        if (count >= 10000) {
+                            int64_t currentOwner = ownerRegistrar_->load();
+                            if (lastOwner != currentOwner) {
+                                lastOwner = currentOwner;
+                                count = 0;
+                                continue;
+                            } else {
+                                if (currentOwner != 0 && infra::pid_util::pidIsRunning(currentOwner)) {
+                                    count = 0;
+                                    continue;
+                                } else {
+                                    if (serviceRegistrar_->compare_exchange_strong(
+                                        currentlyServing, myNumber
+                                    )) {
+                                        acquired = true;
+                                        ownerRegistrar_->store(myPid_);
+                                        break;
+                                    } else {
+                                        count = 0;
+                                        continue;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                if (acquired) {
+                    break;
+                }
+            }
+        }
+        void unlock() {
+            ownerRegistrar_->store(0);
+            serviceRegistrar_->fetch_add(1);
+        }
+    };
+  
     template <
         class T
         , BoostSharedMemoryChainFastRecoverSupport FRS
         , BoostSharedMemoryChainExtraDataProtectionStrategy EDPS = BoostSharedMemoryChainExtraDataProtectionStrategy::DontSupportExtraData
         , bool ForceSeparate=false
+        , BoostSharedMemoryChainDataLockStrategy DLS = BoostSharedMemoryChainDataLockStrategy::None
     >
     class LockFreeInBoostSharedMemoryChain {};
 
-    template <class T, BoostSharedMemoryChainExtraDataProtectionStrategy EDPS, bool ForceSeparate>
+    template <class T, BoostSharedMemoryChainExtraDataProtectionStrategy EDPS, bool ForceSeparate, BoostSharedMemoryChainDataLockStrategy DLS>
     class LockFreeInBoostSharedMemoryChain<
         T
         , BoostSharedMemoryChainFastRecoverSupport::ByName
         , EDPS 
         , ForceSeparate
-    > : public LockFreeInBoostSharedMemoryChainBase<T,BoostSharedMemoryChainFastRecoverSupport::ByName> {
+        , DLS
+    > {
     private:
         IPCMutexWrapper<EDPS> mutex_;
 #ifdef _MSC_VER
@@ -160,6 +300,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
 #endif
         BoostSharedMemoryStorageItem<T, ForceSeparate> *head_;
         std::optional<ByteDataHookPair> hookPair_;
+        BoostSharedMemoryChainDataLock<DLS> dataLock_;
     public:
         using StorageIDType = std::string;
         using DataType = T;
@@ -238,6 +379,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             )
             , head_(nullptr)
             , hookPair_(ForceSeparate?hookPair:std::nullopt)
+            , dataLock_(name, &mem_)
         {
             if constexpr (ForceSeparate || !std::is_trivially_copyable_v<T>) {
                 head_ = mem_.find_or_construct<BoostSharedMemoryStorageItem<T, ForceSeparate>>("head")();
@@ -578,15 +720,22 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         static std::string_view extractStorageIDStringView(ItemType const &p) {
             return std::string_view {p.id};
         }
+        void acquireLock() {
+            dataLock_.lock();
+        }
+        void releaseLock() {
+            dataLock_.unlock();
+        }
     };
 
-    template <class T, BoostSharedMemoryChainExtraDataProtectionStrategy EDPS, bool ForceSeparate>
+    template <class T, BoostSharedMemoryChainExtraDataProtectionStrategy EDPS, bool ForceSeparate, BoostSharedMemoryChainDataLockStrategy DLS>
     class LockFreeInBoostSharedMemoryChain<
         T
         , BoostSharedMemoryChainFastRecoverSupport::ByOffset
         , EDPS 
         , ForceSeparate
-    > : public LockFreeInBoostSharedMemoryChainBase<T,BoostSharedMemoryChainFastRecoverSupport::ByOffset> {
+        , DLS
+    > {
     private:
         IPCMutexWrapper<EDPS> mutex_;
 #ifdef _MSC_VER
@@ -596,6 +745,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
 #endif
         BoostSharedMemoryStorageItem<T, ForceSeparate> *head_;
         std::optional<ByteDataHookPair> hookPair_;
+        BoostSharedMemoryChainDataLock<DLS> dataLock_;
     public:
         using StorageIDType = std::ptrdiff_t;
         using DataType = T;
@@ -674,6 +824,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             )
             , head_(nullptr)
             , hookPair_(ForceSeparate?hookPair:std::nullopt)
+            , dataLock_(name, &mem_)
         {
             if constexpr (ForceSeparate || !std::is_trivially_copyable_v<T>) {
                 head_ = mem_.find_or_construct<BoostSharedMemoryStorageItem<T, ForceSeparate>>("head")();
@@ -1026,6 +1177,12 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 reinterpret_cast<char const *>(&p.offset)
                 , sizeof(StorageIDType)
             );
+        }
+        void acquireLock() {
+            dataLock_.lock();
+        }
+        void releaseLock() {
+            dataLock_.unlock();
         }
     };
 
