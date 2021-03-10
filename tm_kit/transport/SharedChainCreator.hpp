@@ -420,7 +420,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                                     , (
                                         App::PossiblyMultiThreaded
                                         ?
-                                        lock_free_in_memory_shared_chain::BoostSharedMemoryChainExtraDataProtectionStrategy::LockFreeAndWasteMemory
+                                        lock_free_in_memory_shared_chain::BoostSharedMemoryChainExtraDataProtectionStrategy::SpinLockProtected
                                         :
                                         lock_free_in_memory_shared_chain::BoostSharedMemoryChainExtraDataProtectionStrategy::Unsafe
                                     )
@@ -482,7 +482,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                                     , (
                                         App::PossiblyMultiThreaded
                                         ?
-                                        lock_free_in_memory_shared_chain::BoostSharedMemoryChainExtraDataProtectionStrategy::LockFreeAndWasteMemory
+                                        lock_free_in_memory_shared_chain::BoostSharedMemoryChainExtraDataProtectionStrategy::SpinLockProtected
                                         :
                                         lock_free_in_memory_shared_chain::BoostSharedMemoryChainExtraDataProtectionStrategy::Unsafe
                                     )
@@ -529,7 +529,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                                 , (
                                     App::PossiblyMultiThreaded
                                     ?
-                                    lock_free_in_memory_shared_chain::BoostSharedMemoryChainExtraDataProtectionStrategy::LockFreeAndWasteMemory
+                                    lock_free_in_memory_shared_chain::BoostSharedMemoryChainExtraDataProtectionStrategy::LockFreeWithFiveSecondRelease
                                     :
                                     lock_free_in_memory_shared_chain::BoostSharedMemoryChainExtraDataProtectionStrategy::Unsafe
                                 )
@@ -553,7 +553,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                                 , (
                                     App::PossiblyMultiThreaded
                                     ?
-                                    lock_free_in_memory_shared_chain::BoostSharedMemoryChainExtraDataProtectionStrategy::LockFreeAndWasteMemory
+                                    lock_free_in_memory_shared_chain::BoostSharedMemoryChainExtraDataProtectionStrategy::LockFreeWithFiveSecondRelease
                                     :
                                     lock_free_in_memory_shared_chain::BoostSharedMemoryChainExtraDataProtectionStrategy::Unsafe
                                 )
@@ -769,7 +769,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                                     , (
                                         App::PossiblyMultiThreaded
                                         ?
-                                        lock_free_in_memory_shared_chain::BoostSharedMemoryChainExtraDataProtectionStrategy::LockFreeAndWasteMemory
+                                        lock_free_in_memory_shared_chain::BoostSharedMemoryChainExtraDataProtectionStrategy::SpinLockProtected
                                         :
                                         lock_free_in_memory_shared_chain::BoostSharedMemoryChainExtraDataProtectionStrategy::Unsafe
                                     )
@@ -831,7 +831,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                                     , (
                                         App::PossiblyMultiThreaded
                                         ?
-                                        lock_free_in_memory_shared_chain::BoostSharedMemoryChainExtraDataProtectionStrategy::LockFreeAndWasteMemory
+                                        lock_free_in_memory_shared_chain::BoostSharedMemoryChainExtraDataProtectionStrategy::SpinLockProtected
                                         :
                                         lock_free_in_memory_shared_chain::BoostSharedMemoryChainExtraDataProtectionStrategy::Unsafe
                                     )
@@ -878,7 +878,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                                 , (
                                     App::PossiblyMultiThreaded
                                     ?
-                                    lock_free_in_memory_shared_chain::BoostSharedMemoryChainExtraDataProtectionStrategy::LockFreeAndWasteMemory
+                                    lock_free_in_memory_shared_chain::BoostSharedMemoryChainExtraDataProtectionStrategy::LockFreeWithFiveSecondRelease
                                     :
                                     lock_free_in_memory_shared_chain::BoostSharedMemoryChainExtraDataProtectionStrategy::Unsafe
                                 )
@@ -902,7 +902,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                                 , (
                                     App::PossiblyMultiThreaded
                                     ?
-                                    lock_free_in_memory_shared_chain::BoostSharedMemoryChainExtraDataProtectionStrategy::LockFreeAndWasteMemory
+                                    lock_free_in_memory_shared_chain::BoostSharedMemoryChainExtraDataProtectionStrategy::LockFreeWithFiveSecondRelease
                                     :
                                     lock_free_in_memory_shared_chain::BoostSharedMemoryChainExtraDataProtectionStrategy::Unsafe
                                 )
@@ -1223,7 +1223,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                                     , (
                                         App::PossiblyMultiThreaded
                                         ?
-                                        lock_free_in_memory_shared_chain::BoostSharedMemoryChainExtraDataProtectionStrategy::LockFreeAndWasteMemory
+                                        lock_free_in_memory_shared_chain::BoostSharedMemoryChainExtraDataProtectionStrategy::SpinLockProtected
                                         :
                                         lock_free_in_memory_shared_chain::BoostSharedMemoryChainExtraDataProtectionStrategy::Unsafe
                                     )
@@ -1283,7 +1283,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                                     , (
                                         App::PossiblyMultiThreaded
                                         ?
-                                        lock_free_in_memory_shared_chain::BoostSharedMemoryChainExtraDataProtectionStrategy::LockFreeAndWasteMemory
+                                        lock_free_in_memory_shared_chain::BoostSharedMemoryChainExtraDataProtectionStrategy::SpinLockProtected
                                         :
                                         lock_free_in_memory_shared_chain::BoostSharedMemoryChainExtraDataProtectionStrategy::Unsafe
                                     )
@@ -1329,7 +1329,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                                 , (
                                     App::PossiblyMultiThreaded
                                     ?
-                                    lock_free_in_memory_shared_chain::BoostSharedMemoryChainExtraDataProtectionStrategy::LockFreeAndWasteMemory
+                                    lock_free_in_memory_shared_chain::BoostSharedMemoryChainExtraDataProtectionStrategy::LockFreeWithFiveSecondRelease
                                     :
                                     lock_free_in_memory_shared_chain::BoostSharedMemoryChainExtraDataProtectionStrategy::Unsafe
                                 )
@@ -1352,7 +1352,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                                 , (
                                     App::PossiblyMultiThreaded
                                     ?
-                                    lock_free_in_memory_shared_chain::BoostSharedMemoryChainExtraDataProtectionStrategy::LockFreeAndWasteMemory
+                                    lock_free_in_memory_shared_chain::BoostSharedMemoryChainExtraDataProtectionStrategy::LockFreeWithFiveSecondRelease
                                     :
                                     lock_free_in_memory_shared_chain::BoostSharedMemoryChainExtraDataProtectionStrategy::Unsafe
                                 )
@@ -1539,7 +1539,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                                     , (
                                         App::PossiblyMultiThreaded
                                         ?
-                                        lock_free_in_memory_shared_chain::BoostSharedMemoryChainExtraDataProtectionStrategy::LockFreeAndWasteMemory
+                                        lock_free_in_memory_shared_chain::BoostSharedMemoryChainExtraDataProtectionStrategy::SpinLockProtected
                                         :
                                         lock_free_in_memory_shared_chain::BoostSharedMemoryChainExtraDataProtectionStrategy::Unsafe
                                     )
@@ -1599,7 +1599,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                                     , (
                                         App::PossiblyMultiThreaded
                                         ?
-                                        lock_free_in_memory_shared_chain::BoostSharedMemoryChainExtraDataProtectionStrategy::LockFreeAndWasteMemory
+                                        lock_free_in_memory_shared_chain::BoostSharedMemoryChainExtraDataProtectionStrategy::SpinLockProtected
                                         :
                                         lock_free_in_memory_shared_chain::BoostSharedMemoryChainExtraDataProtectionStrategy::Unsafe
                                     )
@@ -1645,7 +1645,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                                 , (
                                     App::PossiblyMultiThreaded
                                     ?
-                                    lock_free_in_memory_shared_chain::BoostSharedMemoryChainExtraDataProtectionStrategy::LockFreeAndWasteMemory
+                                    lock_free_in_memory_shared_chain::BoostSharedMemoryChainExtraDataProtectionStrategy::LockFreeWithFiveSecondRelease
                                     :
                                     lock_free_in_memory_shared_chain::BoostSharedMemoryChainExtraDataProtectionStrategy::Unsafe
                                 )
@@ -1668,7 +1668,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                                 , (
                                     App::PossiblyMultiThreaded
                                     ?
-                                    lock_free_in_memory_shared_chain::BoostSharedMemoryChainExtraDataProtectionStrategy::LockFreeAndWasteMemory
+                                    lock_free_in_memory_shared_chain::BoostSharedMemoryChainExtraDataProtectionStrategy::LockFreeWithFiveSecondRelease
                                     :
                                     lock_free_in_memory_shared_chain::BoostSharedMemoryChainExtraDataProtectionStrategy::Unsafe
                                 )
@@ -1855,7 +1855,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                                     , (
                                         App::PossiblyMultiThreaded
                                         ?
-                                        lock_free_in_memory_shared_chain::BoostSharedMemoryChainExtraDataProtectionStrategy::LockFreeAndWasteMemory
+                                        lock_free_in_memory_shared_chain::BoostSharedMemoryChainExtraDataProtectionStrategy::SpinLockProtected
                                         :
                                         lock_free_in_memory_shared_chain::BoostSharedMemoryChainExtraDataProtectionStrategy::Unsafe
                                     )
@@ -1915,7 +1915,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                                     , (
                                         App::PossiblyMultiThreaded
                                         ?
-                                        lock_free_in_memory_shared_chain::BoostSharedMemoryChainExtraDataProtectionStrategy::LockFreeAndWasteMemory
+                                        lock_free_in_memory_shared_chain::BoostSharedMemoryChainExtraDataProtectionStrategy::SpinLockProtected
                                         :
                                         lock_free_in_memory_shared_chain::BoostSharedMemoryChainExtraDataProtectionStrategy::Unsafe
                                     )
@@ -1961,7 +1961,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                                 , (
                                     App::PossiblyMultiThreaded
                                     ?
-                                    lock_free_in_memory_shared_chain::BoostSharedMemoryChainExtraDataProtectionStrategy::LockFreeAndWasteMemory
+                                    lock_free_in_memory_shared_chain::BoostSharedMemoryChainExtraDataProtectionStrategy::LockFreeWithFiveSecondRelease
                                     :
                                     lock_free_in_memory_shared_chain::BoostSharedMemoryChainExtraDataProtectionStrategy::Unsafe
                                 )
@@ -1984,7 +1984,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                                 , (
                                     App::PossiblyMultiThreaded
                                     ?
-                                    lock_free_in_memory_shared_chain::BoostSharedMemoryChainExtraDataProtectionStrategy::LockFreeAndWasteMemory
+                                    lock_free_in_memory_shared_chain::BoostSharedMemoryChainExtraDataProtectionStrategy::LockFreeWithFiveSecondRelease
                                     :
                                     lock_free_in_memory_shared_chain::BoostSharedMemoryChainExtraDataProtectionStrategy::Unsafe
                                 )
@@ -2166,7 +2166,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                                     , (
                                         App::PossiblyMultiThreaded
                                         ?
-                                        lock_free_in_memory_shared_chain::BoostSharedMemoryChainExtraDataProtectionStrategy::LockFreeAndWasteMemory
+                                        lock_free_in_memory_shared_chain::BoostSharedMemoryChainExtraDataProtectionStrategy::SpinLockProtected
                                         :
                                         lock_free_in_memory_shared_chain::BoostSharedMemoryChainExtraDataProtectionStrategy::Unsafe
                                     )
@@ -2224,7 +2224,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                                     , (
                                         App::PossiblyMultiThreaded
                                         ?
-                                        lock_free_in_memory_shared_chain::BoostSharedMemoryChainExtraDataProtectionStrategy::LockFreeAndWasteMemory
+                                        lock_free_in_memory_shared_chain::BoostSharedMemoryChainExtraDataProtectionStrategy::SpinLockProtected
                                         :
                                         lock_free_in_memory_shared_chain::BoostSharedMemoryChainExtraDataProtectionStrategy::Unsafe
                                     )
@@ -2269,7 +2269,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                                 , (
                                     App::PossiblyMultiThreaded
                                     ?
-                                    lock_free_in_memory_shared_chain::BoostSharedMemoryChainExtraDataProtectionStrategy::LockFreeAndWasteMemory
+                                    lock_free_in_memory_shared_chain::BoostSharedMemoryChainExtraDataProtectionStrategy::LockFreeWithFiveSecondRelease
                                     :
                                     lock_free_in_memory_shared_chain::BoostSharedMemoryChainExtraDataProtectionStrategy::Unsafe
                                 )
@@ -2291,7 +2291,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                                 , (
                                     App::PossiblyMultiThreaded
                                     ?
-                                    lock_free_in_memory_shared_chain::BoostSharedMemoryChainExtraDataProtectionStrategy::LockFreeAndWasteMemory
+                                    lock_free_in_memory_shared_chain::BoostSharedMemoryChainExtraDataProtectionStrategy::LockFreeWithFiveSecondRelease
                                     :
                                     lock_free_in_memory_shared_chain::BoostSharedMemoryChainExtraDataProtectionStrategy::Unsafe
                                 )
@@ -2466,7 +2466,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                                     , (
                                         App::PossiblyMultiThreaded
                                         ?
-                                        lock_free_in_memory_shared_chain::BoostSharedMemoryChainExtraDataProtectionStrategy::LockFreeAndWasteMemory
+                                        lock_free_in_memory_shared_chain::BoostSharedMemoryChainExtraDataProtectionStrategy::SpinLockProtected
                                         :
                                         lock_free_in_memory_shared_chain::BoostSharedMemoryChainExtraDataProtectionStrategy::Unsafe
                                     )
@@ -2522,7 +2522,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                                     , (
                                         App::PossiblyMultiThreaded
                                         ?
-                                        lock_free_in_memory_shared_chain::BoostSharedMemoryChainExtraDataProtectionStrategy::LockFreeAndWasteMemory
+                                        lock_free_in_memory_shared_chain::BoostSharedMemoryChainExtraDataProtectionStrategy::SpinLockProtected
                                         :
                                         lock_free_in_memory_shared_chain::BoostSharedMemoryChainExtraDataProtectionStrategy::Unsafe
                                     )
@@ -2566,7 +2566,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                                 , (
                                     App::PossiblyMultiThreaded
                                     ?
-                                    lock_free_in_memory_shared_chain::BoostSharedMemoryChainExtraDataProtectionStrategy::LockFreeAndWasteMemory
+                                    lock_free_in_memory_shared_chain::BoostSharedMemoryChainExtraDataProtectionStrategy::LockFreeWithFiveSecondRelease
                                     :
                                     lock_free_in_memory_shared_chain::BoostSharedMemoryChainExtraDataProtectionStrategy::Unsafe
                                 )
@@ -2587,7 +2587,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                                 , (
                                     App::PossiblyMultiThreaded
                                     ?
-                                    lock_free_in_memory_shared_chain::BoostSharedMemoryChainExtraDataProtectionStrategy::LockFreeAndWasteMemory
+                                    lock_free_in_memory_shared_chain::BoostSharedMemoryChainExtraDataProtectionStrategy::LockFreeWithFiveSecondRelease
                                     :
                                     lock_free_in_memory_shared_chain::BoostSharedMemoryChainExtraDataProtectionStrategy::Unsafe
                                 )
