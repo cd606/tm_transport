@@ -286,6 +286,12 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
 
     template <uint8_t ReleaseSeconds, typename=std::enable_if_t<(ReleaseSeconds>0)>>
     class BoostSharedMemoryChain_TimedReleaseStorageHelper {
+    private:
+        struct Node {
+            std::time_t theTime;
+            std::atomic<std::ptrdiff_t> data;
+            std::atomic<std::ptrdiff_t> next;
+        };
     public:
 #ifdef _MSC_VER
         using Mem = boost::interprocess::managed_windows_shared_memory;
@@ -297,15 +303,14 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             auto *loc = mem.find_or_construct<std::atomic<std::ptrdiff_t>>(key.c_str())(0);
             auto dataDiff = reinterpret_cast<char *>(dataPtr)-reinterpret_cast<char *>(loc);
             std::time_t now = 0;
-            std::tuple<std::time_t, std::ptrdiff_t, std::ptrdiff_t> *node = nullptr;
+            Node *node = nullptr;
             while (true) {
                 auto lastLoc = loc->load();
                 now = std::time(nullptr);
-                node = mem.construct<std::tuple<std::time_t, std::ptrdiff_t, std::ptrdiff_t>>(boost::interprocess::anonymous_instance)(
-                    now
-                    , dataDiff
-                    , lastLoc
-                );
+                node = mem.construct<Node>(boost::interprocess::anonymous_instance)();
+                node->theTime = now;
+                node->data.store(dataDiff);
+                node->next.store(lastLoc);
                 auto newLoc = reinterpret_cast<char *>(node)-reinterpret_cast<char *>(loc);
                 if (loc->compare_exchange_strong(lastLoc, newLoc)) {
                     break;
@@ -315,23 +320,36 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             }
             bool first = true;
             while (node != nullptr) {
-                std::tuple<std::time_t, std::ptrdiff_t, std::ptrdiff_t> *next = nullptr;
-                if (std::get<2>(*node) == 0) {
+                Node *next = nullptr;
+                auto nextLoc = node->next.load();
+                if (nextLoc == 0) {
                     next = nullptr;
                 } else {
-                    next = std::launder(reinterpret_cast<std::tuple<std::time_t, std::ptrdiff_t, std::ptrdiff_t> *>(
-                        reinterpret_cast<char *>(loc)+std::get<2>(*node)
+                    next = std::launder(reinterpret_cast<Node *>(
+                        reinterpret_cast<char *>(loc)+nextLoc
                     ));
                 }
-                if (next != nullptr && std::get<0>(*next)+ReleaseSeconds < now) {
-                    std::get<2>(*node) = 0;
+                if (next != nullptr && next->theTime+ReleaseSeconds < now) {
+                    if (!node->next.compare_exchange_strong(nextLoc, 0)) {
+                        break;
+                    }
                 }
-                if (!first && std::get<0>(*node)+ReleaseSeconds < now) {
+                if (!first && node->theTime+ReleaseSeconds < now) {
+                    auto dataLoc = node->data.load();
+                    if (dataLoc == 0) {
+                        break;
+                    }
                     auto *dataToDel = std::launder(reinterpret_cast<T *>(
-                        reinterpret_cast<char *>(loc)+std::get<1>(*node)
+                        reinterpret_cast<char *>(loc)+dataLoc
                     ));
-                    mem.destroy_ptr(dataToDel);
-                    mem.destroy_ptr(node);
+                    if (node->data.compare_exchange_strong(
+                        dataLoc, 0
+                    )) {
+                        mem.destroy_ptr(dataToDel);
+                        mem.destroy_ptr(node);
+                    } else {
+                        break;
+                    }
                 }
                 node = next;
                 first = false;
@@ -342,11 +360,11 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             auto *loc = mem.find<std::atomic<std::ptrdiff_t>>(key.c_str()).first;
             if (loc) {
                 auto diff = loc->load();
-                auto *nodePtr = std::launder(reinterpret_cast<std::tuple<std::time_t,std::ptrdiff_t,std::ptrdiff_t> *>(
+                auto *nodePtr = std::launder(reinterpret_cast<Node *>(
                     reinterpret_cast<char *>(loc)+diff
                 ));
                 auto *dataPtr = std::launder(reinterpret_cast<T *>(
-                    reinterpret_cast<char *>(loc)+std::get<1>(*nodePtr)
+                    reinterpret_cast<char *>(loc)+nodePtr->data.load()
                 ));
                 return dataPtr;
             } else {
