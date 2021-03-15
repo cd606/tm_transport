@@ -398,148 +398,437 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                         }
                         bool useName = (locator.query("useName", "false") == "true");                       
                         bool dataLockIsNamedMutex = (locator.query("dataLock", "named") == "named");
+                        std::string extraDataLockType = locator.query("extraDataLock", "named");
                         if (useName) {
                             if (dataLockIsNamedMutex) {
-                                using C = lock_free_in_memory_shared_chain::LockFreeInBoostSharedMemoryChain<
-                                    ChainData
-                                    , lock_free_in_memory_shared_chain::BoostSharedMemoryChainFastRecoverSupport::ByName
-                                    , (
-                                        App::PossiblyMultiThreaded
-                                        ?
-                                        lock_free_in_memory_shared_chain::BoostSharedMemoryChainExtraDataProtectionStrategy::MutexProtected
-                                        :
-                                        lock_free_in_memory_shared_chain::BoostSharedMemoryChainExtraDataProtectionStrategy::Unsafe
-                                    )
-                                    , (ForceSeparateDataStorageIfPossible || (
-                                        DefaultHookFactory<typename App::EnvironmentType>::template HasOutgoingHookFactory<ChainData>()
-                                        && DefaultHookFactory<typename App::EnvironmentType>::template HasIncomingHookFactory<ChainData>()
-                                    ))
-                                    , (
-                                        App::PossiblyMultiThreaded
-                                        ?
-                                        lock_free_in_memory_shared_chain::BoostSharedMemoryChainDataLockStrategy::NamedMutex
-                                        :
-                                        lock_free_in_memory_shared_chain::BoostSharedMemoryChainDataLockStrategy::None
-                                    )
-                                >;
-                                auto *chain = getInSharedMemChain<C>(
-                                    env 
-                                    , shared_chain_utils::makeSharedChainLocator(protocol, locator)
-                                    , hookPair
-                                    , memoryName
-                                    , memorySize
-                                );
-                                if constexpr (std::is_same_v<typename Action::Result, void>) {
-                                    std::move(action).template invoke<std::remove_pointer_t<decltype(chain)>>(env, chain);
+                                if (extraDataLockType == "spin") {
+                                    using C = lock_free_in_memory_shared_chain::LockFreeInBoostSharedMemoryChain<
+                                        ChainData
+                                        , lock_free_in_memory_shared_chain::BoostSharedMemoryChainFastRecoverSupport::ByName
+                                        , (
+                                            App::PossiblyMultiThreaded
+                                            ?
+                                            lock_free_in_memory_shared_chain::BoostSharedMemoryChainExtraDataProtectionStrategy::SpinLockProtected
+                                            :
+                                            lock_free_in_memory_shared_chain::BoostSharedMemoryChainExtraDataProtectionStrategy::Unsafe
+                                        )
+                                        , (ForceSeparateDataStorageIfPossible || (
+                                            DefaultHookFactory<typename App::EnvironmentType>::template HasOutgoingHookFactory<ChainData>()
+                                            && DefaultHookFactory<typename App::EnvironmentType>::template HasIncomingHookFactory<ChainData>()
+                                        ))
+                                        , (
+                                            App::PossiblyMultiThreaded
+                                            ?
+                                            lock_free_in_memory_shared_chain::BoostSharedMemoryChainDataLockStrategy::NamedMutex
+                                            :
+                                            lock_free_in_memory_shared_chain::BoostSharedMemoryChainDataLockStrategy::None
+                                        )
+                                    >;
+                                    auto *chain = getInSharedMemChain<C>(
+                                        env 
+                                        , shared_chain_utils::makeSharedChainLocator(protocol, locator)
+                                        , hookPair
+                                        , memoryName
+                                        , memorySize
+                                    );
+                                    if constexpr (std::is_same_v<typename Action::Result, void>) {
+                                        std::move(action).template invoke<std::remove_pointer_t<decltype(chain)>>(env, chain);
+                                    } else {
+                                        return std::move(action).template invoke<std::remove_pointer_t<decltype(chain)>>(env, chain);
+                                    }
+                                } else if (extraDataLockType == "none") {
+                                    using C = lock_free_in_memory_shared_chain::LockFreeInBoostSharedMemoryChain<
+                                        ChainData
+                                        , lock_free_in_memory_shared_chain::BoostSharedMemoryChainFastRecoverSupport::ByName
+                                        , (
+                                            App::PossiblyMultiThreaded
+                                            ?
+                                            lock_free_in_memory_shared_chain::BoostSharedMemoryChainExtraDataProtectionStrategy::LockFreeAndWasteMemory
+                                            :
+                                            lock_free_in_memory_shared_chain::BoostSharedMemoryChainExtraDataProtectionStrategy::Unsafe
+                                        )
+                                        , (ForceSeparateDataStorageIfPossible || (
+                                            DefaultHookFactory<typename App::EnvironmentType>::template HasOutgoingHookFactory<ChainData>()
+                                            && DefaultHookFactory<typename App::EnvironmentType>::template HasIncomingHookFactory<ChainData>()
+                                        ))
+                                        , (
+                                            App::PossiblyMultiThreaded
+                                            ?
+                                            lock_free_in_memory_shared_chain::BoostSharedMemoryChainDataLockStrategy::NamedMutex
+                                            :
+                                            lock_free_in_memory_shared_chain::BoostSharedMemoryChainDataLockStrategy::None
+                                        )
+                                    >;
+                                    auto *chain = getInSharedMemChain<C>(
+                                        env 
+                                        , shared_chain_utils::makeSharedChainLocator(protocol, locator)
+                                        , hookPair
+                                        , memoryName
+                                        , memorySize
+                                    );
+                                    if constexpr (std::is_same_v<typename Action::Result, void>) {
+                                        std::move(action).template invoke<std::remove_pointer_t<decltype(chain)>>(env, chain);
+                                    } else {
+                                        return std::move(action).template invoke<std::remove_pointer_t<decltype(chain)>>(env, chain);
+                                    }
                                 } else {
-                                    return std::move(action).template invoke<std::remove_pointer_t<decltype(chain)>>(env, chain);
+                                    using C = lock_free_in_memory_shared_chain::LockFreeInBoostSharedMemoryChain<
+                                        ChainData
+                                        , lock_free_in_memory_shared_chain::BoostSharedMemoryChainFastRecoverSupport::ByName
+                                        , (
+                                            App::PossiblyMultiThreaded
+                                            ?
+                                            lock_free_in_memory_shared_chain::BoostSharedMemoryChainExtraDataProtectionStrategy::MutexProtected
+                                            :
+                                            lock_free_in_memory_shared_chain::BoostSharedMemoryChainExtraDataProtectionStrategy::Unsafe
+                                        )
+                                        , (ForceSeparateDataStorageIfPossible || (
+                                            DefaultHookFactory<typename App::EnvironmentType>::template HasOutgoingHookFactory<ChainData>()
+                                            && DefaultHookFactory<typename App::EnvironmentType>::template HasIncomingHookFactory<ChainData>()
+                                        ))
+                                        , (
+                                            App::PossiblyMultiThreaded
+                                            ?
+                                            lock_free_in_memory_shared_chain::BoostSharedMemoryChainDataLockStrategy::NamedMutex
+                                            :
+                                            lock_free_in_memory_shared_chain::BoostSharedMemoryChainDataLockStrategy::None
+                                        )
+                                    >;
+                                    auto *chain = getInSharedMemChain<C>(
+                                        env 
+                                        , shared_chain_utils::makeSharedChainLocator(protocol, locator)
+                                        , hookPair
+                                        , memoryName
+                                        , memorySize
+                                    );
+                                    if constexpr (std::is_same_v<typename Action::Result, void>) {
+                                        std::move(action).template invoke<std::remove_pointer_t<decltype(chain)>>(env, chain);
+                                    } else {
+                                        return std::move(action).template invoke<std::remove_pointer_t<decltype(chain)>>(env, chain);
+                                    }
                                 }
                             } else {
-                                using C = lock_free_in_memory_shared_chain::LockFreeInBoostSharedMemoryChain<
-                                    ChainData
-                                    , lock_free_in_memory_shared_chain::BoostSharedMemoryChainFastRecoverSupport::ByName
-                                    , (
-                                        App::PossiblyMultiThreaded
-                                        ?
-                                        lock_free_in_memory_shared_chain::BoostSharedMemoryChainExtraDataProtectionStrategy::SpinLockProtected
-                                        :
-                                        lock_free_in_memory_shared_chain::BoostSharedMemoryChainExtraDataProtectionStrategy::Unsafe
-                                    )
-                                    , (ForceSeparateDataStorageIfPossible || (
-                                        DefaultHookFactory<typename App::EnvironmentType>::template HasOutgoingHookFactory<ChainData>()
-                                        && DefaultHookFactory<typename App::EnvironmentType>::template HasIncomingHookFactory<ChainData>()
-                                    ))
-                                    , (
-                                        App::PossiblyMultiThreaded
-                                        ?
-                                        lock_free_in_memory_shared_chain::BoostSharedMemoryChainDataLockStrategy::SpinLock
-                                        :
-                                        lock_free_in_memory_shared_chain::BoostSharedMemoryChainDataLockStrategy::None
-                                    )
-                                >;
-                                auto *chain = getInSharedMemChain<C>(
-                                    env 
-                                    , shared_chain_utils::makeSharedChainLocator(protocol, locator)
-                                    , hookPair
-                                    , memoryName
-                                    , memorySize
-                                );
-                                if constexpr (std::is_same_v<typename Action::Result, void>) {
-                                    std::move(action).template invoke<std::remove_pointer_t<decltype(chain)>>(env, chain);
+                                if (extraDataLockType == "spin") {
+                                    using C = lock_free_in_memory_shared_chain::LockFreeInBoostSharedMemoryChain<
+                                        ChainData
+                                        , lock_free_in_memory_shared_chain::BoostSharedMemoryChainFastRecoverSupport::ByName
+                                        , (
+                                            App::PossiblyMultiThreaded
+                                            ?
+                                            lock_free_in_memory_shared_chain::BoostSharedMemoryChainExtraDataProtectionStrategy::SpinLockProtected
+                                            :
+                                            lock_free_in_memory_shared_chain::BoostSharedMemoryChainExtraDataProtectionStrategy::Unsafe
+                                        )
+                                        , (ForceSeparateDataStorageIfPossible || (
+                                            DefaultHookFactory<typename App::EnvironmentType>::template HasOutgoingHookFactory<ChainData>()
+                                            && DefaultHookFactory<typename App::EnvironmentType>::template HasIncomingHookFactory<ChainData>()
+                                        ))
+                                        , (
+                                            App::PossiblyMultiThreaded
+                                            ?
+                                            lock_free_in_memory_shared_chain::BoostSharedMemoryChainDataLockStrategy::SpinLock
+                                            :
+                                            lock_free_in_memory_shared_chain::BoostSharedMemoryChainDataLockStrategy::None
+                                        )
+                                    >;
+                                    auto *chain = getInSharedMemChain<C>(
+                                        env 
+                                        , shared_chain_utils::makeSharedChainLocator(protocol, locator)
+                                        , hookPair
+                                        , memoryName
+                                        , memorySize
+                                    );
+                                    if constexpr (std::is_same_v<typename Action::Result, void>) {
+                                        std::move(action).template invoke<std::remove_pointer_t<decltype(chain)>>(env, chain);
+                                    } else {
+                                        return std::move(action).template invoke<std::remove_pointer_t<decltype(chain)>>(env, chain);
+                                    }
+                                } else if (extraDataLockType == "none") {
+                                    using C = lock_free_in_memory_shared_chain::LockFreeInBoostSharedMemoryChain<
+                                        ChainData
+                                        , lock_free_in_memory_shared_chain::BoostSharedMemoryChainFastRecoverSupport::ByName
+                                        , (
+                                            App::PossiblyMultiThreaded
+                                            ?
+                                            lock_free_in_memory_shared_chain::BoostSharedMemoryChainExtraDataProtectionStrategy::LockFreeAndWasteMemory
+                                            :
+                                            lock_free_in_memory_shared_chain::BoostSharedMemoryChainExtraDataProtectionStrategy::Unsafe
+                                        )
+                                        , (ForceSeparateDataStorageIfPossible || (
+                                            DefaultHookFactory<typename App::EnvironmentType>::template HasOutgoingHookFactory<ChainData>()
+                                            && DefaultHookFactory<typename App::EnvironmentType>::template HasIncomingHookFactory<ChainData>()
+                                        ))
+                                        , (
+                                            App::PossiblyMultiThreaded
+                                            ?
+                                            lock_free_in_memory_shared_chain::BoostSharedMemoryChainDataLockStrategy::SpinLock
+                                            :
+                                            lock_free_in_memory_shared_chain::BoostSharedMemoryChainDataLockStrategy::None
+                                        )
+                                    >;
+                                    auto *chain = getInSharedMemChain<C>(
+                                        env 
+                                        , shared_chain_utils::makeSharedChainLocator(protocol, locator)
+                                        , hookPair
+                                        , memoryName
+                                        , memorySize
+                                    );
+                                    if constexpr (std::is_same_v<typename Action::Result, void>) {
+                                        std::move(action).template invoke<std::remove_pointer_t<decltype(chain)>>(env, chain);
+                                    } else {
+                                        return std::move(action).template invoke<std::remove_pointer_t<decltype(chain)>>(env, chain);
+                                    }
                                 } else {
-                                    return std::move(action).template invoke<std::remove_pointer_t<decltype(chain)>>(env, chain);
+                                    using C = lock_free_in_memory_shared_chain::LockFreeInBoostSharedMemoryChain<
+                                        ChainData
+                                        , lock_free_in_memory_shared_chain::BoostSharedMemoryChainFastRecoverSupport::ByName
+                                        , (
+                                            App::PossiblyMultiThreaded
+                                            ?
+                                            lock_free_in_memory_shared_chain::BoostSharedMemoryChainExtraDataProtectionStrategy::MutexProtected
+                                            :
+                                            lock_free_in_memory_shared_chain::BoostSharedMemoryChainExtraDataProtectionStrategy::Unsafe
+                                        )
+                                        , (ForceSeparateDataStorageIfPossible || (
+                                            DefaultHookFactory<typename App::EnvironmentType>::template HasOutgoingHookFactory<ChainData>()
+                                            && DefaultHookFactory<typename App::EnvironmentType>::template HasIncomingHookFactory<ChainData>()
+                                        ))
+                                        , (
+                                            App::PossiblyMultiThreaded
+                                            ?
+                                            lock_free_in_memory_shared_chain::BoostSharedMemoryChainDataLockStrategy::SpinLock
+                                            :
+                                            lock_free_in_memory_shared_chain::BoostSharedMemoryChainDataLockStrategy::None
+                                        )
+                                    >;
+                                    auto *chain = getInSharedMemChain<C>(
+                                        env 
+                                        , shared_chain_utils::makeSharedChainLocator(protocol, locator)
+                                        , hookPair
+                                        , memoryName
+                                        , memorySize
+                                    );
+                                    if constexpr (std::is_same_v<typename Action::Result, void>) {
+                                        std::move(action).template invoke<std::remove_pointer_t<decltype(chain)>>(env, chain);
+                                    } else {
+                                        return std::move(action).template invoke<std::remove_pointer_t<decltype(chain)>>(env, chain);
+                                    }
                                 }
                             }
                         } else {
                             if (dataLockIsNamedMutex) {
-                                using C = lock_free_in_memory_shared_chain::LockFreeInBoostSharedMemoryChain<
-                                    ChainData
-                                    , lock_free_in_memory_shared_chain::BoostSharedMemoryChainFastRecoverSupport::ByOffset
-                                    , (
-                                        App::PossiblyMultiThreaded
-                                        ?
-                                        lock_free_in_memory_shared_chain::BoostSharedMemoryChainExtraDataProtectionStrategy::MutexProtected
-                                        :
-                                        lock_free_in_memory_shared_chain::BoostSharedMemoryChainExtraDataProtectionStrategy::Unsafe
-                                    )
-                                    , (ForceSeparateDataStorageIfPossible || (
-                                        DefaultHookFactory<typename App::EnvironmentType>::template HasOutgoingHookFactory<ChainData>()
-                                        && DefaultHookFactory<typename App::EnvironmentType>::template HasIncomingHookFactory<ChainData>()
-                                    ))
-                                    , (
-                                        App::PossiblyMultiThreaded
-                                        ?
-                                        lock_free_in_memory_shared_chain::BoostSharedMemoryChainDataLockStrategy::NamedMutex
-                                        :
-                                        lock_free_in_memory_shared_chain::BoostSharedMemoryChainDataLockStrategy::None
-                                    )
-                                >;
-                                auto *chain = getInSharedMemChain<C>(
-                                    env 
-                                    , shared_chain_utils::makeSharedChainLocator(protocol, locator)
-                                    , hookPair
-                                    , memoryName
-                                    , memorySize
-                                );
-                                if constexpr (std::is_same_v<typename Action::Result, void>) {
-                                    std::move(action).template invoke<std::remove_pointer_t<decltype(chain)>>(env, chain);
+                                if (extraDataLockType == "spin") {
+                                    using C = lock_free_in_memory_shared_chain::LockFreeInBoostSharedMemoryChain<
+                                        ChainData
+                                        , lock_free_in_memory_shared_chain::BoostSharedMemoryChainFastRecoverSupport::ByOffset
+                                        , (
+                                            App::PossiblyMultiThreaded
+                                            ?
+                                            lock_free_in_memory_shared_chain::BoostSharedMemoryChainExtraDataProtectionStrategy::SpinLockProtected
+                                            :
+                                            lock_free_in_memory_shared_chain::BoostSharedMemoryChainExtraDataProtectionStrategy::Unsafe
+                                        )
+                                        , (ForceSeparateDataStorageIfPossible || (
+                                            DefaultHookFactory<typename App::EnvironmentType>::template HasOutgoingHookFactory<ChainData>()
+                                            && DefaultHookFactory<typename App::EnvironmentType>::template HasIncomingHookFactory<ChainData>()
+                                        ))
+                                        , (
+                                            App::PossiblyMultiThreaded
+                                            ?
+                                            lock_free_in_memory_shared_chain::BoostSharedMemoryChainDataLockStrategy::NamedMutex
+                                            :
+                                            lock_free_in_memory_shared_chain::BoostSharedMemoryChainDataLockStrategy::None
+                                        )
+                                    >;
+                                    auto *chain = getInSharedMemChain<C>(
+                                        env 
+                                        , shared_chain_utils::makeSharedChainLocator(protocol, locator)
+                                        , hookPair
+                                        , memoryName
+                                        , memorySize
+                                    );
+                                    if constexpr (std::is_same_v<typename Action::Result, void>) {
+                                        std::move(action).template invoke<std::remove_pointer_t<decltype(chain)>>(env, chain);
+                                    } else {
+                                        return std::move(action).template invoke<std::remove_pointer_t<decltype(chain)>>(env, chain);
+                                    }
+                                } else if (extraDataLockType == "none") {
+                                    using C = lock_free_in_memory_shared_chain::LockFreeInBoostSharedMemoryChain<
+                                        ChainData
+                                        , lock_free_in_memory_shared_chain::BoostSharedMemoryChainFastRecoverSupport::ByOffset
+                                        , (
+                                            App::PossiblyMultiThreaded
+                                            ?
+                                            lock_free_in_memory_shared_chain::BoostSharedMemoryChainExtraDataProtectionStrategy::LockFreeAndWasteMemory
+                                            :
+                                            lock_free_in_memory_shared_chain::BoostSharedMemoryChainExtraDataProtectionStrategy::Unsafe
+                                        )
+                                        , (ForceSeparateDataStorageIfPossible || (
+                                            DefaultHookFactory<typename App::EnvironmentType>::template HasOutgoingHookFactory<ChainData>()
+                                            && DefaultHookFactory<typename App::EnvironmentType>::template HasIncomingHookFactory<ChainData>()
+                                        ))
+                                        , (
+                                            App::PossiblyMultiThreaded
+                                            ?
+                                            lock_free_in_memory_shared_chain::BoostSharedMemoryChainDataLockStrategy::NamedMutex
+                                            :
+                                            lock_free_in_memory_shared_chain::BoostSharedMemoryChainDataLockStrategy::None
+                                        )
+                                    >;
+                                    auto *chain = getInSharedMemChain<C>(
+                                        env 
+                                        , shared_chain_utils::makeSharedChainLocator(protocol, locator)
+                                        , hookPair
+                                        , memoryName
+                                        , memorySize
+                                    );
+                                    if constexpr (std::is_same_v<typename Action::Result, void>) {
+                                        std::move(action).template invoke<std::remove_pointer_t<decltype(chain)>>(env, chain);
+                                    } else {
+                                        return std::move(action).template invoke<std::remove_pointer_t<decltype(chain)>>(env, chain);
+                                    }
                                 } else {
-                                    return std::move(action).template invoke<std::remove_pointer_t<decltype(chain)>>(env, chain);
+                                    using C = lock_free_in_memory_shared_chain::LockFreeInBoostSharedMemoryChain<
+                                        ChainData
+                                        , lock_free_in_memory_shared_chain::BoostSharedMemoryChainFastRecoverSupport::ByOffset
+                                        , (
+                                            App::PossiblyMultiThreaded
+                                            ?
+                                            lock_free_in_memory_shared_chain::BoostSharedMemoryChainExtraDataProtectionStrategy::MutexProtected
+                                            :
+                                            lock_free_in_memory_shared_chain::BoostSharedMemoryChainExtraDataProtectionStrategy::Unsafe
+                                        )
+                                        , (ForceSeparateDataStorageIfPossible || (
+                                            DefaultHookFactory<typename App::EnvironmentType>::template HasOutgoingHookFactory<ChainData>()
+                                            && DefaultHookFactory<typename App::EnvironmentType>::template HasIncomingHookFactory<ChainData>()
+                                        ))
+                                        , (
+                                            App::PossiblyMultiThreaded
+                                            ?
+                                            lock_free_in_memory_shared_chain::BoostSharedMemoryChainDataLockStrategy::NamedMutex
+                                            :
+                                            lock_free_in_memory_shared_chain::BoostSharedMemoryChainDataLockStrategy::None
+                                        )
+                                    >;
+                                    auto *chain = getInSharedMemChain<C>(
+                                        env 
+                                        , shared_chain_utils::makeSharedChainLocator(protocol, locator)
+                                        , hookPair
+                                        , memoryName
+                                        , memorySize
+                                    );
+                                    if constexpr (std::is_same_v<typename Action::Result, void>) {
+                                        std::move(action).template invoke<std::remove_pointer_t<decltype(chain)>>(env, chain);
+                                    } else {
+                                        return std::move(action).template invoke<std::remove_pointer_t<decltype(chain)>>(env, chain);
+                                    }
                                 }
                             } else {
-                                using C = lock_free_in_memory_shared_chain::LockFreeInBoostSharedMemoryChain<
-                                    ChainData
-                                    , lock_free_in_memory_shared_chain::BoostSharedMemoryChainFastRecoverSupport::ByOffset
-                                    , (
-                                        App::PossiblyMultiThreaded
-                                        ?
-                                        lock_free_in_memory_shared_chain::BoostSharedMemoryChainExtraDataProtectionStrategy::SpinLockProtected
-                                        :
-                                        lock_free_in_memory_shared_chain::BoostSharedMemoryChainExtraDataProtectionStrategy::Unsafe
-                                    )
-                                    , (ForceSeparateDataStorageIfPossible || (
-                                        DefaultHookFactory<typename App::EnvironmentType>::template HasOutgoingHookFactory<ChainData>()
-                                        && DefaultHookFactory<typename App::EnvironmentType>::template HasIncomingHookFactory<ChainData>()
-                                    ))
-                                    , (
-                                        App::PossiblyMultiThreaded
-                                        ?
-                                        lock_free_in_memory_shared_chain::BoostSharedMemoryChainDataLockStrategy::SpinLock
-                                        :
-                                        lock_free_in_memory_shared_chain::BoostSharedMemoryChainDataLockStrategy::None
-                                    )
-                                >;
-                                auto *chain = getInSharedMemChain<C>(
-                                    env 
-                                    , shared_chain_utils::makeSharedChainLocator(protocol, locator)
-                                    , hookPair
-                                    , memoryName
-                                    , memorySize
-                                );
-                                if constexpr (std::is_same_v<typename Action::Result, void>) {
-                                    std::move(action).template invoke<std::remove_pointer_t<decltype(chain)>>(env, chain);
+                                if (extraDataLockType == "spin") {
+                                    using C = lock_free_in_memory_shared_chain::LockFreeInBoostSharedMemoryChain<
+                                        ChainData
+                                        , lock_free_in_memory_shared_chain::BoostSharedMemoryChainFastRecoverSupport::ByOffset
+                                        , (
+                                            App::PossiblyMultiThreaded
+                                            ?
+                                            lock_free_in_memory_shared_chain::BoostSharedMemoryChainExtraDataProtectionStrategy::SpinLockProtected
+                                            :
+                                            lock_free_in_memory_shared_chain::BoostSharedMemoryChainExtraDataProtectionStrategy::Unsafe
+                                        )
+                                        , (ForceSeparateDataStorageIfPossible || (
+                                            DefaultHookFactory<typename App::EnvironmentType>::template HasOutgoingHookFactory<ChainData>()
+                                            && DefaultHookFactory<typename App::EnvironmentType>::template HasIncomingHookFactory<ChainData>()
+                                        ))
+                                        , (
+                                            App::PossiblyMultiThreaded
+                                            ?
+                                            lock_free_in_memory_shared_chain::BoostSharedMemoryChainDataLockStrategy::SpinLock
+                                            :
+                                            lock_free_in_memory_shared_chain::BoostSharedMemoryChainDataLockStrategy::None
+                                        )
+                                    >;
+                                    auto *chain = getInSharedMemChain<C>(
+                                        env 
+                                        , shared_chain_utils::makeSharedChainLocator(protocol, locator)
+                                        , hookPair
+                                        , memoryName
+                                        , memorySize
+                                    );
+                                    if constexpr (std::is_same_v<typename Action::Result, void>) {
+                                        std::move(action).template invoke<std::remove_pointer_t<decltype(chain)>>(env, chain);
+                                    } else {
+                                        return std::move(action).template invoke<std::remove_pointer_t<decltype(chain)>>(env, chain);
+                                    }
+                                } else if (extraDataLockType == "none") {
+                                    using C = lock_free_in_memory_shared_chain::LockFreeInBoostSharedMemoryChain<
+                                        ChainData
+                                        , lock_free_in_memory_shared_chain::BoostSharedMemoryChainFastRecoverSupport::ByOffset
+                                        , (
+                                            App::PossiblyMultiThreaded
+                                            ?
+                                            lock_free_in_memory_shared_chain::BoostSharedMemoryChainExtraDataProtectionStrategy::LockFreeAndWasteMemory
+                                            :
+                                            lock_free_in_memory_shared_chain::BoostSharedMemoryChainExtraDataProtectionStrategy::Unsafe
+                                        )
+                                        , (ForceSeparateDataStorageIfPossible || (
+                                            DefaultHookFactory<typename App::EnvironmentType>::template HasOutgoingHookFactory<ChainData>()
+                                            && DefaultHookFactory<typename App::EnvironmentType>::template HasIncomingHookFactory<ChainData>()
+                                        ))
+                                        , (
+                                            App::PossiblyMultiThreaded
+                                            ?
+                                            lock_free_in_memory_shared_chain::BoostSharedMemoryChainDataLockStrategy::SpinLock
+                                            :
+                                            lock_free_in_memory_shared_chain::BoostSharedMemoryChainDataLockStrategy::None
+                                        )
+                                    >;
+                                    auto *chain = getInSharedMemChain<C>(
+                                        env 
+                                        , shared_chain_utils::makeSharedChainLocator(protocol, locator)
+                                        , hookPair
+                                        , memoryName
+                                        , memorySize
+                                    );
+                                    if constexpr (std::is_same_v<typename Action::Result, void>) {
+                                        std::move(action).template invoke<std::remove_pointer_t<decltype(chain)>>(env, chain);
+                                    } else {
+                                        return std::move(action).template invoke<std::remove_pointer_t<decltype(chain)>>(env, chain);
+                                    }
                                 } else {
-                                    return std::move(action).template invoke<std::remove_pointer_t<decltype(chain)>>(env, chain);
+                                    using C = lock_free_in_memory_shared_chain::LockFreeInBoostSharedMemoryChain<
+                                        ChainData
+                                        , lock_free_in_memory_shared_chain::BoostSharedMemoryChainFastRecoverSupport::ByOffset
+                                        , (
+                                            App::PossiblyMultiThreaded
+                                            ?
+                                            lock_free_in_memory_shared_chain::BoostSharedMemoryChainExtraDataProtectionStrategy::MutexProtected
+                                            :
+                                            lock_free_in_memory_shared_chain::BoostSharedMemoryChainExtraDataProtectionStrategy::Unsafe
+                                        )
+                                        , (ForceSeparateDataStorageIfPossible || (
+                                            DefaultHookFactory<typename App::EnvironmentType>::template HasOutgoingHookFactory<ChainData>()
+                                            && DefaultHookFactory<typename App::EnvironmentType>::template HasIncomingHookFactory<ChainData>()
+                                        ))
+                                        , (
+                                            App::PossiblyMultiThreaded
+                                            ?
+                                            lock_free_in_memory_shared_chain::BoostSharedMemoryChainDataLockStrategy::SpinLock
+                                            :
+                                            lock_free_in_memory_shared_chain::BoostSharedMemoryChainDataLockStrategy::None
+                                        )
+                                    >;
+                                    auto *chain = getInSharedMemChain<C>(
+                                        env 
+                                        , shared_chain_utils::makeSharedChainLocator(protocol, locator)
+                                        , hookPair
+                                        , memoryName
+                                        , memorySize
+                                    );
+                                    if constexpr (std::is_same_v<typename Action::Result, void>) {
+                                        std::move(action).template invoke<std::remove_pointer_t<decltype(chain)>>(env, chain);
+                                    } else {
+                                        return std::move(action).template invoke<std::remove_pointer_t<decltype(chain)>>(env, chain);
+                                    }
                                 }
                             }
                         }
@@ -565,7 +854,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                                 , (
                                     App::PossiblyMultiThreaded
                                     ?
-                                    lock_free_in_memory_shared_chain::BoostSharedMemoryChainExtraDataProtectionStrategy::LockFreeWithFiveSecondRelease
+                                    lock_free_in_memory_shared_chain::BoostSharedMemoryChainExtraDataProtectionStrategy::LockFreeAndWasteMemory
                                     :
                                     lock_free_in_memory_shared_chain::BoostSharedMemoryChainExtraDataProtectionStrategy::Unsafe
                                 )
@@ -594,7 +883,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                                 , (
                                     App::PossiblyMultiThreaded
                                     ?
-                                    lock_free_in_memory_shared_chain::BoostSharedMemoryChainExtraDataProtectionStrategy::LockFreeWithFiveSecondRelease
+                                    lock_free_in_memory_shared_chain::BoostSharedMemoryChainExtraDataProtectionStrategy::LockFreeAndWasteMemory
                                     :
                                     lock_free_in_memory_shared_chain::BoostSharedMemoryChainExtraDataProtectionStrategy::Unsafe
                                 )

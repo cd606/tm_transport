@@ -126,7 +126,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
     };
     struct BoostSharedMemoryChain_SpinLock {
     private:
-        int64_t myPid_;
+        uint32_t myPid_;
 #ifdef _MSC_VER
         boost::interprocess::managed_windows_shared_memory *mem_;
 #else
@@ -134,7 +134,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
 #endif
         std::atomic<uint64_t> *numberDispenser_;
         std::atomic<uint64_t> *serviceRegistrar_;
-        std::atomic<int64_t> *ownerRegistrar_;
+        std::atomic<uint64_t> *ownerRegistrar_;
     public:
         BoostSharedMemoryChain_SpinLock(
             std::string const &name
@@ -145,7 +145,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             , boost::interprocess::managed_shared_memory *mem
 #endif
         ) :
-            myPid_(infra::pid_util::getpid())
+            myPid_(static_cast<uint32_t>(infra::pid_util::getpid()))
             , mem_(mem)
             , numberDispenser_(
                 mem_->find_or_construct<std::atomic<uint64_t>>((name+"_"+suffix+"_number_dispenser").c_str())(0)
@@ -154,14 +154,17 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 mem_->find_or_construct<std::atomic<uint64_t>>((name+"_"+suffix+"_queue_registrar").c_str())(0)
             )
             , ownerRegistrar_(
-                mem_->find_or_construct<std::atomic<int64_t>>((name+"_"+suffix+"_owner_registrar").c_str())(0)
+                mem_->find_or_construct<std::atomic<uint64_t>>((name+"_"+suffix+"_owner_registrar").c_str())(0)
             )
         {}
         void lock() {
+            static std::hash<std::thread::id> hasher;
             uint64_t myNumber = 0;
             bool acquired = false;
             uint16_t count = 0; 
-            int64_t lastOwner = 0;
+            uint64_t lastOwner = 0;
+            uint64_t myThread = static_cast<uint64_t>(hasher(std::this_thread::get_id()) & static_cast<uint64_t>(0xfffffffful));
+            uint64_t myPidAndThread = ((static_cast<uint64_t>(myPid_) << 32) | myThread);
             while (true) {
                 myNumber = numberDispenser_->fetch_add(1);
                 acquired = false;
@@ -177,30 +180,45 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                         if (serviceRegistrar_->compare_exchange_strong(
                             currentlyServing, myNumber
                         )) {
-                            acquired = true;
-                            ownerRegistrar_->store(myPid_);
+                            uint64_t currentOwner = ownerRegistrar_->load();
+                            if (ownerRegistrar_->compare_exchange_strong(
+                                currentOwner, myPidAndThread
+                            )) {
+                                acquired = true;
+                                break;
+                            } else {
+                                count = 0;
+                                continue;
+                            }
                             break;
                         }
                     } else {
                         //optionally check if the process in front has quit
                         ++count;
                         if (count >= 10000) {
-                            int64_t currentOwner = ownerRegistrar_->load();
+                            uint64_t currentOwner = ownerRegistrar_->load();
                             if (lastOwner != currentOwner) {
                                 lastOwner = currentOwner;
                                 count = 0;
                                 continue;
                             } else {
-                                if (currentOwner != 0 && infra::pid_util::pidIsRunning(currentOwner)) {
+                                uint32_t currentOwnerPid = static_cast<uint32_t>(currentOwner >> 32);
+                                if (currentOwnerPid != 0 && infra::pid_util::pidIsRunning(currentOwnerPid)) {
                                     count = 0;
                                     continue;
                                 } else {
                                     if (serviceRegistrar_->compare_exchange_strong(
                                         currentlyServing, myNumber
                                     )) {
-                                        acquired = true;
-                                        ownerRegistrar_->store(myPid_);
-                                        break;
+                                        if (ownerRegistrar_->compare_exchange_strong(
+                                            currentOwner, myPidAndThread
+                                        )) {
+                                            acquired = true;
+                                            break;
+                                        } else {
+                                            count = 0;
+                                            continue;
+                                        }
                                     } else {
                                         count = 0;
                                         continue;
@@ -224,7 +242,6 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
     enum class BoostSharedMemoryChainExtraDataProtectionStrategy {
         DontSupportExtraData
         , LockFreeAndWasteMemory
-        , LockFreeWithFiveSecondRelease
         , MutexProtected
         , SpinLockProtected
         , Unsafe
@@ -283,95 +300,6 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
 
     template <BoostSharedMemoryChainDataLockStrategy DLS>
     using BoostSharedMemoryChainDataLock = typename BoostSharedMemoryChainDataLockResolver<DLS>::TheType;
-
-    template <uint8_t ReleaseSeconds, typename=std::enable_if_t<(ReleaseSeconds>0)>>
-    class BoostSharedMemoryChain_TimedReleaseStorageHelper {
-    private:
-        struct Node {
-            std::time_t theTime;
-            std::atomic<std::ptrdiff_t> data;
-            std::atomic<std::ptrdiff_t> next;
-        };
-    public:
-#ifdef _MSC_VER
-        using Mem = boost::interprocess::managed_windows_shared_memory;
-#else
-        using Mem = boost::interprocess::managed_shared_memory;
-#endif
-        template <class T>
-        static void savePtr(Mem &mem, std::string const &key, T *dataPtr) {
-            auto *loc = mem.find_or_construct<std::atomic<std::ptrdiff_t>>(key.c_str())(0);
-            auto dataDiff = reinterpret_cast<char *>(dataPtr)-reinterpret_cast<char *>(loc);
-            std::time_t now = 0;
-            Node *node = nullptr;
-            while (true) {
-                auto lastLoc = loc->load();
-                now = std::time(nullptr);
-                node = mem.construct<Node>(boost::interprocess::anonymous_instance)();
-                node->theTime = now;
-                node->data.store(dataDiff);
-                node->next.store(lastLoc);
-                auto newLoc = reinterpret_cast<char *>(node)-reinterpret_cast<char *>(loc);
-                if (loc->compare_exchange_strong(lastLoc, newLoc)) {
-                    break;
-                } else {
-                    mem.destroy_ptr(node);
-                }
-            }
-            bool first = true;
-            while (node != nullptr) {
-                Node *next = nullptr;
-                auto nextLoc = node->next.load();
-                if (nextLoc == 0) {
-                    next = nullptr;
-                } else {
-                    next = std::launder(reinterpret_cast<Node *>(
-                        reinterpret_cast<char *>(loc)+nextLoc
-                    ));
-                }
-                if (next != nullptr && next->theTime+ReleaseSeconds < now) {
-                    if (!node->next.compare_exchange_strong(nextLoc, 0)) {
-                        break;
-                    }
-                }
-                if (!first && node->theTime+ReleaseSeconds < now) {
-                    auto dataLoc = node->data.load();
-                    if (dataLoc == 0) {
-                        break;
-                    }
-                    auto *dataToDel = std::launder(reinterpret_cast<T *>(
-                        reinterpret_cast<char *>(loc)+dataLoc
-                    ));
-                    if (node->data.compare_exchange_strong(
-                        dataLoc, 0
-                    )) {
-                        mem.destroy_ptr(dataToDel);
-                        mem.destroy_ptr(node);
-                    } else {
-                        break;
-                    }
-                }
-                node = next;
-                first = false;
-            }
-        }
-        template <class T>
-        static T *loadPtr(Mem &mem, std::string const &key) {
-            auto *loc = mem.find<std::atomic<std::ptrdiff_t>>(key.c_str()).first;
-            if (loc) {
-                auto diff = loc->load();
-                auto *nodePtr = std::launder(reinterpret_cast<Node *>(
-                    reinterpret_cast<char *>(loc)+diff
-                ));
-                auto *dataPtr = std::launder(reinterpret_cast<T *>(
-                    reinterpret_cast<char *>(loc)+nodePtr->data.load()
-                ));
-                return dataPtr;
-            } else {
-                return nullptr;
-            }
-        }
-    };
 
     template <
         class T
@@ -571,9 +499,6 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                     auto *loc = mem_.find_or_construct<std::atomic<std::ptrdiff_t>>(key.c_str())(0);
                     std::ptrdiff_t newVal = reinterpret_cast<char *>(dataPtr)-reinterpret_cast<char *>(loc);
                     loc->store(newVal, std::memory_order_release);
-                } else if constexpr (EDPS == BoostSharedMemoryChainExtraDataProtectionStrategy::LockFreeWithFiveSecondRelease) {
-                    auto *dataPtr = mem_.construct<ExtraData>(boost::interprocess::anonymous_instance)(data);
-                    BoostSharedMemoryChain_TimedReleaseStorageHelper<5>::savePtr<ExtraData>(mem_, key, dataPtr);
                 } else if constexpr (
                     EDPS == BoostSharedMemoryChainExtraDataProtectionStrategy::MutexProtected
                     || 
@@ -598,13 +523,6 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                     if (loc) {
                         auto diff = loc->load(std::memory_order_acquire);
                         auto *dataPtr = std::launder(reinterpret_cast<ExtraData *>(reinterpret_cast<char *>(loc)+diff));
-                        return *dataPtr;
-                    } else {
-                        return std::nullopt;
-                    }
-                } else if constexpr (EDPS == BoostSharedMemoryChainExtraDataProtectionStrategy::LockFreeWithFiveSecondRelease) {
-                    auto *dataPtr = BoostSharedMemoryChain_TimedReleaseStorageHelper<5>::loadPtr<ExtraData>(mem_, key);
-                    if (dataPtr) {
                         return *dataPtr;
                     } else {
                         return std::nullopt;
@@ -660,12 +578,6 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 auto *loc = mem_.find_or_construct<std::atomic<std::ptrdiff_t>>(key.c_str())(0);
                 std::ptrdiff_t newVal = dataPtr-reinterpret_cast<char *>(loc);
                 loc->store(newVal, std::memory_order_release);
-            } else if constexpr (EDPS == BoostSharedMemoryChainExtraDataProtectionStrategy::LockFreeWithFiveSecondRelease) {
-                std::size_t sz = data.content.length();
-                auto *dataPtr = mem_.construct<char>(boost::interprocess::anonymous_instance)[sz+sizeof(std::size_t)]();
-                std::memcpy(dataPtr+sizeof(std::size_t), data.content.data(), sz);
-                std::memcpy(dataPtr, reinterpret_cast<char const *>(&sz), sizeof(std::size_t));
-                BoostSharedMemoryChain_TimedReleaseStorageHelper<5>::savePtr<char>(mem_, key, dataPtr);
             } else if constexpr (
                     EDPS == BoostSharedMemoryChainExtraDataProtectionStrategy::MutexProtected
                     || 
@@ -737,17 +649,6 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 if (loc) {
                     auto diff = loc->load(std::memory_order_acquire);
                     char *dataPtr = reinterpret_cast<char *>(loc)+diff;
-                    std::size_t sz;
-                    std::memcpy(reinterpret_cast<char *>(&sz), dataPtr, sizeof(std::size_t));
-                    return basic::ByteDataView {
-                        std::string_view {dataPtr+sizeof(std::size_t), sz}
-                    };
-                } else {
-                    return std::nullopt;
-                }
-            } else if constexpr (EDPS == BoostSharedMemoryChainExtraDataProtectionStrategy::LockFreeWithFiveSecondRelease) {
-                auto *dataPtr = BoostSharedMemoryChain_TimedReleaseStorageHelper<5>::loadPtr<char>(mem_, key);
-                if (dataPtr) {
                     std::size_t sz;
                     std::memcpy(reinterpret_cast<char *>(&sz), dataPtr, sizeof(std::size_t));
                     return basic::ByteDataView {
@@ -1068,9 +969,6 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                     auto *loc = mem_.find_or_construct<std::atomic<std::ptrdiff_t>>(key.c_str())(0);
                     std::ptrdiff_t newVal = reinterpret_cast<char *>(dataPtr)-reinterpret_cast<char *>(loc);
                     loc->store(newVal, std::memory_order_release);
-                } else if constexpr (EDPS == BoostSharedMemoryChainExtraDataProtectionStrategy::LockFreeWithFiveSecondRelease) {
-                    auto *dataPtr = mem_.construct<ExtraData>(boost::interprocess::anonymous_instance)(data);
-                    BoostSharedMemoryChain_TimedReleaseStorageHelper<5>::savePtr<ExtraData>(mem_, key, dataPtr);
                 } else if constexpr (
                     EDPS == BoostSharedMemoryChainExtraDataProtectionStrategy::MutexProtected
                     || 
@@ -1095,13 +993,6 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                     if (loc) {
                         auto diff = loc->load(std::memory_order_acquire);
                         auto *dataPtr = std::launder(reinterpret_cast<ExtraData *>(reinterpret_cast<char *>(loc)+diff));
-                        return *dataPtr;
-                    } else {
-                        return std::nullopt;
-                    }
-                } else if constexpr (EDPS == BoostSharedMemoryChainExtraDataProtectionStrategy::LockFreeWithFiveSecondRelease) {
-                    auto *dataPtr = BoostSharedMemoryChain_TimedReleaseStorageHelper<5>::loadPtr<ExtraData>(mem_, key);
-                    if (dataPtr) {
                         return *dataPtr;
                     } else {
                         return std::nullopt;
@@ -1157,12 +1048,6 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 auto *loc = mem_.find_or_construct<std::atomic<std::ptrdiff_t>>(key.c_str())(0);
                 std::ptrdiff_t newVal = dataPtr-reinterpret_cast<char *>(loc);
                 loc->store(newVal, std::memory_order_release);
-            } else if constexpr (EDPS == BoostSharedMemoryChainExtraDataProtectionStrategy::LockFreeWithFiveSecondRelease) {
-                std::size_t sz = data.content.length();
-                auto *dataPtr = mem_.construct<char>(boost::interprocess::anonymous_instance)[sz+sizeof(std::size_t)]();
-                std::memcpy(dataPtr+sizeof(std::size_t), data.content.data(), sz);
-                std::memcpy(dataPtr, reinterpret_cast<char const *>(&sz), sizeof(std::size_t));
-                BoostSharedMemoryChain_TimedReleaseStorageHelper<5>::savePtr<char>(mem_, key, dataPtr);
             } else if constexpr (
                 EDPS == BoostSharedMemoryChainExtraDataProtectionStrategy::MutexProtected
                 || 
@@ -1234,17 +1119,6 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 if (loc) {
                     auto diff = loc->load(std::memory_order_acquire);
                     char *dataPtr = reinterpret_cast<char *>(loc)+diff;
-                    std::size_t sz;
-                    std::memcpy(reinterpret_cast<char *>(&sz), dataPtr, sizeof(std::size_t));
-                    return basic::ByteDataView {
-                        std::string_view {dataPtr+sizeof(std::size_t), sz}
-                    };
-                } else {
-                    return std::nullopt;
-                }
-            } else if constexpr (EDPS == BoostSharedMemoryChainExtraDataProtectionStrategy::LockFreeWithFiveSecondRelease) {
-                auto *dataPtr = BoostSharedMemoryChain_TimedReleaseStorageHelper<5>::loadPtr<char>(mem_, key);
-                if (dataPtr) {
                     std::size_t sz;
                     std::memcpy(reinterpret_cast<char *>(&sz), dataPtr, sizeof(std::size_t));
                     return basic::ByteDataView {
