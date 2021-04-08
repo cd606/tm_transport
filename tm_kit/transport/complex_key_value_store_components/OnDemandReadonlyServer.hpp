@@ -58,16 +58,17 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         ) -> std::shared_ptr<typename M::template OnOrderFacility<ItemKey, basic::transaction::complex_key_value_store::KeyBasedQueryResult<ItemData>>>
         {
             using DBDataStorage = basic::transaction::complex_key_value_store::Collection<ItemKey,ItemData>;
+            using KF = basic::struct_field_info_utils::StructFieldInfoBasedDataFiller<ItemKey>;
+            using DF = basic::struct_field_info_utils::StructFieldInfoBasedDataFiller<ItemData>;
+            std::string query = "SELECT "+DF::commaSeparatedFieldNames()+" "+selectMainPartFromCriteria(OnDemandReadonlyServer<M>::template sociWhereClause<ItemKey>());
             return M::template liftPureOnOrderFacility<ItemKey>(
-                [session,selectMainPartFromCriteria](ItemKey &&k) -> basic::transaction::complex_key_value_store::KeyBasedQueryResult<ItemData>
+                [query,session](ItemKey &&k) -> basic::transaction::complex_key_value_store::KeyBasedQueryResult<ItemData>
                 {
                     try {
-                        using KF = basic::struct_field_info_utils::StructFieldInfoBasedDataFiller<ItemKey>;
-                        using DF = basic::struct_field_info_utils::StructFieldInfoBasedDataFiller<ItemData>;
                         soci::row r;
                         soci::statement stmt(*session);
                         stmt.alloc();
-                        stmt.prepare("SELECT "+DF::commaSeparatedFieldNames()+" "+selectMainPartFromCriteria(OnDemandReadonlyServer<M>::template sociWhereClause<ItemKey>()));
+                        stmt.prepare(query);
                         stmt.exchange(soci::into(r));
                         OnDemandReadonlyServer<M>::template sociBindWhereClause<ItemKey>(stmt, k);
                         stmt.define_and_bind();
@@ -90,15 +91,16 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             , std::string const &selectMainPart
         ) -> std::shared_ptr<typename M::template OnOrderFacility<QueryType, basic::transaction::complex_key_value_store::FullDataResult<ItemKey,ItemData>>>
         {
+            using KF = basic::struct_field_info_utils::StructFieldInfoBasedDataFiller<ItemKey>;
+            using DF = basic::struct_field_info_utils::StructFieldInfoBasedDataFiller<ItemData>;
+            std::string query = ("SELECT "+KF::commaSeparatedFieldNames()+", "+DF::commaSeparatedFieldNames()+" "+selectMainPart);
             return M::template liftPureOnOrderFacility<QueryType>(
-                [session,selectMainPart](QueryType &&) 
+                [query,session](QueryType &&) 
                     -> basic::transaction::complex_key_value_store::FullDataResult<ItemKey,ItemData>
                 {
                     try {
-                        using KF = basic::struct_field_info_utils::StructFieldInfoBasedDataFiller<ItemKey>;
-                        using DF = basic::struct_field_info_utils::StructFieldInfoBasedDataFiller<ItemData>;
                         soci::rowset<soci::row> res = 
-                            session->prepare << ("SELECT "+KF::commaSeparatedFieldNames()+", "+DF::commaSeparatedFieldNames()+" "+selectMainPart);
+                            session->prepare << query;
                         basic::transaction::complex_key_value_store::FullDataResult<ItemKey,ItemData> ret;
                         for (auto const &r : res) {
                             ret.value.insert({KF::retrieveData(r,0), DF::retrieveData(r,KF::FieldCount)});
