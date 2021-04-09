@@ -2,6 +2,7 @@
 #define TM_KIT_TRANSPORT_MULTI_TRANSPORT_FACILITY_WRAPPER_HPP_
 
 #include <tm_kit/transport/MultiTransportRemoteFacility.hpp>
+#include <tm_kit/basic/AppRunnerUtils.hpp>
 
 namespace dev { namespace cd606 { namespace tm { namespace transport {
     enum class MultiTransportFacilityWrapperOption {
@@ -356,6 +357,36 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
             }
         }
         template <class A, class B, MultiTransportFacilityWrapperOption Option=MultiTransportFacilityWrapperOption::Default>
+        static void wrapFacilitioidWithOptionalSerialization(
+            R &runner
+            , std::string const &registeredNameForFacilitioid
+            , typename R::template FacilitioidConnector<
+                typename DetermineServerSideIdentityForRequest<Env, A>::FullRequestType
+                , B
+            > const &toBeWrapped
+            , MultiTransportRemoteFacilityConnectionType rpcConnType
+            , ConnectionLocator const &rpcQueueLocator
+            , std::string const &wrapperItemsNamePrefix
+            , std::optional<ByteDataHookPair> hooks = std::nullopt
+        ) {
+            wrap<
+                typename basic::AppRunnerUtilComponents<R>::template WrapWithCBORIfNecessarySimple<A>::WrappedType
+                , typename basic::AppRunnerUtilComponents<R>::template WrapWithCBORIfNecessarySimple<B>::WrappedType
+                , Option
+            >(
+                runner 
+                , registeredNameForFacilitioid
+                , basic::AppRunnerUtilComponents<R>::template makeServerSideFacilitioidConnectorSerializable
+                    <typename DetermineServerSideIdentityForRequest<Env, A>::FullRequestType
+                    ,B>
+                    (toBeWrapped, wrapperItemsNamePrefix+"/serialization")
+                , rpcConnType
+                , rpcQueueLocator
+                , wrapperItemsNamePrefix
+                , hooks
+            );
+        }
+        template <class A, class B, MultiTransportFacilityWrapperOption Option=MultiTransportFacilityWrapperOption::Default>
         static void wrap(
             R &runner
             , std::string const &registeredNameForFacilitioid
@@ -370,6 +401,25 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
             auto parsed = parseMultiTransportRemoteFacilityChannel(channelSpec);
             if (parsed) {
                 wrap<A,B,Option>(runner, registeredNameForFacilitioid, toBeWrapped, std::get<0>(*parsed), std::get<1>(*parsed), wrapperItemsNamePrefix, hooks);
+            } else {
+                throw std::runtime_error("[MultiTransportFacilityWrapper::wrap(FacilitioidConnector)] unknown channel spec '"+channelSpec+"'");
+            }
+        }
+        template <class A, class B, MultiTransportFacilityWrapperOption Option=MultiTransportFacilityWrapperOption::Default>
+        static void wrapFacilitioidWithOptionalSerialization(
+            R &runner
+            , std::string const &registeredNameForFacilitioid
+            , typename R::template FacilitioidConnector<
+                typename DetermineServerSideIdentityForRequest<Env, A>::FullRequestType
+                , B
+            > const &toBeWrapped
+            , std::string const &channelSpec
+            , std::string const &wrapperItemsNamePrefix
+            , std::optional<ByteDataHookPair> hooks = std::nullopt
+        ) {
+            auto parsed = parseMultiTransportRemoteFacilityChannel(channelSpec);
+            if (parsed) {
+                wrapFacilitioidWithOptionalSerialization<A,B,Option>(runner, registeredNameForFacilitioid, toBeWrapped, std::get<0>(*parsed), std::get<1>(*parsed), wrapperItemsNamePrefix, hooks);
             } else {
                 throw std::runtime_error("[MultiTransportFacilityWrapper::wrap(FacilitioidConnector)] unknown channel spec '"+channelSpec+"'");
             }
