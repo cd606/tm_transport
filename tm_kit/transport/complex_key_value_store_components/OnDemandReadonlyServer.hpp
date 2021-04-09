@@ -1,5 +1,5 @@
-#ifndef TM_KIT_TRANSPORT_COMPLEX_KEY_VALUE_STORE_COMPONENTS_PRELOAD_ALL_READ_ONLY_SERVER_HPP_
-#define TM_KIT_TRANSPORT_COMPLEX_KEY_VALUE_STORE_COMPONENTS_PRELOAD_ALL_READ_ONLY_SERVER_HPP_
+#ifndef TM_KIT_TRANSPORT_COMPLEX_KEY_VALUE_STORE_COMPONENTS_ON_DEMAND_READ_ONLY_SERVER_HPP_
+#define TM_KIT_TRANSPORT_COMPLEX_KEY_VALUE_STORE_COMPONENTS_ON_DEMAND_READ_ONLY_SERVER_HPP_
 
 #include <tm_kit/basic/CalculationsOnInit.hpp>
 #include <tm_kit/basic/StructFieldInfoUtils.hpp>
@@ -48,7 +48,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         }
         template <class ItemKey>
         static void sociBindWhereClause(soci::statement &stmt, ItemKey const &k) {
-            sociBindWhereClause_internal<ItemKey, basic::StructFieldInfo<ItemKey>::FIELD_NAMES.size(), 0>(stmt, std::move(k));
+            sociBindWhereClause_internal<ItemKey, basic::StructFieldInfo<ItemKey>::FIELD_NAMES.size(), 0>(stmt, k);
         }
     public:
         template <class ItemKey, class ItemData>
@@ -57,7 +57,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             , std::function<std::string(std::string const &)> selectMainPartFromCriteria
         ) -> std::shared_ptr<typename M::template OnOrderFacility<ItemKey, basic::transaction::complex_key_value_store::KeyBasedQueryResult<ItemData>>>
         {
-            using DBDataStorage = basic::transaction::complex_key_value_store::Collection<ItemKey,ItemData>;
+            using DBDataStorage = basic::transaction::complex_key_value_store::as_collection::Collection<ItemKey,ItemData>;
             using KF = basic::struct_field_info_utils::StructFieldInfoBasedDataFiller<ItemKey>;
             using DF = basic::struct_field_info_utils::StructFieldInfoBasedDataFiller<ItemData>;
             std::string query = "SELECT "+DF::commaSeparatedFieldNames()+" "+selectMainPartFromCriteria(OnDemandReadonlyServer<M>::template sociWhereClause<ItemKey>());
