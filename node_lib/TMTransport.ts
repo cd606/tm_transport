@@ -423,7 +423,7 @@ export class MultiTransportPublisher {
             }
         } else {
             return function(chunk : [string, Buffer], _encoding : BufferEncoding) {
-                sock.send(Buffer.from(cbor.encode(chunk)), locator.port, locator.host);
+                sock.send(cbor.encode(chunk), locator.port, locator.host);
             }
         }
     }
@@ -1251,14 +1251,14 @@ export namespace RemoteComponents {
     export namespace Security {
         export function simpleIdentityAttacher(identity : string) : ((d : Buffer) => Buffer) {
             return function(data : Buffer) {
-                return Buffer.from(cbor.encode([identity, data]));
+                return cbor.encode([identity, data]);
             }
         }
         export function signatureIdentityAttacher(secretKey : Buffer) : ((d : Buffer) => Buffer) {
             const signature_key = new EDDSA("ed25519").keyFromSecret(secretKey);
             return function(data : Buffer) {
                 let signature = signature_key.sign(data);
-                return Buffer.from(cbor.encode({"signature" : Buffer.from(signature.toBytes()), "data" : data}));
+                return cbor.encode({"signature" : Buffer.from(signature.toBytes()), "data" : data});
             }
         }
     }
@@ -1593,7 +1593,7 @@ export class EtcdSharedChain {
                 .and(this.config.chainPrefix+":"+newID, "Version", "==", 0)
                 .then(
                     this.client.put(this.config.chainPrefix+":"+thisID).value(newID)
-                    , this.client.put(this.config.dataPrefix+":"+newID).value(Buffer.from(cbor.encode(newData)))
+                    , this.client.put(this.config.dataPrefix+":"+newID).value(cbor.encode(newData))
                     , this.client.put(this.config.chainPrefix+":"+newID).value("")
                 )
                 .commit();
@@ -1607,10 +1607,10 @@ export class EtcdSharedChain {
                 .and(this.config.chainPrefix+":"+newID, "Version", "==", 0)
                 .then(
                     this.client.put(this.config.chainPrefix+":"+thisID).value(
-                        Buffer.from(cbor.encode([this.current.data, newID]))
+                        cbor.encode([this.current.data, newID])
                     )
                     , this.client.put(this.config.chainPrefix+":"+newID).value(
-                        Buffer.from(cbor.encode([newData, ""]))
+                        cbor.encode([newData, ""])
                     )
                 )
                 .commit();
@@ -1657,7 +1657,7 @@ export class EtcdSharedChain {
     async saveExtraData(key : string, data : any) {
         await this.client
             .put(this.config.extraDataPrefix+":"+key)
-            .value(Buffer.from(cbor.encode(data)))
+            .value(cbor.encode(data))
             .exec();
     }
 
