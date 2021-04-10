@@ -301,6 +301,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         static auto setupTransactionServer(
             R &r 
             , std::string const &prefix
+            , bool sealTransactionFacility = false
         ) {
             using TF = basic::transaction::complex_key_value_store::as_collection::TF<typename R::AppType, ItemKey, ItemData>;
             using DM = basic::transaction::complex_key_value_store::as_collection::DM<typename R::AppType, ItemKey, ItemData>;
@@ -312,6 +313,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 r
                 , prefix
                 , new TF(dataStore)
+                , sealTransactionFacility
             );
         }
     };
