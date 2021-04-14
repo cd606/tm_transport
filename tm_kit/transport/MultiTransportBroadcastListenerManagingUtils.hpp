@@ -558,6 +558,206 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
         }
     };
 
+    template <class Env>
+    class MultiTransportBroadcastFirstUpdateQueryManagingUtils {
+    private:
+        static std::string getTopic_internal(MultiTransportBroadcastListenerConnectionType connType, std::optional<std::string> const &topic) {
+            if (topic) {
+                return *topic;
+            } else {
+                return multiTransportListenerDefaultTopic(connType);
+            }
+        }
+    public:
+        static std::future<basic::ByteDataWithTopic> fetchFirstUpdateAndDisconnect(
+            Env *env
+            , std::string const &channelSpec
+            , std::optional<std::string> const &topicDescription = std::nullopt
+            , std::optional<WireToUserHook> hook = std::nullopt
+        )
+        {
+            auto parsed = parseMultiTransportBroadcastChannel(channelSpec);
+            if (!parsed) {
+                throw std::runtime_error("[MultiTransportBroadcastListenerManagingUtils::fetchFirstUpdateAndDisconnect] Unknown channel spec '"+channelSpec+"'");
+            }
+            switch (std::get<0>(*parsed)) {
+            case MultiTransportBroadcastListenerConnectionType::Multicast:
+                if constexpr (std::is_convertible_v<Env *, multicast::MulticastComponent *>) {
+                    return multicast::MulticastImporterExporter<Env>::fetchFirstUpdateAndDisconnect(
+                        env
+                        , std::get<1>(*parsed)
+                        , MultiTransportBroadcastListenerTopicHelper<multicast::MulticastComponent>::parseTopic(getTopic_internal(std::get<0>(*parsed), topicDescription))
+                        , hook
+                    );
+                } else {
+                    throw std::runtime_error("[MultiTransportBroadcastListenerManagingUtils::fetchFirstUpdateAndDisconnect] Trying to create multicast publisher with channel spec '"+channelSpec+"', but multicast is unsupported in the environment");
+                }
+                break;
+            case MultiTransportBroadcastListenerConnectionType::RabbitMQ:
+                if constexpr (std::is_convertible_v<Env *, rabbitmq::RabbitMQComponent *>) {
+                    return rabbitmq::RabbitMQImporterExporter<Env>::fetchFirstUpdateAndDisconnect(
+                        env
+                        , std::get<1>(*parsed)
+                        , getTopic_internal(std::get<0>(*parsed), topicDescription)
+                        , hook
+                    );
+                } else {
+                    throw std::runtime_error("[MultiTransportBroadcastListenerManagingUtils::fetchFirstUpdateAndDisconnect] Trying to create rabbitmq publisher with channel spec '"+channelSpec+"', but rabbitmq is unsupported in the environment");
+                }
+                break;
+            case MultiTransportBroadcastListenerConnectionType::Redis:
+                if constexpr (std::is_convertible_v<Env *, redis::RedisComponent *>) {
+                    return redis::RedisImporterExporter<Env>::fetchFirstUpdateAndDisconnect(
+                        env
+                        , std::get<1>(*parsed)
+                        , getTopic_internal(std::get<0>(*parsed), topicDescription)
+                        , hook
+                    );
+                } else {
+                    throw std::runtime_error("[MultiTransportBroadcastListenerManagingUtils::fetchFirstUpdateAndDisconnect] Trying to create redis publisher with channel spec '"+channelSpec+"', but redis is unsupported in the environment");
+                }
+                break;
+            case MultiTransportBroadcastListenerConnectionType::ZeroMQ:
+                if constexpr (std::is_convertible_v<Env *, zeromq::ZeroMQComponent *>) {
+                    return zeromq::ZeroMQImporterExporter<Env>::fetchFirstUpdateAndDisconnect(
+                        env
+                        , std::get<1>(*parsed)
+                        , MultiTransportBroadcastListenerTopicHelper<zeromq::ZeroMQComponent>::parseTopic(getTopic_internal(std::get<0>(*parsed), topicDescription))
+                        , hook
+                    );
+                } else {
+                    throw std::runtime_error("[MultiTransportBroadcastListenerManagingUtils::fetchFirstUpdateAndDisconnect] Trying to create zeromq publisher with channel spec '"+channelSpec+"', but zeromq is unsupported in the environment");
+                }
+                break;
+            case MultiTransportBroadcastListenerConnectionType::NNG:
+                if constexpr (std::is_convertible_v<Env *, nng::NNGComponent *>) {
+                    return nng::NNGImporterExporter<Env>::fetchFirstUpdateAndDisconnect(
+                        env
+                        , std::get<1>(*parsed)
+                        , MultiTransportBroadcastListenerTopicHelper<nng::NNGComponent>::parseTopic(getTopic_internal(std::get<0>(*parsed), topicDescription))
+                        , hook
+                    );
+                } else {
+                    throw std::runtime_error("[MultiTransportBroadcastListenerManagingUtils::fetchFirstUpdateAndDisconnect] Trying to create nng publisher with channel spec '"+channelSpec+"', but nng is unsupported in the environment");
+                }
+                break;
+            case MultiTransportBroadcastListenerConnectionType::SharedMemoryBroadcast:
+                if constexpr (std::is_convertible_v<Env *, shared_memory_broadcast::SharedMemoryBroadcastComponent *>) {
+                    return shared_memory_broadcast::SharedMemoryBroadcastImporterExporter<Env>::fetchFirstUpdateAndDisconnect(
+                        env
+                        , std::get<1>(*parsed)
+                        , MultiTransportBroadcastListenerTopicHelper<shared_memory_broadcast::SharedMemoryBroadcastComponent>::parseTopic(getTopic_internal(std::get<0>(*parsed), topicDescription))
+                        , hook
+                    );
+                } else {
+                    throw std::runtime_error("[MultiTransportBroadcastListenerManagingUtils::fetchFirstUpdateAndDisconnect] Trying to create shared memory broadcast publisher with channel spec '"+channelSpec+"', but shared memory broadcast is unsupported in the environment");
+                }
+                break;
+            default:
+                throw std::runtime_error("[MultiTransportBroadcastListenerManagingUtils::fetchFirstUpdateAndDisconnect] Trying to create unknown-protocol publisher with channel spec '"+channelSpec+"'");
+                break;
+            }
+        }
+
+        template <class T>
+        static std::future<basic::TypedDataWithTopic<T>> fetchTypedFirstUpdateAndDisconnect(
+            Env *env
+            , std::string const &channelSpec
+            , std::optional<std::string> const &topicDescription = std::nullopt
+            , std::function<bool(T const &)> predicate = std::function<bool(T const &)>()
+            , std::optional<WireToUserHook> hook = std::nullopt
+        )
+        {
+            auto parsed = parseMultiTransportBroadcastChannel(channelSpec);
+            if (!parsed) {
+                throw std::runtime_error("[MultiTransportBroadcastListenerManagingUtils::fetchTypedFirstUpdateAndDisconnect] Unknown channel spec '"+channelSpec+"'");
+            }
+            switch (std::get<0>(*parsed)) {
+            case MultiTransportBroadcastListenerConnectionType::Multicast:
+                if constexpr (std::is_convertible_v<Env *, multicast::MulticastComponent *>) {
+                    return multicast::MulticastImporterExporter<Env>::template fetchTypedFirstUpdateAndDisconnect<T>(
+                        env
+                        , std::get<1>(*parsed)
+                        , MultiTransportBroadcastListenerTopicHelper<multicast::MulticastComponent>::parseTopic(getTopic_internal(std::get<0>(*parsed), topicDescription))
+                        , predicate
+                        , hook
+                    );
+                } else {
+                    throw std::runtime_error("[MultiTransportBroadcastListenerManagingUtils::fetchTypedFirstUpdateAndDisconnect] Trying to create multicast publisher with channel spec '"+channelSpec+"', but multicast is unsupported in the environment");
+                }
+                break;
+            case MultiTransportBroadcastListenerConnectionType::RabbitMQ:
+                if constexpr (std::is_convertible_v<Env *, rabbitmq::RabbitMQComponent *>) {
+                    return rabbitmq::RabbitMQImporterExporter<Env>::template fetchTypedFirstUpdateAndDisconnect<T>(
+                        env
+                        , std::get<1>(*parsed)
+                        , getTopic_internal(std::get<0>(*parsed), topicDescription)
+                        , predicate
+                        , hook
+                    );
+                } else {
+                    throw std::runtime_error("[MultiTransportBroadcastListenerManagingUtils::fetchTypedFirstUpdateAndDisconnect] Trying to create rabbitmq publisher with channel spec '"+channelSpec+"', but rabbitmq is unsupported in the environment");
+                }
+                break;
+            case MultiTransportBroadcastListenerConnectionType::Redis:
+                if constexpr (std::is_convertible_v<Env *, redis::RedisComponent *>) {
+                    return redis::RedisImporterExporter<Env>::template fetchTypedFirstUpdateAndDisconnect<T>(
+                        env
+                        , std::get<1>(*parsed)
+                        , getTopic_internal(std::get<0>(*parsed), topicDescription)
+                        , predicate
+                        , hook
+                    );
+                } else {
+                    throw std::runtime_error("[MultiTransportBroadcastListenerManagingUtils::fetchTypedFirstUpdateAndDisconnect] Trying to create redis publisher with channel spec '"+channelSpec+"', but redis is unsupported in the environment");
+                }
+                break;
+            case MultiTransportBroadcastListenerConnectionType::ZeroMQ:
+                if constexpr (std::is_convertible_v<Env *, zeromq::ZeroMQComponent *>) {
+                    return zeromq::ZeroMQImporterExporter<Env>::template fetchTypedFirstUpdateAndDisconnect<T>(
+                        env
+                        , std::get<1>(*parsed)
+                        , MultiTransportBroadcastListenerTopicHelper<zeromq::ZeroMQComponent>::parseTopic(getTopic_internal(std::get<0>(*parsed), topicDescription))
+                        , predicate
+                        , hook
+                    );
+                } else {
+                    throw std::runtime_error("[MultiTransportBroadcastListenerManagingUtils::fetchTypedFirstUpdateAndDisconnect] Trying to create zeromq publisher with channel spec '"+channelSpec+"', but zeromq is unsupported in the environment");
+                }
+                break;
+            case MultiTransportBroadcastListenerConnectionType::NNG:
+                if constexpr (std::is_convertible_v<Env *, nng::NNGComponent *>) {
+                    return nng::NNGImporterExporter<Env>::template fetchTypedFirstUpdateAndDisconnect<T>(
+                        env
+                        , std::get<1>(*parsed)
+                        , MultiTransportBroadcastListenerTopicHelper<nng::NNGComponent>::parseTopic(getTopic_internal(std::get<0>(*parsed), topicDescription))
+                        , predicate
+                        , hook
+                    );
+                } else {
+                    throw std::runtime_error("[MultiTransportBroadcastListenerManagingUtils::fetchTypedFirstUpdateAndDisconnect] Trying to create nng publisher with channel spec '"+channelSpec+"', but nng is unsupported in the environment");
+                }
+                break;
+            case MultiTransportBroadcastListenerConnectionType::SharedMemoryBroadcast:
+                if constexpr (std::is_convertible_v<Env *, shared_memory_broadcast::SharedMemoryBroadcastComponent *>) {
+                    return shared_memory_broadcast::SharedMemoryBroadcastImporterExporter<Env>::template fetchTypedFirstUpdateAndDisconnect<T>(
+                        env
+                        , std::get<1>(*parsed)
+                        , MultiTransportBroadcastListenerTopicHelper<shared_memory_broadcast::SharedMemoryBroadcastComponent>::parseTopic(getTopic_internal(std::get<0>(*parsed), topicDescription))
+                        , predicate
+                        , hook
+                    );
+                } else {
+                    throw std::runtime_error("[MultiTransportBroadcastListenerManagingUtils::fetchTypedFirstUpdateAndDisconnect] Trying to create shared memory broadcast publisher with channel spec '"+channelSpec+"', but shared memory broadcast is unsupported in the environment");
+                }
+                break;
+            default:
+                throw std::runtime_error("[MultiTransportBroadcastListenerManagingUtils::fetchTypedFirstUpdateAndDisconnect] Trying to create unknown-protocol publisher with channel spec '"+channelSpec+"'");
+                break;
+            }
+        }
+    };
+
 } } } }
 
 #endif

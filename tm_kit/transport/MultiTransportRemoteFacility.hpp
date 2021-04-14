@@ -12,6 +12,7 @@
 #include <tm_kit/transport/redis/RedisComponent.hpp>
 #include <tm_kit/transport/redis/RedisOnOrderFacility.hpp>
 #include <tm_kit/transport/AbstractIdentityCheckerComponent.hpp>
+#include <tm_kit/transport/MultiTransportBroadcastListenerManagingUtils.hpp>
 
 #include <type_traits>
 #include <regex>
@@ -656,6 +657,123 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                 return callWithTimeout<A,B>(env, std::get<0>(*parseRes), std::get<1>(*parseRes), std::move(request), timeOut, hooks);
             } else {
                 throw std::runtime_error("OneShotMultiTransportRemoteFacilityCall::callWithTimeout: bad facility descriptor '"+facilityDescriptor+"'");
+            }
+        }
+        template <class A, class B>
+        static std::future<B> callByHeartbeat(
+            Env *env
+            , std::string const &heartbeatChannelSpec
+            , std::string const &heartbeatTopicDescription
+            , std::regex const &heartbeatSenderNameRE
+            , std::string const &facilityNameInServer
+            , A &&request
+            , std::optional<WireToUserHook> heartbeatHook = std::nullopt
+            , std::optional<ByteDataHookPair> hooks = std::nullopt
+            , bool autoDisconnect = false
+        ) {
+            auto heartbeatResult = MultiTransportBroadcastFirstUpdateQueryManagingUtils<Env>
+                ::template fetchTypedFirstUpdateAndDisconnect<HeartbeatMessage>
+                (
+                    env
+                    , heartbeatChannelSpec
+                    , heartbeatTopicDescription
+                    , [heartbeatSenderNameRE](HeartbeatMessage const &m) {
+                        return std::regex_match(
+                            m.senderDescription()
+                            , heartbeatSenderNameRE
+                        );
+                    }
+                    , heartbeatHook
+                ).get().content;
+            auto iter = heartbeatResult.facilityChannels().find(facilityNameInServer);
+            if (iter == heartbeatResult.facilityChannels().end()) {
+                throw std::runtime_error("OneShotMultiTransportRemoteFacilityCall::callByHeartbeat: no facility name "+facilityNameInServer+" in heartbeat message");
+            } else {
+                return call<A,B>(
+                    env 
+                    , iter->second
+                    , std::move(request)
+                    , hooks 
+                    , autoDisconnect
+                );
+            }
+        }
+        template <class A, class B>
+        static void callNoReplyByHeartbeat(
+            Env *env
+            , std::string const &heartbeatChannelSpec
+            , std::string const &heartbeatTopicDescription
+            , std::regex const &heartbeatSenderNameRE
+            , std::string const &facilityNameInServer
+            , A &&request
+            , std::optional<WireToUserHook> heartbeatHook = std::nullopt
+            , std::optional<ByteDataHookPair> hooks = std::nullopt
+            , bool autoDisconnect = false
+        ) {
+            auto heartbeatResult = MultiTransportBroadcastFirstUpdateQueryManagingUtils<Env>
+                ::template fetchTypedFirstUpdateAndDisconnect<HeartbeatMessage>
+                (
+                    env
+                    , heartbeatChannelSpec
+                    , heartbeatTopicDescription
+                    , [heartbeatSenderNameRE](HeartbeatMessage const &m) {
+                        return std::regex_match(
+                            m.senderDescription()
+                            , heartbeatSenderNameRE
+                        );
+                    }
+                    , heartbeatHook
+                ).get().content;
+            auto iter = heartbeatResult.facilityChannels().find(facilityNameInServer);
+            if (iter == heartbeatResult.facilityChannels().end()) {
+                throw std::runtime_error("OneShotMultiTransportRemoteFacilityCall::callByHeartbeat: no facility name "+facilityNameInServer+" in heartbeat message");
+            } else {
+                callNoReply<A,B>(
+                    env 
+                    , iter->second
+                    , std::move(request)
+                    , hooks 
+                    , autoDisconnect
+                );
+            }
+        }
+        template <class A, class B>
+        static std::optional<B> callWithTimeoutByHeartbeat(
+            Env *env
+            , std::string const &heartbeatChannelSpec
+            , std::string const &heartbeatTopicDescription
+            , std::regex const &heartbeatSenderNameRE
+            , std::string const &facilityNameInServer
+            , A &&request
+            , std::chrono::system_clock::duration const &timeOut
+            , std::optional<WireToUserHook> heartbeatHook = std::nullopt
+            , std::optional<ByteDataHookPair> hooks = std::nullopt
+        ) {
+            auto heartbeatResult = MultiTransportBroadcastFirstUpdateQueryManagingUtils<Env>
+                ::template fetchTypedFirstUpdateAndDisconnect<HeartbeatMessage>
+                (
+                    env
+                    , heartbeatChannelSpec
+                    , heartbeatTopicDescription
+                    , [heartbeatSenderNameRE](HeartbeatMessage const &m) {
+                        return std::regex_match(
+                            m.senderDescription()
+                            , heartbeatSenderNameRE
+                        );
+                    }
+                    , heartbeatHook
+                ).get().content;
+            auto iter = heartbeatResult.facilityChannels().find(facilityNameInServer);
+            if (iter == heartbeatResult.facilityChannels().end()) {
+                throw std::runtime_error("OneShotMultiTransportRemoteFacilityCall::callByHeartbeat: no facility name "+facilityNameInServer+" in heartbeat message");
+            } else {
+                return callWithTimeout<A,B>(
+                    env 
+                    , iter->second
+                    , std::move(request)
+                    , timeOut
+                    , hooks 
+                );
             }
         }
     };

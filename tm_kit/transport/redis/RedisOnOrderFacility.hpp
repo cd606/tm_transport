@@ -510,16 +510,24 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                         return Env::id_to_string(env->new_id());
                     }
                     , [autoDisconnect,rpcQueueLocator,env,ret](bool isFinal, basic::ByteDataWithID &&data) {
-                        auto val = basic::bytedata_utils::RunDeserializer<B>::apply(data.content);
-                        if (!val) {
-                            return;
-                        }
-                        ret->set_value(std::move(*val));
-                        if (autoDisconnect) {
-                            std::thread([env,rpcQueueLocator]() {
-                                std::this_thread::sleep_for(std::chrono::milliseconds(100));
-                                env->redis_removeRPCClient(rpcQueueLocator);
-                            }).detach();
+                        try {
+                            auto val = basic::bytedata_utils::RunDeserializer<B>::apply(data.content);
+                            if (!val) {
+                                return;
+                            }
+                            ret->set_value(std::move(*val));
+                            if (autoDisconnect) {
+                                std::thread([env,rpcQueueLocator]() {
+                                    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+                                    env->redis_removeRPCClient(rpcQueueLocator);
+                                }).detach();
+                            }
+                        } catch (std::future_error const &) {
+                        } catch (std::exception const &) {
+                            try {
+                                ret->set_exception(std::current_exception());
+                            } catch (std::future_error const &) {
+                            }
                         }
                     }
                     , DefaultHookFactory<Env>::template supplyFacilityHookPair_ClientSide<A,B>(env, hooks)
@@ -893,21 +901,29 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                         return Env::id_to_string(env->new_id());
                     }
                     , [autoDisconnect,rpcQueueLocator,ret,env](bool isFinal, basic::ByteDataWithID &&data) {
-                        auto processRes = static_cast<ClientSideAbstractIdentityAttacherComponent<Identity,A> *>(env)->process_incoming_data(
-                            basic::ByteData {std::move(data.content)}
-                        );
-                        if (processRes) {
-                            auto val = basic::bytedata_utils::RunDeserializer<B>::apply(processRes->content);
-                            if (!val) {
-                                return;
+                        try {
+                            auto processRes = static_cast<ClientSideAbstractIdentityAttacherComponent<Identity,A> *>(env)->process_incoming_data(
+                                basic::ByteData {std::move(data.content)}
+                            );
+                            if (processRes) {
+                                auto val = basic::bytedata_utils::RunDeserializer<B>::apply(processRes->content);
+                                if (!val) {
+                                    return;
+                                }
+                                ret->set_value(std::move(*val));
                             }
-                            ret->set_value(std::move(*val));
-                        }
-                        if (autoDisconnect) {
-                            std::thread([env,rpcQueueLocator]() {
-                                std::this_thread::sleep_for(std::chrono::milliseconds(100));
-                                env->redis_removeRPCClient(rpcQueueLocator);
-                            }).detach();
+                            if (autoDisconnect) {
+                                std::thread([env,rpcQueueLocator]() {
+                                    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+                                    env->redis_removeRPCClient(rpcQueueLocator);
+                                }).detach();
+                            }
+                        } catch (std::future_error const &) {
+                        } catch (std::exception const &) {
+                            try {
+                                ret->set_exception(std::current_exception());
+                            } catch (std::future_error const &) {
+                            }
                         }
                     }
                     , DefaultHookFactory<Env>::template supplyFacilityHookPair_ClientSide<A,B>(env, hooks)

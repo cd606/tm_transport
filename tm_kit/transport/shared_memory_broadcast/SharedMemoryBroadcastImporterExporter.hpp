@@ -167,6 +167,68 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             };
             return M::exporter(new LocalE(locator, userToWireHook, heartbeatName));
         }
+        static std::future<basic::ByteDataWithTopic> fetchFirstUpdateAndDisconnect(Env *env, ConnectionLocator const &locator, std::variant<SharedMemoryBroadcastComponent::NoTopicSelection, std::string, std::regex> const &topic, std::optional<WireToUserHook> hook = std::nullopt) {
+            std::shared_ptr<std::promise<basic::ByteDataWithTopic>> ret = std::make_shared<std::promise<basic::ByteDataWithTopic>>();
+            std::shared_ptr<std::atomic<uint32_t>> id = std::make_shared<std::atomic<uint32_t>>();
+                
+            *id = env->shared_memory_broadcast_addSubscriptionClient(
+                locator
+                , topic 
+                , [env, ret, id](basic::ByteDataWithTopic &&d) {
+                    static std::atomic<bool> done = false;
+                    if (!done) {
+                        done = true;
+                        std::thread([env, ret, id, d = std::move(d)]() {
+                            std::this_thread::sleep_for(std::chrono::milliseconds(100));
+                            env->shared_memory_broadcast_removeSubscriptionClient(*id);
+                            try {
+                                ret->set_value_at_thread_exit(std::move(d));
+                            } catch (std::future_error const &) {
+                            }
+                        }).detach();
+                    }
+                }
+                , hook
+            );
+            return ret->get_future();
+        }
+        template <class T>
+        static std::future<basic::TypedDataWithTopic<T>> fetchTypedFirstUpdateAndDisconnect(Env *env, ConnectionLocator const &locator, std::variant<SharedMemoryBroadcastComponent::NoTopicSelection, std::string, std::regex> const &topic, std::function<bool(T const &)> predicate = std::function<bool(T const &)>(), std::optional<WireToUserHook> hook = std::nullopt) {
+            std::shared_ptr<std::promise<basic::TypedDataWithTopic<T>>> ret = std::make_shared<std::promise<basic::TypedDataWithTopic<T>>>();
+            std::shared_ptr<std::atomic<uint32_t>> id = std::make_shared<std::atomic<uint32_t>>();
+                
+            *id = env->shared_memory_broadcast_addSubscriptionClient(
+                locator
+                , topic 
+                , [env, ret, id, predicate](basic::ByteDataWithTopic &&d) {
+                    static std::atomic<bool> done = false;
+                    if (!done) {
+                        auto t = basic::bytedata_utils::RunDeserializer<T>::apply(d.content);
+                        if (t) {
+                            if (!predicate || predicate(*t)) {
+                                basic::TypedDataWithTopic<T> res {std::move(d.topic), std::move(*t)};
+                                done = true;
+                                std::thread([env, ret, id, res = std::move(res)]() {
+                                    try {
+                                        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+                                        env->shared_memory_broadcast_removeSubscriptionClient(*id);
+                                        ret->set_value_at_thread_exit(std::move(res));
+                                    } catch (std::future_error const &) {
+                                    } catch (std::exception const &) {
+                                        try {
+                                            ret->set_exception_at_thread_exit(std::current_exception());
+                                        } catch (std::future_error const &) {
+                                        }
+                                    }
+                                }).detach();
+                            }
+                        }
+                    }
+                }
+                , DefaultHookFactory<Env>::template supplyIncomingHook<T>(env, hook)
+            );
+            return ret->get_future();
+        }
     };
 
 } } } } }

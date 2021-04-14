@@ -66,6 +66,23 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
         }
 
         template <class DataT>
+        static std::optional<UserToWireHook> supplyOutgoingHook(Env *env, std::optional<UserToWireHook> hook) {
+            if (hook) {
+                return hook;
+            } else {
+                return DefaultHookFactory<Env>::template outgoingHook<DataT>(env);
+            }
+        }
+        template <class DataT>
+        static std::optional<WireToUserHook> supplyIncomingHook(Env *env, std::optional<WireToUserHook> hook) {
+            if (hook) {
+                return hook;
+            } else {
+                return DefaultHookFactory<Env>::template incomingHook<DataT>(env);
+            }
+        }
+
+        template <class DataT>
         static std::optional<ByteDataHookPair> supplyFacilityHookPair_SingleType(Env *env, std::optional<ByteDataHookPair> hooks) {
             std::optional<UserToWireHook> userToWire = std::nullopt;
             if (hooks && hooks->userToWire) {
