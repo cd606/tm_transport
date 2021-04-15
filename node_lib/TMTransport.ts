@@ -247,6 +247,9 @@ export class MultiTransportListener {
             }
             sock.addMembership(locator.host);
         });
+        stream.on('close', function() {
+            sock.close();
+        });
     }
 
     private static rabbitmqInputToStream(locator : ConnectionLocator, topic : TopicSpec, stream : Stream.Readable) {
@@ -276,6 +279,10 @@ export class MultiTransportListener {
                     stream.push(null);
                 }
             });
+            stream.on('close', function() {
+                channel.close();
+                connection.close();
+            });
         })();
     }
 
@@ -299,6 +306,9 @@ export class MultiTransportListener {
                     }
                     resolve(reply);
                 });
+            });
+            stream.on('close', function() {
+                subscriber.quit();
             });
         })();
     }
@@ -341,6 +351,9 @@ export class MultiTransportListener {
                 }  
             }
         })();
+        stream.on('close', function() {
+            sock.close();
+        });
     }
 
     private static defaultTopic(transport : Transport) : string {
@@ -576,6 +589,11 @@ export class MultiTransportFacilityClient {
             }
         }, {noAck : true});
 
+        stream.on('close', function() {
+            channel.close();
+            connection.close();
+        });
+
         return stream;
     }
     private static async redisFacilityStream(locator : ConnectionLocator) : Promise<Stream.Duplex> {
@@ -641,6 +659,10 @@ export class MultiTransportFacilityClient {
         subscriber.on('message', function(_channel : string, message : Buffer) {
             handleMessage(message);
         });
+        stream.on('close', function() {
+            subscriber.quit();
+            publisher.quit();
+        })
         return new Promise<Stream.Duplex>((resolve, reject) => {
             subscriber.subscribe(streamID, function(err, _reply) {
                 if (err) {
@@ -695,6 +717,9 @@ export class MultiTransportFacilityClient {
             output.pipe(decode);
             output = decode;
         }
+        input.on('close', function() {
+            s.destroy();
+        });
         return [input, output];
     }
     static keyify() : Stream.Transform {
@@ -1227,6 +1252,94 @@ export namespace RemoteComponents {
         public handle(d : TMInfra.TimedDataWithEnvironment<Env,TMInfra.Key<InputT>>) {
             this.conversionStream_in.push([d.timedData.value.id, this.encoder(d.timedData.value.key)]);
         }
+    }
+
+    export async function fetchFirstUpdateAndDisconnect(
+        address : string, topic? : string, wireToUserHook? : ((data: Buffer) => Buffer)
+    ) : Promise<TMBasic.ByteDataWithTopic> {
+        let s = MultiTransportListener.inputStream(address, topic, wireToUserHook);
+        let t : TMBasic.ByteDataWithTopic = null;
+        if (s != null) {
+            for await (let chunk of s) {
+                t = {
+                    topic : chunk[0]
+                    , content : chunk[1]
+                };
+                break;
+            }
+            s.destroy();
+        }
+        return t;
+    }
+
+    export async function fetchTypedFirstUpdateAndDisconnect<T>(
+        decoder : Decoder<T>, address : string, topic? : string, predicate? : ((data : T) => boolean), wireToUserHook? : ((data: Buffer) => Buffer)
+    ) : Promise<TMBasic.TypedDataWithTopic<T>> {
+        let s = MultiTransportListener.inputStream(address, topic, wireToUserHook);
+        let t : TMBasic.TypedDataWithTopic<T> = null;
+        if (s != null) {
+            for await (let chunk of s) {
+                t = {
+                    topic : chunk[0]
+                    , content : decoder(chunk[1])
+                };
+                if (predicate) {
+                    if (predicate(t.content)) {
+                        break;
+                    }
+                } else {
+                    break;
+                }
+            }
+            s.destroy();
+        }
+        return t;
+    }
+
+    export async function call<InputT,OutputT>(input : InputT, encoder: Encoder<InputT>, decoder : Decoder<OutputT>, param : ClientFacilityStreamParameters, closeOnFirstCallback : boolean = false) : Promise<OutputT> {
+        let s = await MultiTransportFacilityClient.facilityStream(param);
+        let o : OutputT = null;
+        if (s != null) {
+            s[0].write([uuidv4(), encoder(input)]);
+            for await (let chunk of s[1]) {
+                o = decoder(chunk.output);
+                if (closeOnFirstCallback || chunk.isFinal) {
+                    break;
+                }
+            }
+            s[0].destroy();
+        }
+        return o;
+    }
+
+    export async function callByHeartbeat<InputT,OutputT>(
+        heartbeatAddress : string
+        , heartbeatTopic : string
+        , heartbeatSenderRE : RegExp
+        , facilityNameInServer : string
+        , request : InputT 
+        , heartbeatHook? : ((data: Buffer) => Buffer)
+        , facilityParams? : ClientFacilityStreamParameters
+    ) : Promise<OutputT> {
+        let h = await fetchTypedFirstUpdateAndDisconnect<Heartbeat>(
+            (d : Buffer) => cbor.decode(d) as Heartbeat
+            , heartbeatAddress
+            , heartbeatTopic
+            , (data : Heartbeat) => heartbeatSenderRE.test(data.sender_description)
+            , heartbeatHook
+        );
+        let o = await call<InputT,OutputT>(
+            request 
+            , (t : InputT) => cbor.encode(t)
+            , (d : Buffer) => cbor.decode(d) as OutputT 
+            , {
+                address : h.content.facility_channels[facilityNameInServer]
+                , userToWireHook : facilityParams?.userToWireHook
+                , wireToUserHook : facilityParams?.wireToUserHook
+                , identityAttacher : facilityParams?.identityAttacher
+            }
+        );
+        return o;
     }
 
     export interface Heartbeat {
