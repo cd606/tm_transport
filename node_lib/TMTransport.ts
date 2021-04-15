@@ -1318,6 +1318,7 @@ export namespace RemoteComponents {
         , heartbeatSenderRE : RegExp
         , facilityNameInServer : string
         , request : InputT 
+        , closeOnFirstCallback : boolean = false
         , heartbeatHook? : ((data: Buffer) => Buffer)
         , facilityParams? : ClientFacilityStreamParameters
     ) : Promise<OutputT> {
@@ -1338,6 +1339,7 @@ export namespace RemoteComponents {
                 , wireToUserHook : facilityParams?.wireToUserHook
                 , identityAttacher : facilityParams?.identityAttacher
             }
+            , closeOnFirstCallback
         );
         return o;
     }
