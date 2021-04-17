@@ -325,13 +325,25 @@ export class MultiTransportListener {
                 break;
         } 
 
-        let sock = new zmq.Subscriber();
+        //let sock = new zmq.Subscriber();
+        let sock = zmq.socket('sub');
         if (locator.host == 'inproc' || locator.host == 'ipc') {
             sock.connect(`${locator.host}://${locator.identifier}`);
         } else {
             sock.connect(`tcp://${locator.host}:${locator.port}`);
         }
         sock.subscribe('');  
+        sock.on('message', function(topic, _msg) {
+            try {
+                let decoded = cbor.decode(topic);
+                let t = decoded[0] as string;
+                if (filter(t)) {
+                    stream.push([t, decoded[1] as Buffer]);
+                }
+            } catch (e) {
+            }  
+        });
+        /*
         (async () => {
             for await (const [topic, _msg] of sock) {   
                 try {
@@ -344,6 +356,7 @@ export class MultiTransportListener {
                 }  
             }
         })();
+        */
         stream.on('close', function() {
             sock.close();
         });
@@ -460,7 +473,8 @@ export class MultiTransportPublisher {
         }
     }
     private static zeromqWrite(locator : ConnectionLocator) : (chunk : [string, Buffer], encoding : BufferEncoding) => void {
-        let sock = new zmq.Publisher();
+        //let sock = new zmq.Publisher();
+        let sock = zmq.socket('pub');
         if (locator.host == 'inproc' || locator.host == 'ipc') {
             sock.bind(`${locator.host}://${locator.identifier}`);
         } else {
