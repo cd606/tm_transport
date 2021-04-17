@@ -476,9 +476,9 @@ export class MultiTransportPublisher {
         //let sock = new zmq.Publisher();
         let sock = zmq.socket('pub');
         if (locator.host == 'inproc' || locator.host == 'ipc') {
-            sock.bind(`${locator.host}://${locator.identifier}`);
+            sock.bindSync(`${locator.host}://${locator.identifier}`);
         } else {
-            sock.bind(`tcp://${locator.host}:${locator.port}`);
+            sock.bindSync(`tcp://${locator.host}:${locator.port}`);
         }
         return function(chunk : [string, Buffer], _encoding : BufferEncoding) {
             sock.send(cbor.encode(chunk));
