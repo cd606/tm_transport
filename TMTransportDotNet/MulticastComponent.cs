@@ -13,47 +13,54 @@ namespace Dev.CD606.TM.Transport
 {
     public static class MulticastComponent<Env> where Env : ClockEnv
     {
-        private static Action<byte[]> getPublisher(ConnectionLocator l)
+        private static (UdpClient, Action<byte[]>) getPublisher(ConnectionLocator l)
         {
             UdpClient publisher = new UdpClient(AddressFamily.InterNetwork);
             var addr = IPAddress.Parse(l.Host);
             publisher.JoinMulticastGroup(addr);
             var endPoint = new IPEndPoint(addr, l.Port);
-            return (x) => {
+            return (publisher, (x) => {
                 publisher.Send(x, x.Length, endPoint);
-            };
+            });
         }
-        private static Func<byte[]> getReceiver(ConnectionLocator l)
+        private static (UdpClient, Func<byte[]>) getReceiver(ConnectionLocator l)
         {
             UdpClient receiver = new UdpClient(AddressFamily.InterNetwork);
             var addr = IPAddress.Parse(l.Host);
             receiver.Client.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.ReuseAddress, true);
             receiver.Client.Bind(new IPEndPoint(IPAddress.Any, l.Port));
             receiver.JoinMulticastGroup(addr);
-            return () => {
+            return (receiver, () => {
                 var endPoint = new IPEndPoint(addr, l.Port);
                 return receiver.Receive(ref endPoint);
-            };
+            });
         }
-        class BinaryImporter : AbstractImporter<Env, ByteDataWithTopic>
+        class BinaryImporter : AbstractImporter<Env, ByteDataWithTopic>, IDisposable
         {
             private WireToUserHook hook;
             private ConnectionLocator locator;
             private TopicSpec topicSpec;
             private bool binaryEnvelop;
+            private volatile bool running;
+            private Thread thread;
             public BinaryImporter(ConnectionLocator locator, TopicSpec topicSpec, WireToUserHook hook = null)
             {
                 this.locator = locator;
                 this.topicSpec = topicSpec;
                 this.hook = hook;
                 this.binaryEnvelop = (locator.GetProperty("envelop", "cbor").Equals("binary"));
+                this.running = false;
+                this.thread = null;
             }
             public override void start(Env env)
             {
-                new Thread(() => {
-                    var receiver = getReceiver(locator);
+                thread = new Thread(() => {
+                    running = true;
+                    var receiverInfo = getReceiver(locator);
+                    var client = receiverInfo.Item1;
+                    var receiver = receiverInfo.Item2;
                     byte[] msg = null;
-                    while (true)
+                    while (running)
                     {
                         msg = receiver();
                         if (msg != null && msg.Length > 0)
@@ -125,20 +132,32 @@ namespace Dev.CD606.TM.Transport
                             }
                         }
                     }
-                }).Start();
+                    client.Close();
+                });
+                thread.Start();
+            }
+            public void Dispose()
+            {
+                running = false;
+                if (thread != null)
+                {
+                    thread.Join();
+                }
             }
         }
         public static AbstractImporter<Env, ByteDataWithTopic> CreateImporter(ConnectionLocator locator, TopicSpec topicSpec, WireToUserHook hook = null)
         {
             return new BinaryImporter(locator, topicSpec, hook);
         }
-        class TypedImporter<T> : AbstractImporter<Env, TypedDataWithTopic<T>>
+        class TypedImporter<T> : AbstractImporter<Env, TypedDataWithTopic<T>>, IDisposable
         {
             private Func<byte[],Option<T>> decoder;
             private ConnectionLocator locator;
             private TopicSpec topicSpec;
             private WireToUserHook hook;
             private bool binaryEnvelop;
+            private volatile bool running;
+            private Thread thread;
             public TypedImporter(Func<byte[],Option<T>> decoder, ConnectionLocator locator, TopicSpec topicSpec, WireToUserHook hook = null)
             {
                 this.decoder = decoder;
@@ -146,13 +165,18 @@ namespace Dev.CD606.TM.Transport
                 this.topicSpec = topicSpec;
                 this.hook = hook;
                 this.binaryEnvelop = (locator.GetProperty("envelop", "cbor").Equals("binary"));
+                this.running = false;
+                this.thread = null;
             }
             public override void start(Env env)
             {
-                new Thread(() => {
-                    var receiver = getReceiver(locator);
+                thread = new Thread(() => {
+                    running = true;
+                    var receiverInfo = getReceiver(locator);
+                    var client = receiverInfo.Item1;
+                    var receiver = receiverInfo.Item2;
                     byte[] msg = null;
-                    while (true)
+                    while (running)
                     {
                         msg = receiver();
                         if (msg != null && msg.Length > 0)
@@ -232,29 +256,43 @@ namespace Dev.CD606.TM.Transport
                             }
                         }
                     }
-                }).Start();
+                    client.Close();
+                });
+                thread.Start();
+            }
+            public void Dispose()
+            {
+                running = false;
+                if (thread != null)
+                {
+                    thread.Join();
+                }
             }
         }
         public static AbstractImporter<Env, TypedDataWithTopic<T>> CreateTypedImporter<T>(Func<byte[],Option<T>> decoder, ConnectionLocator locator, TopicSpec topicSpec, WireToUserHook hook = null)
         {
             return new TypedImporter<T>(decoder, locator, topicSpec, hook);
         }
-        class BinaryExporter : AbstractExporter<Env, ByteDataWithTopic>
+        class BinaryExporter : AbstractExporter<Env, ByteDataWithTopic>, IDisposable
         {
             private ConnectionLocator locator;
             private UserToWireHook hook;
             private Action<byte[]> publisher;
             private bool binaryEnvelop;
+            private UdpClient client;
             public BinaryExporter(ConnectionLocator locator, UserToWireHook hook = null)
             {
                 this.locator = locator;
                 this.hook = hook;
                 this.publisher = null;
                 this.binaryEnvelop = (locator.GetProperty("envelop", "cbor").Equals("binary"));
+                this.client = null;
             }
             public void start(Env env)
             {
-                publisher = getPublisher(locator);
+                var publisherInfo = getPublisher(locator);
+                client = publisherInfo.Item1;
+                publisher = publisherInfo.Item2;
             }
             public void handle(TimedDataWithEnvironment<Env,ByteDataWithTopic> data)
             {
@@ -277,18 +315,29 @@ namespace Dev.CD606.TM.Transport
                     }
                 }
             }
+            public void Dispose()
+            {
+                lock (this)
+                {
+                    if (client != null)
+                    {
+                        client.Close();
+                    }
+                }
+            }
         }
         public static AbstractExporter<Env, ByteDataWithTopic> CreateExporter(ConnectionLocator locator, UserToWireHook hook = null)
         {
             return new BinaryExporter(locator, hook);
         }
-        class TypedExporter<T> : AbstractExporter<Env, TypedDataWithTopic<T>>
+        class TypedExporter<T> : AbstractExporter<Env, TypedDataWithTopic<T>>, IDisposable
         {
             private Func<T, byte[]> encoder;
             private ConnectionLocator locator;
             private UserToWireHook hook;
             private Action<byte[]> publisher;
             private bool binaryEnvelop;
+            private UdpClient client;
             public TypedExporter(Func<T,byte[]> encoder, ConnectionLocator locator, UserToWireHook hook = null)
             {
                 this.encoder = encoder;
@@ -296,10 +345,13 @@ namespace Dev.CD606.TM.Transport
                 this.hook = hook;
                 this.publisher = null;
                 this.binaryEnvelop = (locator.GetProperty("envelop", "cbor").Equals("binary"));
+                this.client = null;
             }
             public void start(Env env)
             {
-                publisher = getPublisher(locator);
+                var publisherInfo = getPublisher(locator);
+                client = publisherInfo.Item1;
+                publisher = publisherInfo.Item2;
             }
             public void handle(TimedDataWithEnvironment<Env,TypedDataWithTopic<T>> data)
             {
@@ -324,6 +376,16 @@ namespace Dev.CD606.TM.Transport
                                 .Add(b)
                                 .EncodeToBytes()
                         );
+                    }
+                }
+            }
+            public void Dispose()
+            {
+                lock (this)
+                {
+                    if (client != null)
+                    {
+                        client.Close();
                     }
                 }
             }

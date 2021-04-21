@@ -338,8 +338,11 @@ namespace Dev.CD606.TM.Transport
             {
                 lock (this)
                 {
-                    channel.Close();
-                    deregisterChannel(simplifiedLocator, channel);
+                    if (channel != null)
+                    {
+                        channel.Close();
+                        deregisterChannel(simplifiedLocator, channel);
+                    }
                 }
             }
         }
@@ -399,8 +402,11 @@ namespace Dev.CD606.TM.Transport
             {
                 lock (this)
                 {
-                    channel.Close();
-                    deregisterChannel(simplifiedLocator, channel);
+                    if (channel != null)
+                    {
+                        channel.Close();
+                        deregisterChannel(simplifiedLocator, channel);
+                    }
                 }
             }
         }
@@ -517,8 +523,11 @@ namespace Dev.CD606.TM.Transport
             {
                 lock (this)
                 {
-                    channel.Close();
-                    deregisterChannel(simplifiedLocator, channel);
+                    if (channel != null)
+                    {
+                        channel.Close();
+                        deregisterChannel(simplifiedLocator, channel);
+                    }
                 }
             }
         }
