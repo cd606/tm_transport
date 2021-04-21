@@ -9,14 +9,47 @@ using Dev.CD606.TM.Basic;
 
 namespace Dev.CD606.TM.Transport
 {
+    class ConnectionDetails 
+    {
+        IConnection connection;
+        HashSet<IModel> models;
+        public ConnectionDetails(IConnection c) 
+        {
+            this.connection = c;
+            this.models = new HashSet<IModel>();
+        }
+        public IConnection GetConnection() 
+        {
+            return connection;
+        }
+        public void AddModel(IModel m) 
+        {
+            models.Add(m);
+        }
+        public void RemoveModel(IModel m) 
+        {
+            models.Remove(m);
+        }
+        public bool IsEmpty() 
+        {
+            return (models.Count == 0);
+        }
+        public void Close() 
+        {
+            foreach (var m in models) {
+                m.Close();
+            }
+            connection.Close();
+        }
+    }
     public static class RabbitMQComponent<Env> where Env : ClockEnv
     {
         //Because the .NET RabbitMQ connection factory requires some different SSL
         //option fields than C++/Node API, the connection locator needs to be 
         //somewhat different
-        private static Dictionary<ConnectionLocator,IConnection> connections = new Dictionary<ConnectionLocator, IConnection>();
+        private static Dictionary<ConnectionLocator, ConnectionDetails> connections = new Dictionary<ConnectionLocator, ConnectionDetails>();
         private static object connectionsLock = new object(); 
-        private static IConnection constructConnection(ConnectionLocator locator)
+        private static (ConnectionLocator, IConnection) constructConnection(ConnectionLocator locator)
         {
             var simplifiedDictionary = new Dictionary<string,string>();
             var s = locator.GetProperty("ssl", null);
@@ -44,13 +77,13 @@ namespace Dev.CD606.TM.Transport
             );
             lock (connectionsLock)
             {
-                if (connections.TryGetValue(simplifiedLocator, out IConnection conn))
+                if (connections.TryGetValue(simplifiedLocator, out ConnectionDetails conn))
                 {
-                    return conn;
+                    return (simplifiedLocator,conn.GetConnection());
                 }
                 if (locator.GetProperty("ssl", "false").Equals("true"))
                 {
-                    conn = new ConnectionFactory() {
+                    conn = new ConnectionDetails(new ConnectionFactory() {
                         HostName = locator.Host
                         , Port = (locator.Port==0?5672:locator.Port)
                         , UserName = locator.Username
@@ -60,31 +93,59 @@ namespace Dev.CD606.TM.Transport
                             locator.GetProperty("server_name", "")
                             , locator.GetProperty("client_cert", "")
                         )
-                    }.CreateConnection();
+                    }.CreateConnection());
                 }
                 else
                 {
-                    conn = new ConnectionFactory() {
+                    conn = new ConnectionDetails(new ConnectionFactory() {
                         HostName = locator.Host
                         , Port = (locator.Port==0?5672:locator.Port)
                         , UserName = locator.Username
                         , Password = locator.Password
                         , VirtualHost = locator.GetProperty("vhost", "/")
-                    }.CreateConnection(); 
+                    }.CreateConnection()); 
                 }
                 connections.Add(simplifiedLocator, conn);
-                return conn;
+                return (simplifiedLocator,conn.GetConnection());
             }
         }
-        class BinaryImporter : AbstractImporter<Env, ByteDataWithTopic>
+        private static void registerChannel(ConnectionLocator simplifiedLocator, IModel channel) 
+        {
+            lock (connectionsLock)
+            {
+                if (connections.TryGetValue(simplifiedLocator, out ConnectionDetails conn))
+                {
+                    conn.AddModel(channel);
+                }
+            }
+        }
+        private static void deregisterChannel(ConnectionLocator simplifiedLocator, IModel channel) 
+        {
+            lock (connectionsLock)
+            {
+                if (connections.TryGetValue(simplifiedLocator, out ConnectionDetails conn))
+                {
+                    conn.RemoveModel(channel);
+                    if (conn.IsEmpty()) {
+                        conn.Close();
+                        connections.Remove(simplifiedLocator);
+                    }
+                }
+            }
+        }
+        class BinaryImporter : AbstractImporter<Env, ByteDataWithTopic>, IDisposable
         {
             private WireToUserHook hook;
             private ConnectionLocator locator;
+            private ConnectionLocator simplifiedLocator;
+            private IModel channel;
             private TopicSpec topicSpec;
             public BinaryImporter(ConnectionLocator locator, TopicSpec topicSpec, WireToUserHook hook = null)
             {
                 this.locator = locator;
+                this.simplifiedLocator = locator;
                 this.topicSpec = topicSpec;
+                this.channel = null;
                 this.hook = hook;
                 if (this.topicSpec.MatchType != TopicMatchType.MatchExact)
                 {
@@ -93,8 +154,10 @@ namespace Dev.CD606.TM.Transport
             }
             public override void start(Env env)
             {
-                var connection = constructConnection(locator);
-                var channel = connection.CreateModel();
+                var connectionInfo = constructConnection(locator);
+                simplifiedLocator = connectionInfo.Item1;
+                channel = connectionInfo.Item2.CreateModel();
+                registerChannel(simplifiedLocator, channel);
                 channel.ExchangeDeclare(
                     exchange : locator.Identifier
                     , type : ExchangeType.Topic
@@ -134,21 +197,33 @@ namespace Dev.CD606.TM.Transport
                     , consumer : consumer
                 );
             }
+            public void Dispose()
+            {
+                if (channel != null)
+                {
+                    channel.Close();
+                    deregisterChannel(simplifiedLocator, channel);
+                }
+            }
         }
         public static AbstractImporter<Env, ByteDataWithTopic> CreateImporter(ConnectionLocator locator, TopicSpec topicSpec, WireToUserHook hook = null)
         {
             return new BinaryImporter(locator, topicSpec, hook);
         }
-        class TypedImporter<T> : AbstractImporter<Env, TypedDataWithTopic<T>>
+        class TypedImporter<T> : AbstractImporter<Env, TypedDataWithTopic<T>>, IDisposable
         {
             private Func<byte[],Option<T>> decoder;
             private ConnectionLocator locator;
+            private ConnectionLocator simplifiedLocator;
+            private IModel channel;
             private TopicSpec topicSpec;
             private WireToUserHook hook;
             public TypedImporter(Func<byte[],Option<T>> decoder, ConnectionLocator locator, TopicSpec topicSpec, WireToUserHook hook = null)
             {
                 this.decoder = decoder;
                 this.locator = locator;
+                this.simplifiedLocator = locator;
+                this.channel = null;
                 this.topicSpec = topicSpec;
                 this.hook = hook;
                 if (this.topicSpec.MatchType != TopicMatchType.MatchExact)
@@ -158,8 +233,10 @@ namespace Dev.CD606.TM.Transport
             }
             public override void start(Env env)
             {
-                var connection = constructConnection(locator);
-                var channel = connection.CreateModel();
+                var connectionInfo = constructConnection(locator);
+                simplifiedLocator = connectionInfo.Item1;
+                channel = connectionInfo.Item2.CreateModel();
+                registerChannel(simplifiedLocator, channel);
                 channel.ExchangeDeclare(
                     exchange : locator.Identifier
                     , type : ExchangeType.Topic
@@ -203,26 +280,38 @@ namespace Dev.CD606.TM.Transport
                     , consumer : consumer
                 );
             }
+            public void Dispose()
+            {
+                if (channel != null)
+                {
+                    channel.Close();
+                    deregisterChannel(simplifiedLocator, channel);
+                }
+            }
         }
         public static AbstractImporter<Env, TypedDataWithTopic<T>> CreateTypedImporter<T>(Func<byte[],Option<T>> decoder, ConnectionLocator locator, TopicSpec topicSpec, WireToUserHook hook = null)
         {
             return new TypedImporter<T>(decoder, locator, topicSpec, hook);
         }
-        class BinaryExporter : AbstractExporter<Env, ByteDataWithTopic>
+        class BinaryExporter : AbstractExporter<Env, ByteDataWithTopic>, IDisposable
         {
             private ConnectionLocator locator;
+            private ConnectionLocator simplifiedLocator;
             private UserToWireHook hook;
             private IModel channel;
             public BinaryExporter(ConnectionLocator locator, UserToWireHook hook = null)
             {
                 this.locator = locator;
+                this.simplifiedLocator = locator;
                 this.hook = hook;
                 this.channel = null;
             }
             public void start(Env env)
             {
-                var connection = constructConnection(locator);
-                channel = connection.CreateModel();
+                var connectionInfo = constructConnection(locator);
+                simplifiedLocator = connectionInfo.Item1;
+                channel = connectionInfo.Item2.CreateModel();
+                registerChannel(simplifiedLocator, channel);
                 channel.ExchangeDeclare(
                     exchange : locator.Identifier
                     , type : ExchangeType.Topic
@@ -245,28 +334,40 @@ namespace Dev.CD606.TM.Transport
                     );
                 }
             }
+            public void Dispose()
+            {
+                lock (this)
+                {
+                    channel.Close();
+                    deregisterChannel(simplifiedLocator, channel);
+                }
+            }
         }
         public static AbstractExporter<Env, ByteDataWithTopic> CreateExporter(ConnectionLocator locator, UserToWireHook hook = null)
         {
             return new BinaryExporter(locator, hook);
         }
-        class TypedExporter<T> : AbstractExporter<Env, TypedDataWithTopic<T>>
+        class TypedExporter<T> : AbstractExporter<Env, TypedDataWithTopic<T>>, IDisposable
         {
             private Func<T, byte[]> encoder;
             private ConnectionLocator locator;
+            private ConnectionLocator simplifiedLocator;
             private UserToWireHook hook;
             private IModel channel;
             public TypedExporter(Func<T,byte[]> encoder, ConnectionLocator locator, UserToWireHook hook = null)
             {
                 this.encoder = encoder;
                 this.locator = locator;
+                this.simplifiedLocator = locator;
                 this.hook = hook;
                 this.channel = null;
             }
             public void start(Env env)
             {
-                var connection = constructConnection(locator);
-                channel = connection.CreateModel();
+                var connectionInfo = constructConnection(locator);
+                simplifiedLocator = connectionInfo.Item1;
+                channel = connectionInfo.Item2.CreateModel();
+                registerChannel(simplifiedLocator, channel);
                 channel.ExchangeDeclare(
                     exchange : locator.Identifier
                     , type : ExchangeType.Topic
@@ -294,16 +395,25 @@ namespace Dev.CD606.TM.Transport
                     );
                 }
             }
+            public void Dispose()
+            {
+                lock (this)
+                {
+                    channel.Close();
+                    deregisterChannel(simplifiedLocator, channel);
+                }
+            }
         }
         public static AbstractExporter<Env, TypedDataWithTopic<T>> CreateTypedExporter<T>(Func<T,byte[]> encoder, ConnectionLocator locator, UserToWireHook hook = null)
         {
             return new TypedExporter<T>(encoder, locator, hook);
         }
-        class ClientFacility<InT,OutT> : AbstractOnOrderFacility<Env,InT,OutT>
+        class ClientFacility<InT,OutT> : AbstractOnOrderFacility<Env,InT,OutT>, IDisposable
         {
             private Func<InT, byte[]> encoder;
             private Func<byte[], Option<OutT>> decoder;
             private ConnectionLocator locator;
+            private ConnectionLocator simplifiedLocator;
             private HookPair hookPair;
             private ClientSideIdentityAttacher identityAttacher;
             private IModel channel;
@@ -314,6 +424,7 @@ namespace Dev.CD606.TM.Transport
                 this.encoder = encoder;
                 this.decoder = decoder;
                 this.locator = locator;
+                this.simplifiedLocator = locator;
                 this.hookPair = hookPair;
                 this.identityAttacher = identityAttacher;
                 this.channel = null;
@@ -322,8 +433,10 @@ namespace Dev.CD606.TM.Transport
             }
             public override void start(Env env)
             {
-                var connection = constructConnection(locator);
-                channel = connection.CreateModel();
+                var connectionInfo = constructConnection(locator);
+                simplifiedLocator = connectionInfo.Item1;
+                channel = connectionInfo.Item2.CreateModel();
+                registerChannel(simplifiedLocator, channel);
                 replyQueue = channel.QueueDeclare().QueueName;
                 var consumer = new EventingBasicConsumer(channel);
                 consumer.Received += (model, ea) => {
@@ -398,6 +511,14 @@ namespace Dev.CD606.TM.Transport
                         , basicProperties: props
                         , body : b
                     );
+                }
+            }
+            public void Dispose()
+            {
+                lock (this)
+                {
+                    channel.Close();
+                    deregisterChannel(simplifiedLocator, channel);
                 }
             }
         }
@@ -621,8 +742,9 @@ namespace Dev.CD606.TM.Transport
         {
             var dict = new Dictionary<string,string>();
             var mapLock = new object();
-            var connection = constructConnection(locator);
-            var channel = connection.CreateModel();
+            var connectionInfo = constructConnection(locator);
+            var channel = connectionInfo.Item2.CreateModel();
+            registerChannel(connectionInfo.Item1, channel);
             var importer = new WrapperDecoderImporter<Identity,InT>(
                 connectionFunc: () => {
                     var queue = channel.QueueDeclare(
@@ -651,8 +773,9 @@ namespace Dev.CD606.TM.Transport
         }
         public static void WrapOnOrderFacilityWithoutReply<Identity,InT,OutT>(Runner<Env> r, AbstractOnOrderFacility<Env,(Identity,InT),OutT> facility, Func<byte[],Option<InT>> decoder, ConnectionLocator locator, HookPair hookPair = null, ServerSideIdentityChecker<Identity> identityChecker = null)
         {
-            var connection = constructConnection(locator);
-            var channel = connection.CreateModel();
+            var connectionInfo = constructConnection(locator);
+            var channel = connectionInfo.Item2.CreateModel();
+            registerChannel(connectionInfo.Item1, channel);
             var importer = new WrapperDecoderImporterWithoutReply<Identity,InT>(
                 connectionFunc: () => {
                     var queue = channel.QueueDeclare(
@@ -855,8 +978,9 @@ namespace Dev.CD606.TM.Transport
         {
             var dict = new Dictionary<string,string>();
             var mapLock = new object();
-            var connection = constructConnection(locator);
-            var channel = connection.CreateModel();
+            var connectionInfo = constructConnection(locator);
+            var channel = connectionInfo.Item2.CreateModel();
+            registerChannel(connectionInfo.Item1, channel);
             var importer = new SimpleWrapperDecoderImporter<InT>(
                 connectionFunc: () => {
                     var queue = channel.QueueDeclare(
@@ -883,8 +1007,9 @@ namespace Dev.CD606.TM.Transport
         }
         public static void WrapOnOrderFacilityWithoutReply<InT,OutT>(Runner<Env> r, AbstractOnOrderFacility<Env,InT,OutT> facility, Func<byte[],Option<InT>> decoder, ConnectionLocator locator, HookPair hookPair = null)
         {
-            var connection = constructConnection(locator);
-            var channel = connection.CreateModel();
+            var connectionInfo = constructConnection(locator);
+            var channel = connectionInfo.Item2.CreateModel();
+            registerChannel(connectionInfo.Item1, channel);
             var importer = new SimpleWrapperDecoderImporterWithoutReply<InT>(
                 connectionFunc: () => {
                     var queue = channel.QueueDeclare(
