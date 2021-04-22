@@ -1035,43 +1035,5 @@ namespace Dev.CD606.TM.Transport
             );
             r.placeOrderWithFacilityAndForget(r.importItem(importer), facility);
         }
-        private class OneShotCallback<InT,OutT> : IHandler<Env,KeyedData<InT,OutT>>
-        {
-            private TaskCompletionSource<OutT> output;
-            private ClientFacility<InT,OutT> facility;
-            public OneShotCallback(TaskCompletionSource<OutT> o, ClientFacility<InT,OutT> f)
-            {
-                this.output = o;
-                this.facility = f;
-            }
-            public void handle(TimedDataWithEnvironment<Env,KeyedData<InT,OutT>> data)
-            {
-                output.SetResult(data.timedData.value.data);
-                Task.Run(() => {
-                    facility.Dispose();
-                });   
-            }
-        }
-        public static async Task<OutT> OneShotCall<InT,OutT>(
-            Env env, InT request, Func<InT,byte[]> encoder, Func<byte[],Option<OutT>> decoder, ConnectionLocator locator, HookPair hookPair = null, ClientSideIdentityAttacher identityAttacher = null
-        )
-        {
-            TaskCompletionSource<OutT> ret = new TaskCompletionSource<OutT>();
-            var client = new ClientFacility<InT,OutT>(
-                encoder, decoder, locator, hookPair, identityAttacher
-            );
-            client.start(env);
-            client.placeRequest(
-                new TimedDataWithEnvironment<Env, Key<InT>>(
-                    env, new WithTime<Key<InT>>(
-                        env.now()
-                        , new Key<InT>(request)
-                        , true
-                    )
-                )
-                , new OneShotCallback<InT,OutT>(ret, client)
-            );
-            return (await ret.Task);
-        }
     }
 }
