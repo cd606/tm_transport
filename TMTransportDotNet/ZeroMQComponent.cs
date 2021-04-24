@@ -34,24 +34,29 @@ namespace Dev.CD606.TM.Transport
                 return new SubscriberSocket($">tcp://{l.Host}:{l.Port}");
             }
         }
-        class BinaryImporter : AbstractImporter<Env, ByteDataWithTopic>
+        class BinaryImporter : AbstractImporter<Env, ByteDataWithTopic>, IDisposable
         {
             private WireToUserHook hook;
             private ConnectionLocator locator;
             private TopicSpec topicSpec;
+            private Thread thread;
+            private volatile bool running;
             public BinaryImporter(ConnectionLocator locator, TopicSpec topicSpec, WireToUserHook hook = null)
             {
                 this.locator = locator;
                 this.topicSpec = topicSpec;
                 this.hook = hook;
+                this.thread = null;
+                this.running = false;
             }
             public override void start(Env env)
             {
-                new Thread(() => {
+                thread = new Thread(() => {
+                    running = true;
                     var subscriber = getSubscriber(locator);
                     subscriber.SubscribeToAnyTopic();
                     byte[] msg = null;
-                    while (true)
+                    while (running)
                     {
                         if (subscriber.TryReceiveFrameBytes(
                             TimeSpan.FromSeconds(1)
@@ -87,19 +92,31 @@ namespace Dev.CD606.TM.Transport
                             }
                         }
                     }
-                }).Start();
+                    subscriber.Close();
+                });
+                thread.Start();
+            }
+            public void Dispose()
+            {
+                if (running)
+                {
+                    running = false;
+                    thread.Join();
+                }
             }
         }
         public static AbstractImporter<Env, ByteDataWithTopic> CreateImporter(ConnectionLocator locator, TopicSpec topicSpec, WireToUserHook hook = null)
         {
             return new BinaryImporter(locator, topicSpec, hook);
         }
-        class TypedImporter<T> : AbstractImporter<Env, TypedDataWithTopic<T>>
+        class TypedImporter<T> : AbstractImporter<Env, TypedDataWithTopic<T>>, IDisposable
         {
             private Func<byte[],Option<T>> decoder;
             private ConnectionLocator locator;
             private TopicSpec topicSpec;
             private WireToUserHook hook;
+            private Thread thread; 
+            private volatile bool running;
             public TypedImporter(Func<byte[],Option<T>> decoder, ConnectionLocator locator, TopicSpec topicSpec, WireToUserHook hook = null)
             {
                 this.decoder = decoder;
@@ -110,14 +127,17 @@ namespace Dev.CD606.TM.Transport
                 {
                     throw new Exception($"RabbitMQ topic must be exact string");
                 }
+                this.thread = null;
+                this.running = false;
             }
             public override void start(Env env)
             {
                 new Thread(() => {
+                    running = true;
                     var subscriber = getSubscriber(locator);
                     subscriber.SubscribeToAnyTopic();
                     byte[] msg = null;
-                    while (true)
+                    while (running)
                     {
                         if (subscriber.TryReceiveFrameBytes(
                             TimeSpan.FromSeconds(1)
@@ -157,14 +177,23 @@ namespace Dev.CD606.TM.Transport
                             }
                         }
                     }
+                    subscriber.Close();
                 }).Start();
+            }
+            public void Dispose()
+            {
+                if (running)
+                {
+                    running = false;
+                    thread.Join();
+                }
             }
         }
         public static AbstractImporter<Env, TypedDataWithTopic<T>> CreateTypedImporter<T>(Func<byte[],Option<T>> decoder, ConnectionLocator locator, TopicSpec topicSpec, WireToUserHook hook = null)
         {
             return new TypedImporter<T>(decoder, locator, topicSpec, hook);
         }
-        class BinaryExporter : AbstractExporter<Env, ByteDataWithTopic>
+        class BinaryExporter : AbstractExporter<Env, ByteDataWithTopic>, IDisposable
         {
             private ConnectionLocator locator;
             private UserToWireHook hook;
@@ -191,12 +220,22 @@ namespace Dev.CD606.TM.Transport
                     );
                 }
             }
+            public void Dispose()
+            {
+                lock(this)
+                {
+                    if (socket != null)
+                    {
+                        socket.Close();
+                    }
+                }
+            }
         }
         public static AbstractExporter<Env, ByteDataWithTopic> CreateExporter(ConnectionLocator locator, UserToWireHook hook = null)
         {
             return new BinaryExporter(locator, hook);
         }
-        class TypedExporter<T> : AbstractExporter<Env, TypedDataWithTopic<T>>
+        class TypedExporter<T> : AbstractExporter<Env, TypedDataWithTopic<T>>, IDisposable
         {
             private Func<T, byte[]> encoder;
             private ConnectionLocator locator;
@@ -228,6 +267,16 @@ namespace Dev.CD606.TM.Transport
                             .Add(b)
                             .EncodeToBytes()
                     );
+                }
+            }
+            public void Dispose()
+            {
+                lock(this)
+                {
+                    if (socket != null)
+                    {
+                        socket.Close();
+                    }
                 }
             }
         }

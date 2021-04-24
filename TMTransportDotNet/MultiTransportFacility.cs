@@ -1,6 +1,8 @@
 using System;
 using System.Threading.Tasks;
+using System.Text.RegularExpressions;
 using Here;
+using PeterO.Cbor;
 using Dev.CD606.TM.Infra.RealTimeApp;
 using Dev.CD606.TM.Basic;
 using Dev.CD606.TM.Infra;
@@ -29,13 +31,21 @@ namespace Dev.CD606.TM.Transport
         class OneShotClient<InT,OutT> : IHandler<Env,KeyedData<InT,OutT>>
         {
             private TaskCompletionSource<OutT> promise;
-            public OneShotClient(TaskCompletionSource<OutT> promise)
+            private AbstractOnOrderFacility<Env,InT,OutT> facility;
+            public OneShotClient(TaskCompletionSource<OutT> promise, AbstractOnOrderFacility<Env,InT,OutT> facility)
             {
                 this.promise = promise;
+                this.facility = facility;
             }
             public void handle(TimedDataWithEnvironment<Env,KeyedData<InT,OutT>> data)
             {
                 this.promise.SetResult(data.timedData.value.data);
+                if (this.facility is IDisposable)
+                {
+                    Task.Run(() => {
+                        (this.facility as IDisposable).Dispose();
+                    });
+                }
             }
         }
         public static Task<OutT> OneShot<InT,OutT>(Env env, Key<InT> input, Func<InT,byte[]> encoder, Func<byte[],Option<OutT>> decoder, string address, HookPair hookPair = null, ClientSideIdentityAttacher identityAttacher = null)
@@ -52,9 +62,31 @@ namespace Dev.CD606.TM.Transport
                         , true
                     )
                 )
-                , new OneShotClient<InT,OutT>(promise)
+                , new OneShotClient<InT,OutT>(promise, facility)
             );
             return promise.Task;
+        }
+        public async static Task<OutT> OneShotByHeartbeat<InT,OutT>(Env env, Key<InT> input, Func<InT,byte[]> encoder, Func<byte[],Option<OutT>> decoder, string heartbeatAddress, string heartbeatTopicStr, Regex heartbeatSenderRE, string facilityChannelName, HookPair hookPair = null, ClientSideIdentityAttacher identityAttacher = null, WireToUserHook heartbeatHook=null)
+        {
+            var heartbeat = await MultiTransportImporter<Env>.FetchTypedFirstUpdateAndDisconnect<Heartbeat>(
+                env: env
+                , decoder : (o) => CborDecoder<Heartbeat>.Decode(CBORObject.DecodeFromBytes(o))
+                , address : heartbeatAddress
+                , topicStr : heartbeatTopicStr
+                , predicate : (h) => heartbeatSenderRE.IsMatch(h.sender_description) && h.facility_channels.ContainsKey(facilityChannelName)
+                , hook : heartbeatHook
+            );
+            var facilityAddress = "";
+            heartbeat.content.facility_channels.TryGetValue(facilityChannelName, out facilityAddress);
+            return await OneShot<InT,OutT>(
+                env : env 
+                , input : input 
+                , encoder : encoder 
+                , decoder : decoder 
+                , address : facilityAddress
+                , hookPair : hookPair
+                , identityAttacher : identityAttacher
+            );
         }
         public static void OneShotNoReply<InT,OutT>(Env env, Key<InT> input, Func<InT,byte[]> encoder, Func<byte[],Option<OutT>> decoder, string address, HookPair hookPair = null, ClientSideIdentityAttacher identityAttacher = null)
         {

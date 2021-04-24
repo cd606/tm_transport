@@ -11,32 +11,59 @@ namespace Dev.CD606.TM.Transport
 {
     public static class RedisComponent<Env> where Env : ClockEnv
     {
-        private static Dictionary<ConnectionLocator, ConnectionMultiplexer> multiplexers = new Dictionary<ConnectionLocator, ConnectionMultiplexer>();
+        private class MultiplexerInfo
+        {
+            public ConnectionMultiplexer multiplexer = null;
+            public uint count = 0;
+        }
+        private static Dictionary<ConnectionLocator, MultiplexerInfo> multiplexers = new Dictionary<ConnectionLocator, MultiplexerInfo>();
         private static object multiplexerLock = new object();
         private static ConnectionMultiplexer getMultiplexer(ConnectionLocator l)
         {
             var simplifiedLocator = new ConnectionLocator(host: l.Host, port : l.Port);
             lock (multiplexerLock)
             {
-                if (multiplexers.TryGetValue(simplifiedLocator, out ConnectionMultiplexer m))
+                if (multiplexers.TryGetValue(simplifiedLocator, out MultiplexerInfo m))
                 {
-                    return m;
+                    ++m.count;
+                    return m.multiplexer;
                 }
-                m = ConnectionMultiplexer.Connect($"{l.Host}:{((l.Port==0)?6379:l.Port)}");
+                m = new MultiplexerInfo() {
+                    multiplexer = ConnectionMultiplexer.Connect($"{l.Host}:{((l.Port==0)?6379:l.Port)}")
+                    , count = 1
+                };
                 multiplexers.Add(simplifiedLocator, m);
-                return m;
+                return m.multiplexer;
             }
         }
-        class BinaryImporter : AbstractImporter<Env, ByteDataWithTopic>
+        private static void removeMultiplexer(ConnectionLocator locator)
+        {
+            var simplifiedLocator = new ConnectionLocator(host: locator.Host, port : locator.Port);
+            lock (multiplexerLock)
+            {
+                if (multiplexers.TryGetValue(simplifiedLocator, out MultiplexerInfo m))
+                {
+                    --m.count;
+                    if (m.count <= 0)
+                    {
+                        m.multiplexer.Close();
+                        multiplexers.Remove(simplifiedLocator);
+                    }
+                }
+            }
+        }
+        class BinaryImporter : AbstractImporter<Env, ByteDataWithTopic>, IDisposable
         {
             private WireToUserHook hook;
             private ConnectionLocator locator;
             private TopicSpec topicSpec;
+            private ConnectionMultiplexer multiplexer;
             public BinaryImporter(ConnectionLocator locator, TopicSpec topicSpec, WireToUserHook hook = null)
             {
                 this.locator = locator;
                 this.topicSpec = topicSpec;
                 this.hook = hook;
+                this.multiplexer = null;
                 if (this.topicSpec.MatchType != TopicMatchType.MatchExact)
                 {
                     throw new Exception($"RabbitMQ topic must be exact string");
@@ -44,7 +71,7 @@ namespace Dev.CD606.TM.Transport
             }
             public override void start(Env env)
             {
-                var multiplexer = getMultiplexer(locator);
+                multiplexer = getMultiplexer(locator);
                 multiplexer.GetSubscriber().Subscribe(
                     new RedisChannel(topicSpec.ExactString, RedisChannel.PatternMode.Pattern)
                     , (channel, message) => {
@@ -69,23 +96,35 @@ namespace Dev.CD606.TM.Transport
                     }
                 );
             }
+            public void Dispose()
+            {
+                if (multiplexer != null)
+                {
+                    multiplexer.GetSubscriber().Unsubscribe(
+                        new RedisChannel(topicSpec.ExactString, RedisChannel.PatternMode.Pattern)
+                    );
+                    removeMultiplexer(locator);
+                }   
+            }
         }
         public static AbstractImporter<Env, ByteDataWithTopic> CreateImporter(ConnectionLocator locator, TopicSpec topicSpec, WireToUserHook hook = null)
         {
             return new BinaryImporter(locator, topicSpec, hook);
         }
-        class TypedImporter<T> : AbstractImporter<Env, TypedDataWithTopic<T>>
+        class TypedImporter<T> : AbstractImporter<Env, TypedDataWithTopic<T>>, IDisposable
         {
             private Func<byte[],Option<T>> decoder;
             private ConnectionLocator locator;
             private TopicSpec topicSpec;
             private WireToUserHook hook;
+            private ConnectionMultiplexer multiplexer;
             public TypedImporter(Func<byte[],Option<T>> decoder, ConnectionLocator locator, TopicSpec topicSpec, WireToUserHook hook = null)
             {
                 this.decoder = decoder;
                 this.locator = locator;
                 this.topicSpec = topicSpec;
                 this.hook = hook;
+                this.multiplexer = null;
                 if (this.topicSpec.MatchType != TopicMatchType.MatchExact)
                 {
                     throw new Exception($"RabbitMQ topic must be exact string");
@@ -93,7 +132,7 @@ namespace Dev.CD606.TM.Transport
             }
             public override void start(Env env)
             {
-                var multiplexer = getMultiplexer(locator);
+                multiplexer = getMultiplexer(locator);
                 multiplexer.GetSubscriber().Subscribe(
                     new RedisChannel(topicSpec.ExactString, RedisChannel.PatternMode.Pattern)
                     , (channel, message) => {
@@ -122,12 +161,22 @@ namespace Dev.CD606.TM.Transport
                     }
                 );
             }
+            public void Dispose()
+            {
+                if (multiplexer != null)
+                {
+                    multiplexer.GetSubscriber().Unsubscribe(
+                        new RedisChannel(topicSpec.ExactString, RedisChannel.PatternMode.Pattern)
+                    );
+                    removeMultiplexer(locator);
+                }   
+            }
         }
         public static AbstractImporter<Env, TypedDataWithTopic<T>> CreateTypedImporter<T>(Func<byte[],Option<T>> decoder, ConnectionLocator locator, TopicSpec topicSpec, WireToUserHook hook = null)
         {
             return new TypedImporter<T>(decoder, locator, topicSpec, hook);
         }
-        class BinaryExporter : AbstractExporter<Env, ByteDataWithTopic>
+        class BinaryExporter : AbstractExporter<Env, ByteDataWithTopic>, IDisposable
         {
             private ConnectionLocator locator;
             private UserToWireHook hook;
@@ -149,12 +198,19 @@ namespace Dev.CD606.TM.Transport
                     , (hook == null?data.timedData.value.content:hook.hook(data.timedData.value.content))
                 );
             }
+            public void Dispose()
+            {
+                if (subscriber != null)
+                {
+                    removeMultiplexer(locator);
+                }
+            }
         }
         public static AbstractExporter<Env, ByteDataWithTopic> CreateExporter(ConnectionLocator locator, UserToWireHook hook = null)
         {
             return new BinaryExporter(locator, hook);
         }
-        class TypedExporter<T> : AbstractExporter<Env, TypedDataWithTopic<T>>
+        class TypedExporter<T> : AbstractExporter<Env, TypedDataWithTopic<T>>, IDisposable
         {
             private Func<T, byte[]> encoder;
             private ConnectionLocator locator;
@@ -183,12 +239,19 @@ namespace Dev.CD606.TM.Transport
                     , b
                 );
             }
+            public void Dispose()
+            {
+                if (subscriber != null)
+                {
+                    removeMultiplexer(locator);
+                }
+            }
         }
         public static AbstractExporter<Env, TypedDataWithTopic<T>> CreateTypedExporter<T>(Func<T,byte[]> encoder, ConnectionLocator locator, UserToWireHook hook = null)
         {
             return new TypedExporter<T>(encoder, locator, hook);
         }
-        class ClientFacility<InT,OutT> : AbstractOnOrderFacility<Env,InT,OutT>
+        class ClientFacility<InT,OutT> : AbstractOnOrderFacility<Env,InT,OutT>, IDisposable
         {
             private Func<InT, byte[]> encoder;
             private Func<byte[], Option<OutT>> decoder;
@@ -293,6 +356,14 @@ namespace Dev.CD606.TM.Transport
                     new RedisChannel(locator.Identifier, RedisChannel.PatternMode.Literal)
                     , cborObj.EncodeToBytes()
                 );
+            }
+            public void Dispose()
+            {
+                if (subscriber != null)
+                {
+                    subscriber.Unsubscribe(new RedisChannel(myID, RedisChannel.PatternMode.Literal));
+                    removeMultiplexer(locator);
+                }
             }
         }
         public static AbstractOnOrderFacility<Env,InT,OutT> CreateFacility<InT,OutT>(Func<InT,byte[]> encoder, Func<byte[],Option<OutT>> decoder, ConnectionLocator locator, HookPair hookPair = null, ClientSideIdentityAttacher identityAttacher = null)
