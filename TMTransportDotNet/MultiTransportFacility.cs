@@ -88,9 +88,9 @@ namespace Dev.CD606.TM.Transport
                 , identityAttacher : identityAttacher
             );
         }
-        public static void OneShotNoReply<InT,OutT>(Env env, Key<InT> input, Func<InT,byte[]> encoder, Func<byte[],Option<OutT>> decoder, string address, HookPair hookPair = null, ClientSideIdentityAttacher identityAttacher = null)
+        public static void OneShotNoReply<InT,OutT>(Env env, Key<InT> input, Func<InT,byte[]> encoder, string address, HookPair hookPair = null, ClientSideIdentityAttacher identityAttacher = null)
         {
-            var facility = CreateFacility<InT,OutT>(encoder, decoder, address, hookPair, identityAttacher);
+            var facility = CreateFacility<InT,OutT>(encoder, (b) => Option.None, address, hookPair, identityAttacher);
             facility.start(env);
             facility.placeRequestAndForget(
                 new TimedDataWithEnvironment<Env, Key<InT>>(
@@ -101,6 +101,27 @@ namespace Dev.CD606.TM.Transport
                         , true
                     )
                 )
+            );
+        }
+        public async static Task OneShotNoReplyByHeartbeat<InT,OutT>(Env env, Key<InT> input, Func<InT,byte[]> encoder, string heartbeatAddress, string heartbeatTopicStr, Regex heartbeatSenderRE, string facilityChannelName, HookPair hookPair = null, ClientSideIdentityAttacher identityAttacher = null, WireToUserHook heartbeatHook=null)
+        {
+            var heartbeat = await MultiTransportImporter<Env>.FetchTypedFirstUpdateAndDisconnect<Heartbeat>(
+                env: env
+                , decoder : (o) => CborDecoder<Heartbeat>.Decode(CBORObject.DecodeFromBytes(o))
+                , address : heartbeatAddress
+                , topicStr : heartbeatTopicStr
+                , predicate : (h) => heartbeatSenderRE.IsMatch(h.sender_description) && h.facility_channels.ContainsKey(facilityChannelName)
+                , hook : heartbeatHook
+            );
+            var facilityAddress = "";
+            heartbeat.content.facility_channels.TryGetValue(facilityChannelName, out facilityAddress);
+            OneShotNoReply<InT,OutT>(
+                env : env 
+                , input : input 
+                , encoder : encoder  
+                , address : facilityAddress
+                , hookPair : hookPair
+                , identityAttacher : identityAttacher
             );
         }
         public class DynamicFacility<InT,OutT> : AbstractOnOrderFacility<Env,InT,OutT>
