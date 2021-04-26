@@ -15,6 +15,34 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
         using M = typename R::AppType;
         using Env = typename R::EnvironmentType;
     public:
+        template <class A, class B>
+        static auto addIdentity(
+            R &runner 
+            , typename R::template FacilitioidConnector<
+                A
+                , B
+            > const &toBeWrapped
+            , std::string const &prefix
+        ) -> typename R::template FacilitioidConnector<
+            typename DetermineServerSideIdentityForRequest<Env, A>::FullRequestType
+            , B
+        > {
+            if constexpr (std::is_same_v<
+                typename DetermineServerSideIdentityForRequest<Env, A>::IdentityType 
+                , void
+            >) {
+                return toBeWrapped;
+            } else {
+                return basic::AppRunnerUtilComponents<R>::template convertIntoTuple2FacilitioidByDiscardingExtraValue<
+                    A
+                    , B 
+                    , typename DetermineServerSideIdentityForRequest<Env, A>::IdentityType
+                >(
+                    toBeWrapped
+                    , prefix
+                );
+            }
+        }
         template <class A, class B, MultiTransportFacilityWrapperOption Option=MultiTransportFacilityWrapperOption::Default>
         static void wrap(
             R &runner

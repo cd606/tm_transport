@@ -171,16 +171,16 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             std::shared_ptr<std::promise<basic::ByteDataWithTopic>> ret = std::make_shared<std::promise<basic::ByteDataWithTopic>>();
             std::shared_ptr<std::atomic<uint32_t>> id = std::make_shared<std::atomic<uint32_t>>();
                 
-            *id = env->redis_addExchangeSubscriptionClient(
+            bool done = false;
+            *id = env->redis_addSubscriptionClient(
                 locator
                 , topic 
-                , [env, ret, id](basic::ByteDataWithTopic &&d) {
-                    static std::atomic<bool> done = false;
+                , [env, ret, id, done](basic::ByteDataWithTopic &&d) mutable {
                     if (!done) {
                         done = true;
                         std::thread([env, ret, id, d = std::move(d)]() {
-                            std::this_thread::sleep_for(std::chrono::milliseconds(100));
-                            env->redis_removeExchangeSubscriptionClient(*id);
+                            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+                            env->redis_removeSubscriptionClient(*id);
                             try {
                                 ret->set_value_at_thread_exit(std::move(d));
                             } catch (std::future_error const &) {
@@ -197,11 +197,11 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             std::shared_ptr<std::promise<basic::TypedDataWithTopic<T>>> ret = std::make_shared<std::promise<basic::TypedDataWithTopic<T>>>();
             std::shared_ptr<std::atomic<uint32_t>> id = std::make_shared<std::atomic<uint32_t>>();
                 
-            *id = env->redis_addExchangeSubscriptionClient(
+            bool done = false;
+            *id = env->redis_addSubscriptionClient(
                 locator
                 , topic 
-                , [env, ret, id, predicate](basic::ByteDataWithTopic &&d) {
-                    static std::atomic<bool> done = false;
+                , [env, ret, id, predicate, done](basic::ByteDataWithTopic &&d) mutable {
                     if (!done) {
                         auto t = basic::bytedata_utils::RunDeserializer<T>::apply(d.content);
                         if (t) {
@@ -210,8 +210,8 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                                 done = true;
                                 std::thread([env, ret, id, res = std::move(res)]() {
                                     try {
-                                        std::this_thread::sleep_for(std::chrono::milliseconds(100));
-                                        env->redis_removeExchangeSubscriptionClient(*id);
+                                        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+                                        env->redis_removeSubscriptionClient(*id);
                                         ret->set_value_at_thread_exit(std::move(res));
                                     } catch (std::future_error const &) {
                                     } catch (std::exception const &) {

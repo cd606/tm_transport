@@ -504,29 +504,60 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 basic::ByteData byteData = { basic::SerializationActions<M>::template serializeFunc<A>(request) };
                 typename M::template Key<basic::ByteData> keyInput = infra::withtime_utils::keyify<basic::ByteData,typename M::EnvironmentType>(std::move(byteData));
                 
+                bool done = false;
                 auto requester = env->redis_setRPCClient(
                     rpcQueueLocator
                     , [env]() {
                         return Env::id_to_string(env->new_id());
                     }
-                    , [autoDisconnect,rpcQueueLocator,env,ret](bool isFinal, basic::ByteDataWithID &&data) {
-                        try {
-                            auto val = basic::bytedata_utils::RunDeserializer<B>::apply(data.content);
-                            if (!val) {
-                                return;
-                            }
-                            ret->set_value(std::move(*val));
-                            if (autoDisconnect) {
-                                std::thread([env,rpcQueueLocator]() {
-                                    std::this_thread::sleep_for(std::chrono::milliseconds(100));
-                                    env->redis_removeRPCClient(rpcQueueLocator);
-                                }).detach();
-                            }
-                        } catch (std::future_error const &) {
-                        } catch (std::exception const &) {
+                    , [autoDisconnect,rpcQueueLocator,env,ret,done](bool isFinal, basic::ByteDataWithID &&data) mutable {
+                        if (!done) {
                             try {
-                                ret->set_exception(std::current_exception());
+                                auto val = basic::bytedata_utils::RunDeserializer<B>::apply(data.content);
+                                if (!val) {
+                                    throw std::runtime_error("RabbitMQOnOrderFacility::typedOneShotRemoteCall: deserialization error");
+                                } else {
+                                    done = true;
+                                    if (autoDisconnect) {
+                                        std::thread([env,rpcQueueLocator,ret,val=std::move(val)]() {
+                                            try {
+                                                std::this_thread::sleep_for(std::chrono::milliseconds(10));
+                                                env->redis_removeRPCClient(rpcQueueLocator);
+                                                ret->set_value_at_thread_exit(std::move(*val));
+                                            } catch (std::future_error const &) {
+                                            } catch (std::exception const &) {
+                                                try {
+                                                    ret->set_exception_at_thread_exit(std::current_exception());
+                                                } catch (std::future_error const &) {
+                                                }
+                                            }
+                                        }).detach();
+                                    } else {
+                                        ret->set_value(std::move(*val));
+                                    }
+                                }
                             } catch (std::future_error const &) {
+                            } catch (std::exception const &) {
+                                if (autoDisconnect) {
+                                    std::thread([env,rpcQueueLocator,ret,ex=std::current_exception()]() {
+                                        try {
+                                            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+                                            env->redis_removeRPCClient(rpcQueueLocator);
+                                            ret->set_exception_at_thread_exit(std::move(ex));
+                                        } catch (std::future_error const &) {
+                                        } catch (std::exception const &) {
+                                            try {
+                                                ret->set_exception_at_thread_exit(std::current_exception());
+                                            } catch (std::future_error const &) {
+                                            }
+                                        }
+                                    }).detach();
+                                } else {
+                                    try {
+                                        ret->set_exception(std::current_exception());
+                                    } catch (std::future_error const &) {
+                                    }
+                                }
                             }
                         }
                     }
@@ -895,34 +926,65 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 basic::ByteData byteData = { basic::SerializationActions<M>::template serializeFunc<A>(request) };
                 typename M::template Key<basic::ByteData> keyInput = infra::withtime_utils::keyify<basic::ByteData,typename M::EnvironmentType>(std::move(byteData));
                 
+                bool done = false;
                 auto requester = env->redis_setRPCClient(
                     rpcQueueLocator
                     , [env]() {
                         return Env::id_to_string(env->new_id());
                     }
-                    , [autoDisconnect,rpcQueueLocator,ret,env](bool isFinal, basic::ByteDataWithID &&data) {
-                        try {
-                            auto processRes = static_cast<ClientSideAbstractIdentityAttacherComponent<Identity,A> *>(env)->process_incoming_data(
-                                basic::ByteData {std::move(data.content)}
-                            );
-                            if (processRes) {
-                                auto val = basic::bytedata_utils::RunDeserializer<B>::apply(processRes->content);
-                                if (!val) {
-                                    return;
-                                }
-                                ret->set_value(std::move(*val));
-                            }
-                            if (autoDisconnect) {
-                                std::thread([env,rpcQueueLocator]() {
-                                    std::this_thread::sleep_for(std::chrono::milliseconds(100));
-                                    env->redis_removeRPCClient(rpcQueueLocator);
-                                }).detach();
-                            }
-                        } catch (std::future_error const &) {
-                        } catch (std::exception const &) {
+                    , [autoDisconnect,ret,env,rpcQueueLocator,done](bool isFinal, basic::ByteDataWithID &&data) mutable {    
+                        if (!done) {
                             try {
-                                ret->set_exception(std::current_exception());
+                                auto processRes = static_cast<ClientSideAbstractIdentityAttacherComponent<Identity,A> *>(env)->process_incoming_data(
+                                    basic::ByteData {std::move(data.content)}
+                                );
+                                if (processRes) {
+                                    auto val = basic::bytedata_utils::RunDeserializer<B>::apply(processRes->content);
+                                    if (!val) {
+                                        throw std::runtime_error("RabbitMQOnOrderFacility::typedOneShotRemoteCall: deserialization error"); 
+                                    } else {
+                                        done = true;
+                                        if (autoDisconnect) {
+                                            std::thread([env,rpcQueueLocator,ret,val=std::move(val)]() {
+                                                try {
+                                                    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+                                                    env->redis_removeRPCClient(rpcQueueLocator);
+                                                    ret->set_value_at_thread_exit(std::move(*val));
+                                                } catch (std::future_error const &) {
+                                                } catch (std::exception const &) {
+                                                    try {
+                                                        ret->set_exception_at_thread_exit(std::current_exception());
+                                                    } catch (std::future_error const &) {
+                                                    }
+                                                }
+                                            }).detach();
+                                        } else {
+                                            ret->set_value(std::move(*val));
+                                        }
+                                    }
+                                }
                             } catch (std::future_error const &) {
+                            } catch (std::exception const &) {
+                                if (autoDisconnect) {
+                                    std::thread([env,rpcQueueLocator,ret,ex=std::current_exception()]() {
+                                        try {
+                                            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+                                            env->redis_removeRPCClient(rpcQueueLocator);
+                                            ret->set_exception_at_thread_exit(std::move(ex));
+                                        } catch (std::future_error const &) {
+                                        } catch (std::exception const &) {
+                                            try {
+                                                ret->set_exception_at_thread_exit(std::current_exception());
+                                            } catch (std::future_error const &) {
+                                            }
+                                        }
+                                    }).detach();
+                                } else {
+                                    try {
+                                        ret->set_exception(std::current_exception());
+                                    } catch (std::future_error const &) {
+                                    }
+                                }
                             }
                         }
                     }
