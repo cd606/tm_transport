@@ -39,12 +39,15 @@ namespace Dev.CD606.TM.Transport
             }
             public void handle(TimedDataWithEnvironment<Env,KeyedData<InT,OutT>> data)
             {
-                this.promise.SetResult(data.timedData.value.data);
                 if (this.facility is IDisposable)
                 {
+                    var res = data.timedData.value.data;
                     Task.Run(() => {
                         (this.facility as IDisposable).Dispose();
+                        this.promise.SetResult(res);
                     });
+                } else {
+                    this.promise.SetResult(data.timedData.value.data);
                 }
             }
         }

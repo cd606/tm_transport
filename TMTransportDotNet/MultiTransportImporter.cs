@@ -66,12 +66,15 @@ namespace Dev.CD606.TM.Transport
             }
             public void handle(TimedDataWithEnvironment<Env,ByteDataWithTopic> data) 
             {
-                promise.SetResult(data.timedData.value);
+                var res = data.timedData.value;
                 if (importer is IDisposable)
                 {
                     Task.Run(() => {
                         (importer as IDisposable).Dispose();
+                        promise.SetResult(res);
                     });
+                } else {
+                    promise.SetResult(res);
                 }
             }
         }
@@ -98,12 +101,15 @@ namespace Dev.CD606.TM.Transport
             {
                 if (predicate == null || predicate(data.timedData.value.content))
                 {
-                    promise.SetResult(data.timedData.value);
+                    var res = data.timedData.value;
                     if (importer is IDisposable)
                     {
                         Task.Run(() => {
                             (importer as IDisposable).Dispose();
+                            promise.SetResult(res);
                         });
+                    } else {
+                        promise.SetResult(res);
                     }
                 }
             }
