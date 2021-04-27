@@ -514,7 +514,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
             , ConnectionLocator const &locator
             , A &&request
             , std::optional<ByteDataHookPair> hooks = std::nullopt
-            , bool autoDisconnect = false
+            , bool autoDisconnect = true
         ) {
             if (connType == MultiTransportRemoteFacilityConnectionType::RabbitMQ) {
                 if constexpr (std::is_convertible_v<Env *, rabbitmq::RabbitMQComponent *>) {
@@ -542,7 +542,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
             , std::string const &facilityDescriptor
             , A &&request
             , std::optional<ByteDataHookPair> hooks = std::nullopt
-            , bool autoDisconnect = false
+            , bool autoDisconnect = true
         ) {
             auto parseRes = parseMultiTransportRemoteFacilityChannel(facilityDescriptor);
             if (parseRes) {
@@ -558,7 +558,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
             , ConnectionLocator const &locator
             , A &&request
             , std::optional<ByteDataHookPair> hooks = std::nullopt
-            , bool autoDisconnect = false
+            , bool autoDisconnect = true
         ) {
             if (connType == MultiTransportRemoteFacilityConnectionType::RabbitMQ) {
                 if constexpr (std::is_convertible_v<Env *, rabbitmq::RabbitMQComponent *>) {
@@ -586,7 +586,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
             , std::string const &facilityDescriptor
             , A &&request
             , std::optional<ByteDataHookPair> hooks = std::nullopt
-            , bool autoDisconnect = false
+            , bool autoDisconnect = true
         ) {
             auto parseRes = parseMultiTransportRemoteFacilityChannel(facilityDescriptor);
             if (parseRes) {
@@ -669,7 +669,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
             , A &&request
             , std::optional<WireToUserHook> heartbeatHook = std::nullopt
             , std::optional<ByteDataHookPair> hooks = std::nullopt
-            , bool autoDisconnect = false
+            , bool autoDisconnect = true
         ) {
             auto heartbeatResult = MultiTransportBroadcastFirstUpdateQueryManagingUtils<Env>
                 ::template fetchTypedFirstUpdateAndDisconnect<HeartbeatMessage>
@@ -708,7 +708,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
             , A &&request
             , std::optional<WireToUserHook> heartbeatHook = std::nullopt
             , std::optional<ByteDataHookPair> hooks = std::nullopt
-            , bool autoDisconnect = false
+            , bool autoDisconnect = true
         ) {
             auto heartbeatResult = MultiTransportBroadcastFirstUpdateQueryManagingUtils<Env>
                 ::template fetchTypedFirstUpdateAndDisconnect<HeartbeatMessage>
