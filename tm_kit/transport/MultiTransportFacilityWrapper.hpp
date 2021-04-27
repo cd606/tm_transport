@@ -43,6 +43,62 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                 );
             }
         }
+    private:
+        template <class A, class B, typename Enable=void>
+        class AddIdentityIfNeeded {
+        public:
+            static auto work(
+                R &runner 
+                , typename R::template FacilitioidConnector<
+                    A
+                    , B
+                > const &toBeWrapped
+                , std::string const &prefix
+            ) -> typename R::template FacilitioidConnector<
+                typename DetermineServerSideIdentityForRequest<Env, A>::FullRequestType
+                , B
+            > {
+                return MultiTransportFacilityWrapper<R>::template addIdentity<A,B>(runner, toBeWrapped, prefix);
+            }
+        };
+        template <class X, class A, class B>
+        class AddIdentityIfNeeded<
+            std::tuple<X,A>
+            , B
+            , std::enable_if_t<
+                std::is_same_v<
+                    std::tuple<X, A>
+                    , typename DetermineServerSideIdentityForRequest<Env, A>::FullRequestType
+                >
+            >
+        > {
+        public:
+            static auto work(
+                R &runner 
+                , typename R::template FacilitioidConnector<
+                    std::tuple<X,A>
+                    , B
+                > const &toBeWrapped
+                , std::string const &prefix
+            ) -> typename R::template FacilitioidConnector<
+                std::tuple<X,A>
+                , B
+            > {
+                return toBeWrapped;
+            }
+        };
+    public:
+        template <class A, class B>
+        static auto addIdentityIfNeeded(
+            R &runner 
+            , typename R::template FacilitioidConnector<
+                A
+                , B
+            > const &toBeWrapped
+            , std::string const &prefix
+        ) {
+            return AddIdentityIfNeeded<A,B>::work(runner, toBeWrapped, prefix);
+        }
         template <class A, class B, MultiTransportFacilityWrapperOption Option=MultiTransportFacilityWrapperOption::Default>
         static void wrap(
             R &runner
