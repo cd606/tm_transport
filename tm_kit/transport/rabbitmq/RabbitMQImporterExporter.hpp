@@ -5,7 +5,6 @@
 
 #include <tm_kit/infra/RealTimeApp.hpp>
 #include <tm_kit/infra/TraceNodesComponent.hpp>
-#include <tm_kit/infra/ControllableNode.hpp>
 #include <tm_kit/basic/ByteData.hpp>
 #include <tm_kit/transport/rabbitmq/RabbitMQComponent.hpp>
 #include <tm_kit/transport/HeartbeatAndAlertComponent.hpp>
@@ -18,7 +17,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
     public:
         using M = infra::RealTimeApp<Env>;
         static std::shared_ptr<typename M::template Importer<basic::ByteDataWithTopic>> createImporter(ConnectionLocator const &exchangeLocator, std::string const &topic="", std::optional<WireToUserHook> wireToUserHook=std::nullopt) {
-            class LocalI final : public M::template AbstractImporter<basic::ByteDataWithTopic>, public infra::IControllableNode<Env> {
+            class LocalI final : public M::template AbstractImporter<basic::ByteDataWithTopic> {
             private:
                 ConnectionLocator exchangeLocator_;
                 std::string topic_;
@@ -52,7 +51,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         }
         template <class T>
         static std::shared_ptr<typename M::template Importer<basic::TypedDataWithTopic<T>>> createTypedImporter(ConnectionLocator const &exchangeLocator, std::string const &topic="", std::optional<WireToUserHook> wireToUserHook=std::nullopt) {
-            class LocalI final : public M::template AbstractImporter<basic::TypedDataWithTopic<T>>, public infra::IControllableNode<Env> {
+            class LocalI final : public M::template AbstractImporter<basic::TypedDataWithTopic<T>> {
             private:
                 ConnectionLocator exchangeLocator_;
                 std::string topic_;
