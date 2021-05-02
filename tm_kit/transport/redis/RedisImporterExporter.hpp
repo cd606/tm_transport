@@ -19,33 +19,41 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
     public:
         using M = infra::RealTimeApp<Env>;
         static std::shared_ptr<typename M::template Importer<basic::ByteDataWithTopic>> createImporter(ConnectionLocator const &locator, std::string const &topic="*", std::optional<WireToUserHook> wireToUserHook=std::nullopt) {
-            class LocalI final : public M::template AbstractImporter<basic::ByteDataWithTopic> {
+            class LocalI final : public M::template AbstractImporter<basic::ByteDataWithTopic>, public virtual infra::IControllableNode<Env> {
             private:
                 ConnectionLocator locator_;
                 std::string topic_;
                 std::optional<WireToUserHook> wireToUserHook_;
                 std::optional<uint32_t> client_;
+                std::mutex mutex_;
             public:
                 LocalI(ConnectionLocator const &locator, std::string const &topic, std::optional<WireToUserHook> wireToUserHook)
-                    : locator_(locator), topic_(topic), wireToUserHook_(wireToUserHook), client_(std::nullopt)
+                    : locator_(locator), topic_(topic), wireToUserHook_(wireToUserHook), client_(std::nullopt), mutex_()
                 {
                 }
                 virtual void start(Env *env) override final {
-                    client_ = env->redis_addSubscriptionClient(
-                        locator_
-                        , topic_
-                        , [this,env](basic::ByteDataWithTopic &&d) {
-                            TM_INFRA_IMPORTER_TRACER(env);
-                            this->publish(M::template pureInnerData<basic::ByteDataWithTopic>(env, std::move(d)));
-                        }
-                        , wireToUserHook_
-                    );
+                    std::lock_guard<std::mutex> _(mutex_);
+                    if (!client_) {
+                        client_ = env->redis_addSubscriptionClient(
+                            locator_
+                            , topic_
+                            , [this,env](basic::ByteDataWithTopic &&d) {
+                                TM_INFRA_IMPORTER_TRACER(env);
+                                this->publish(M::template pureInnerData<basic::ByteDataWithTopic>(env, std::move(d)));
+                            }
+                            , wireToUserHook_
+                        );
+                    }
                 }
                 virtual void control(Env *env, std::string const &command, std::vector<std::string> const &params) override final {
                     if (command == "stop") {
+                        std::lock_guard<std::mutex> _(mutex_);
                         if (client_) {
                             env->redis_removeSubscriptionClient(*client_);
+                            client_ = std::nullopt;
                         }
+                    } else if (command == "restart") {
+                        start(env);
                     }
                 }
             };
@@ -53,39 +61,47 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         }
         template <class T>
         static std::shared_ptr<typename M::template Importer<basic::TypedDataWithTopic<T>>> createTypedImporter(ConnectionLocator const &locator, std::string const &topic="*", std::optional<WireToUserHook> wireToUserHook=std::nullopt) {
-            class LocalI final : public M::template AbstractImporter<basic::TypedDataWithTopic<T>> {
+            class LocalI final : public M::template AbstractImporter<basic::TypedDataWithTopic<T>>, public virtual infra::IControllableNode<Env> {
             private:
                 ConnectionLocator locator_;
                 std::string topic_;
                 std::optional<WireToUserHook> wireToUserHook_;
                 std::optional<uint32_t> client_;
+                std::mutex mutex_;
             public:
                 LocalI(ConnectionLocator const &locator, std::string const &topic, std::optional<WireToUserHook> wireToUserHook)
-                    : locator_(locator), topic_(topic), wireToUserHook_(wireToUserHook), client_(std::nullopt)
+                    : locator_(locator), topic_(topic), wireToUserHook_(wireToUserHook), client_(std::nullopt), mutex_()
                 {
                 }
                 virtual void start(Env *env) override final {
+                    std::lock_guard<std::mutex> _(mutex_);
                     if (!wireToUserHook_) {
                         wireToUserHook_ = DefaultHookFactory<Env>::template incomingHook<T>(env);
                     }
-                    client_ = env->redis_addSubscriptionClient(
-                       locator_
-                        , topic_
-                        , [this,env](basic::ByteDataWithTopic &&d) {
-                            TM_INFRA_IMPORTER_TRACER(env);
-                            auto t = basic::bytedata_utils::RunDeserializer<T>::apply(d.content);
-                            if (t) {
-                                this->publish(M::template pureInnerData<basic::TypedDataWithTopic<T>>(env, {std::move(d.topic), std::move(*t)}));
+                    if (!client_) {
+                        client_ = env->redis_addSubscriptionClient(
+                        locator_
+                            , topic_
+                            , [this,env](basic::ByteDataWithTopic &&d) {
+                                TM_INFRA_IMPORTER_TRACER(env);
+                                auto t = basic::bytedata_utils::RunDeserializer<T>::apply(d.content);
+                                if (t) {
+                                    this->publish(M::template pureInnerData<basic::TypedDataWithTopic<T>>(env, {std::move(d.topic), std::move(*t)}));
+                                }
                             }
-                        }
-                        , wireToUserHook_
-                    );
+                            , wireToUserHook_
+                        );
+                    }
                 }
                 virtual void control(Env *env, std::string const &command, std::vector<std::string> const &params) override final {
                     if (command == "stop") {
+                        std::lock_guard<std::mutex> _(mutex_);
                         if (client_) {
                             env->redis_removeSubscriptionClient(*client_);
+                            client_ = std::nullopt;
                         }
+                    } else if (command == "restart") {
+                        start(env);
                     }
                 }
             };

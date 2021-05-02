@@ -121,6 +121,13 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
             << '}';
         return os;
     }
+    struct MultiTransportBroadcastListenerRemoveAllSubscriptions {
+    };
+    inline std::ostream &operator<<(std::ostream &os, MultiTransportBroadcastListenerRemoveAllSubscriptions const &x) {
+        os << "MultiTransportBroadcastListenerRemoveAllSubscriptions{"
+            << '}';
+        return os;
+    }
     struct MultiTransportBroadcastListenerAddSubscriptionResponse {
         uint32_t subscriptionID;
     };
@@ -136,16 +143,24 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
         os << "MultiTransportBroadcastListenerRemoveSubscriptionResponse{}";
         return os;
     }
+    struct MultiTransportBroadcastListenerRemoveAllSubscriptionsResponse {
+    };
+    inline std::ostream &operator<<(std::ostream &os, MultiTransportBroadcastListenerRemoveAllSubscriptionsResponse const &x) {
+        os << "MultiTransportBroadcastListenerRemoveAllSubscriptionsResponse{}";
+        return os;
+    }
     using MultiTransportBroadcastListenerInput = basic::CBOR<
         std::variant<
             MultiTransportBroadcastListenerAddSubscription
             , MultiTransportBroadcastListenerRemoveSubscription
+            , MultiTransportBroadcastListenerRemoveAllSubscriptions
         >
     >;
     using MultiTransportBroadcastListenerOutput = basic::CBOR<
         std::variant<
             MultiTransportBroadcastListenerAddSubscriptionResponse
             , MultiTransportBroadcastListenerRemoveSubscriptionResponse
+            , MultiTransportBroadcastListenerRemoveAllSubscriptionsResponse
         >
     >;
 
@@ -188,6 +203,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
             , MultiTransportBroadcastListenerOutput
             , basic::TypedDataWithTopic<T>
         >
+        , public infra::IControllableNode<Env>
     {
     private:
         using M = infra::RealTimeApp<Env>;
@@ -204,6 +220,9 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
             basic::TypedDataWithTopic<T>
         >;
         std::optional<WireToUserHook> wireToUserHook_; 
+
+        std::set<std::tuple<MultiTransportBroadcastListenerConnectionType, uint32_t>> subscriptions_;
+        std::mutex subscriptionsMutex_;
   
         void actuallyHandle(typename M::template InnerData<typename M::template Key<MultiTransportBroadcastListenerInput>> &&input) {
             Env *env = input.environment;
@@ -235,6 +254,10 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                                 }
                                 , actualHook
                             );
+                            {
+                                std::lock_guard<std::mutex> _(subscriptionsMutex_);
+                                subscriptions_.insert({x.connectionType, res});
+                            }
                             this->FacilityParent::publish(
                                 env
                                 , typename M::template Key<MultiTransportBroadcastListenerOutput> {
@@ -280,6 +303,10 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                                 }
                                 , actualHook
                             );
+                            {
+                                std::lock_guard<std::mutex> _(subscriptionsMutex_);
+                                subscriptions_.insert({x.connectionType, res});
+                            }
                             this->FacilityParent::publish(
                                 env
                                 , typename M::template Key<MultiTransportBroadcastListenerOutput> {
@@ -325,6 +352,10 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                                 }
                                 , actualHook
                             );
+                            {
+                                std::lock_guard<std::mutex> _(subscriptionsMutex_);
+                                subscriptions_.insert({x.connectionType, res});
+                            }
                             this->FacilityParent::publish(
                                 env
                                 , typename M::template Key<MultiTransportBroadcastListenerOutput> {
@@ -370,6 +401,10 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                                 }
                                 , actualHook
                             );
+                            {
+                                std::lock_guard<std::mutex> _(subscriptionsMutex_);
+                                subscriptions_.insert({x.connectionType, res});
+                            }
                             this->FacilityParent::publish(
                                 env
                                 , typename M::template Key<MultiTransportBroadcastListenerOutput> {
@@ -415,6 +450,10 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                                 }
                                 , actualHook
                             );
+                            {
+                                std::lock_guard<std::mutex> _(subscriptionsMutex_);
+                                subscriptions_.insert({x.connectionType, res});
+                            }
                             this->FacilityParent::publish(
                                 env
                                 , typename M::template Key<MultiTransportBroadcastListenerOutput> {
@@ -460,6 +499,10 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                                 }
                                 , actualHook
                             );
+                            {
+                                std::lock_guard<std::mutex> _(subscriptionsMutex_);
+                                subscriptions_.insert({x.connectionType, res});
+                            }
                             this->FacilityParent::publish(
                                 env
                                 , typename M::template Key<MultiTransportBroadcastListenerOutput> {
@@ -505,24 +548,60 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                         if constexpr (std::is_convertible_v<Env *, multicast::MulticastComponent *>) {
                             static_cast<multicast::MulticastComponent *>(env)
                                 ->multicast_removeSubscriptionClient(x.subscriptionID);
+                            {
+                                std::lock_guard<std::mutex> _(subscriptionsMutex_);
+                                subscriptions_.erase({x.connectionType, x.subscriptionID});
+                            }
                         }
                         break;
                     case MultiTransportBroadcastListenerConnectionType::RabbitMQ:
                         if constexpr (std::is_convertible_v<Env *, rabbitmq::RabbitMQComponent *>) {
                             static_cast<rabbitmq::RabbitMQComponent *>(env)
                                 ->rabbitmq_removeExchangeSubscriptionClient(x.subscriptionID);
+                            {
+                                std::lock_guard<std::mutex> _(subscriptionsMutex_);
+                                subscriptions_.erase({x.connectionType, x.subscriptionID});
+                            }
                         }
                         break;
                     case MultiTransportBroadcastListenerConnectionType::Redis:
                         if constexpr (std::is_convertible_v<Env *, redis::RedisComponent *>) {
                             static_cast<redis::RedisComponent *>(env)
                                 ->redis_removeSubscriptionClient(x.subscriptionID);
+                            {
+                                std::lock_guard<std::mutex> _(subscriptionsMutex_);
+                                subscriptions_.erase({x.connectionType, x.subscriptionID});
+                            }
                         }
                         break;
                     case MultiTransportBroadcastListenerConnectionType::ZeroMQ:
                         if constexpr (std::is_convertible_v<Env *, zeromq::ZeroMQComponent *>) {
                             static_cast<zeromq::ZeroMQComponent *>(env)
                                 ->zeroMQ_removeSubscriptionClient(x.subscriptionID);
+                            {
+                                std::lock_guard<std::mutex> _(subscriptionsMutex_);
+                                subscriptions_.erase({x.connectionType, x.subscriptionID});
+                            }
+                        }
+                        break;
+                    case MultiTransportBroadcastListenerConnectionType::NNG:
+                        if constexpr (std::is_convertible_v<Env *, nng::NNGComponent *>) {
+                            static_cast<nng::NNGComponent *>(env)
+                                ->nng_removeSubscriptionClient(x.subscriptionID);
+                            {
+                                std::lock_guard<std::mutex> _(subscriptionsMutex_);
+                                subscriptions_.erase({x.connectionType, x.subscriptionID});
+                            }
+                        }
+                        break;
+                    case MultiTransportBroadcastListenerConnectionType::SharedMemoryBroadcast:
+                        if constexpr (std::is_convertible_v<Env *, shared_memory_broadcast::SharedMemoryBroadcastComponent *>) {
+                            static_cast<shared_memory_broadcast::SharedMemoryBroadcastComponent *>(env)
+                                ->shared_memory_broadcast_removeSubscriptionClient(x.subscriptionID);
+                            {
+                                std::lock_guard<std::mutex> _(subscriptionsMutex_);
+                                subscriptions_.erase({x.connectionType, x.subscriptionID});
+                            }
                         }
                         break;
                     default:
@@ -538,6 +617,61 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                         }
                         , true
                     );
+                } else if constexpr (std::is_same_v<X, MultiTransportBroadcastListenerRemoveAllSubscriptions>) {
+                    std::lock_guard<std::mutex> _(subscriptionsMutex_);
+                    for (auto const &x : subscriptions_) {
+                        switch (std::get<0>(x)) {
+                        case MultiTransportBroadcastListenerConnectionType::Multicast:
+                            if constexpr (std::is_convertible_v<Env *, multicast::MulticastComponent *>) {
+                                static_cast<multicast::MulticastComponent *>(env)
+                                    ->multicast_removeSubscriptionClient(std::get<1>(x));
+                            }
+                            break;
+                        case MultiTransportBroadcastListenerConnectionType::RabbitMQ:
+                            if constexpr (std::is_convertible_v<Env *, rabbitmq::RabbitMQComponent *>) {
+                                static_cast<rabbitmq::RabbitMQComponent *>(env)
+                                    ->rabbitmq_removeExchangeSubscriptionClient(std::get<1>(x));
+                            }
+                            break;
+                        case MultiTransportBroadcastListenerConnectionType::Redis:
+                            if constexpr (std::is_convertible_v<Env *, redis::RedisComponent *>) {
+                                static_cast<redis::RedisComponent *>(env)
+                                    ->redis_removeSubscriptionClient(std::get<1>(x));
+                            }
+                            break;
+                        case MultiTransportBroadcastListenerConnectionType::ZeroMQ:
+                            if constexpr (std::is_convertible_v<Env *, zeromq::ZeroMQComponent *>) {
+                                static_cast<zeromq::ZeroMQComponent *>(env)
+                                    ->zeroMQ_removeSubscriptionClient(std::get<1>(x));
+                            }
+                            break;
+                        case MultiTransportBroadcastListenerConnectionType::NNG:
+                            if constexpr (std::is_convertible_v<Env *, nng::NNGComponent *>) {
+                                static_cast<nng::NNGComponent *>(env)
+                                    ->nng_removeSubscriptionClient(std::get<1>(x));
+                            }
+                            break;
+                        case MultiTransportBroadcastListenerConnectionType::SharedMemoryBroadcast:
+                            if constexpr (std::is_convertible_v<Env *, shared_memory_broadcast::SharedMemoryBroadcastComponent *>) {
+                                static_cast<shared_memory_broadcast::SharedMemoryBroadcastComponent *>(env)
+                                    ->shared_memory_broadcast_removeSubscriptionClient(std::get<1>(x));
+                            }
+                            break;
+                        default:
+                            break;
+                        }
+                    }
+                    subscriptions_.clear();
+                    this->FacilityParent::publish(
+                        env
+                        , typename M::template Key<MultiTransportBroadcastListenerOutput> {
+                            id
+                            , MultiTransportBroadcastListenerOutput { {
+                                MultiTransportBroadcastListenerRemoveAllSubscriptionsResponse {}
+                            } }
+                        }
+                        , true
+                    );
                 }
             }, std::move(input.timedData.value.key().value));
         } 
@@ -545,6 +679,8 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
         MultiTransportBroadcastListener(std::optional<WireToUserHook> wireToUserHook = std::nullopt) 
             : Parent()
             , wireToUserHook_(wireToUserHook) 
+            , subscriptions_()
+            , subscriptionsMutex_()
         {
         }
         ~MultiTransportBroadcastListener() {
@@ -554,6 +690,22 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
         void handle(typename M::template InnerData<typename M::template Key<MultiTransportBroadcastListenerInput>> &&input) override final {
             actuallyHandle(std::move(input));
         } 
+        void control(Env *env, std::string const &command, std::vector<std::string> const &params) override final {
+            if (command == "stop") {
+                actuallyHandle(
+                    typename M::template InnerData<typename M::template Key<MultiTransportBroadcastListenerInput>> {
+                        env 
+                        , {
+                            env->now()
+                            , M::template keyify<MultiTransportBroadcastListenerInput>(
+                                { MultiTransportBroadcastListenerRemoveAllSubscriptions {} }
+                            )
+                            , false
+                        }
+                    }
+                );
+            }
+        }
     };
 } } } }
 
