@@ -101,6 +101,30 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
         MultiTransportBroadcastListenerConnectionType connectionType;
         ConnectionLocator connectionLocator;
         std::string topicDescription; 
+        bool operator==(MultiTransportBroadcastListenerAddSubscription const &a) const {
+            if (this == &a) {
+                return true;
+            }
+            return (connectionType == a.connectionType && connectionLocator == a.connectionLocator && topicDescription == a.topicDescription);
+        }
+        bool operator<(MultiTransportBroadcastListenerAddSubscription const &a) const {
+            if (this == &a) {
+                return false;
+            }
+            if (connectionType < a.connectionType) {
+                return true;
+            }
+            if (connectionType > a.connectionType) {
+                return false;
+            }
+            if (connectionLocator < a.connectionLocator) {
+                return true;
+            }
+            if (a.connectionLocator < connectionLocator) {
+                return false;
+            }
+            return (topicDescription < a.topicDescription);
+        }
     };
     inline std::ostream &operator<<(std::ostream &os, MultiTransportBroadcastListenerAddSubscription const &x) {
         os << "MultiTransportBroadcastListenerAddSubscription{"
@@ -221,8 +245,11 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
         >;
         std::optional<WireToUserHook> wireToUserHook_; 
 
-        std::set<std::tuple<MultiTransportBroadcastListenerConnectionType, uint32_t>> subscriptions_;
-        std::mutex subscriptionsMutex_;
+        using SubscriptionRecKey = std::tuple<MultiTransportBroadcastListenerConnectionType, uint32_t>;
+        std::map<SubscriptionRecKey, MultiTransportBroadcastListenerAddSubscription> subscriptions_;
+        std::map<MultiTransportBroadcastListenerAddSubscription, SubscriptionRecKey> restartInfo_;
+        std::mutex subscriptionsMutex_, controlMutex_;
+        std::atomic<bool> stopped_;
   
         void actuallyHandle(typename M::template InnerData<typename M::template Key<MultiTransportBroadcastListenerInput>> &&input) {
             Env *env = input.environment;
@@ -234,6 +261,11 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                 oss << "[MultiTransportBroadcastListner::actuallyHandle] handling input " << x;
                 env->log(infra::LogLevel::Info, oss.str());
                 if constexpr (std::is_same_v<X, MultiTransportBroadcastListenerAddSubscription>) {
+                    if (stopped_) {
+                        std::lock_guard<std::mutex> _(subscriptionsMutex_);
+                        restartInfo_.insert({x, {x.connectionType, -1}});
+                        return;
+                    }
                     switch (x.connectionType) {
                     case MultiTransportBroadcastListenerConnectionType::Multicast:
                         if constexpr (std::is_convertible_v<Env *, multicast::MulticastComponent *>) {
@@ -256,7 +288,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                             );
                             {
                                 std::lock_guard<std::mutex> _(subscriptionsMutex_);
-                                subscriptions_.insert({x.connectionType, res});
+                                subscriptions_.insert({{x.connectionType, res}, x});
                             }
                             this->FacilityParent::publish(
                                 env
@@ -305,7 +337,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                             );
                             {
                                 std::lock_guard<std::mutex> _(subscriptionsMutex_);
-                                subscriptions_.insert({x.connectionType, res});
+                                subscriptions_.insert({{x.connectionType, res}, x});
                             }
                             this->FacilityParent::publish(
                                 env
@@ -354,7 +386,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                             );
                             {
                                 std::lock_guard<std::mutex> _(subscriptionsMutex_);
-                                subscriptions_.insert({x.connectionType, res});
+                                subscriptions_.insert({{x.connectionType, res}, x});
                             }
                             this->FacilityParent::publish(
                                 env
@@ -403,7 +435,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                             );
                             {
                                 std::lock_guard<std::mutex> _(subscriptionsMutex_);
-                                subscriptions_.insert({x.connectionType, res});
+                                subscriptions_.insert({{x.connectionType, res}, x});
                             }
                             this->FacilityParent::publish(
                                 env
@@ -452,7 +484,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                             );
                             {
                                 std::lock_guard<std::mutex> _(subscriptionsMutex_);
-                                subscriptions_.insert({x.connectionType, res});
+                                subscriptions_.insert({{x.connectionType, res}, x});
                             }
                             this->FacilityParent::publish(
                                 env
@@ -501,7 +533,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                             );
                             {
                                 std::lock_guard<std::mutex> _(subscriptionsMutex_);
-                                subscriptions_.insert({x.connectionType, res});
+                                subscriptions_.insert({{x.connectionType, res}, x});
                             }
                             this->FacilityParent::publish(
                                 env
@@ -543,6 +575,17 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                         break;
                     }
                 } else if constexpr (std::is_same_v<X, MultiTransportBroadcastListenerRemoveSubscription>) {
+                    if (stopped_) {
+                        std::lock_guard<std::mutex> _(subscriptionsMutex_);
+                        SubscriptionRecKey k {x.connectionType, x.subscriptionID};
+                        for (auto iter = restartInfo_.begin(); iter != restartInfo_.end(); ++iter) {
+                            if (iter->second == k) {
+                                restartInfo_.erase(iter);
+                                break;
+                            }
+                        }
+                        return;
+                    }
                     switch (x.connectionType) {
                     case MultiTransportBroadcastListenerConnectionType::Multicast:
                         if constexpr (std::is_convertible_v<Env *, multicast::MulticastComponent *>) {
@@ -620,45 +663,50 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                 } else if constexpr (std::is_same_v<X, MultiTransportBroadcastListenerRemoveAllSubscriptions>) {
                     std::lock_guard<std::mutex> _(subscriptionsMutex_);
                     for (auto const &x : subscriptions_) {
-                        switch (std::get<0>(x)) {
+                        switch (std::get<0>(x.first)) {
                         case MultiTransportBroadcastListenerConnectionType::Multicast:
                             if constexpr (std::is_convertible_v<Env *, multicast::MulticastComponent *>) {
                                 static_cast<multicast::MulticastComponent *>(env)
-                                    ->multicast_removeSubscriptionClient(std::get<1>(x));
+                                    ->multicast_removeSubscriptionClient(std::get<1>(x.first));
                             }
                             break;
                         case MultiTransportBroadcastListenerConnectionType::RabbitMQ:
                             if constexpr (std::is_convertible_v<Env *, rabbitmq::RabbitMQComponent *>) {
                                 static_cast<rabbitmq::RabbitMQComponent *>(env)
-                                    ->rabbitmq_removeExchangeSubscriptionClient(std::get<1>(x));
+                                    ->rabbitmq_removeExchangeSubscriptionClient(std::get<1>(x.first));
                             }
                             break;
                         case MultiTransportBroadcastListenerConnectionType::Redis:
                             if constexpr (std::is_convertible_v<Env *, redis::RedisComponent *>) {
                                 static_cast<redis::RedisComponent *>(env)
-                                    ->redis_removeSubscriptionClient(std::get<1>(x));
+                                    ->redis_removeSubscriptionClient(std::get<1>(x.first));
                             }
                             break;
                         case MultiTransportBroadcastListenerConnectionType::ZeroMQ:
                             if constexpr (std::is_convertible_v<Env *, zeromq::ZeroMQComponent *>) {
                                 static_cast<zeromq::ZeroMQComponent *>(env)
-                                    ->zeroMQ_removeSubscriptionClient(std::get<1>(x));
+                                    ->zeroMQ_removeSubscriptionClient(std::get<1>(x.first));
                             }
                             break;
                         case MultiTransportBroadcastListenerConnectionType::NNG:
                             if constexpr (std::is_convertible_v<Env *, nng::NNGComponent *>) {
                                 static_cast<nng::NNGComponent *>(env)
-                                    ->nng_removeSubscriptionClient(std::get<1>(x));
+                                    ->nng_removeSubscriptionClient(std::get<1>(x.first));
                             }
                             break;
                         case MultiTransportBroadcastListenerConnectionType::SharedMemoryBroadcast:
                             if constexpr (std::is_convertible_v<Env *, shared_memory_broadcast::SharedMemoryBroadcastComponent *>) {
                                 static_cast<shared_memory_broadcast::SharedMemoryBroadcastComponent *>(env)
-                                    ->shared_memory_broadcast_removeSubscriptionClient(std::get<1>(x));
+                                    ->shared_memory_broadcast_removeSubscriptionClient(std::get<1>(x.first));
                             }
                             break;
                         default:
                             break;
+                        }
+                    }
+                    if (stopped_) {
+                        for (auto const &x : subscriptions_) {
+                            restartInfo_.insert({x.second, x.first});
                         }
                     }
                     subscriptions_.clear();
@@ -680,7 +728,10 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
             : Parent()
             , wireToUserHook_(wireToUserHook) 
             , subscriptions_()
+            , restartInfo_()
             , subscriptionsMutex_()
+            , controlMutex_()
+            , stopped_(false)
         {
         }
         ~MultiTransportBroadcastListener() {
@@ -692,18 +743,49 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
         } 
         void control(Env *env, std::string const &command, std::vector<std::string> const &params) override final {
             if (command == "stop") {
-                actuallyHandle(
-                    typename M::template InnerData<typename M::template Key<MultiTransportBroadcastListenerInput>> {
-                        env 
-                        , {
-                            env->now()
-                            , M::template keyify<MultiTransportBroadcastListenerInput>(
-                                { MultiTransportBroadcastListenerRemoveAllSubscriptions {} }
-                            )
-                            , false
+                std::lock_guard<std::mutex> _(controlMutex_);
+                if (!stopped_) {
+                    stopped_ = true;
+                    actuallyHandle(
+                        typename M::template InnerData<typename M::template Key<MultiTransportBroadcastListenerInput>> {
+                            env 
+                            , {
+                                env->now()
+                                , M::template keyify<MultiTransportBroadcastListenerInput>(
+                                    { MultiTransportBroadcastListenerRemoveAllSubscriptions {} }
+                                )
+                                , false
+                            }
                         }
+                    );
+                }
+            } else if (command == "restart") {
+                std::lock_guard<std::mutex> _(controlMutex_);
+                if (stopped_) {
+                    std::vector<MultiTransportBroadcastListenerAddSubscription> infoCopy;
+                    {
+                        std::lock_guard<std::mutex> _(subscriptionsMutex_);
+                        for (auto const &x : restartInfo_) {
+                            infoCopy.push_back(x.first);
+                        }
+                        restartInfo_.clear();
                     }
-                );
+                    stopped_ = false;
+                    for (auto const &x : infoCopy) {
+                        actuallyHandle(
+                            typename M::template InnerData<typename M::template Key<MultiTransportBroadcastListenerInput>> {
+                                env 
+                                , {
+                                    env->now()
+                                    , M::template keyify<MultiTransportBroadcastListenerInput>(
+                                        { x }
+                                    )
+                                    , false
+                                }
+                            }
+                        );
+                    }
+                }
             }
         }
     };
