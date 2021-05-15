@@ -44,15 +44,18 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                     }
                 }
                 virtual void control(Env *env, std::string const &command, std::vector<std::string> const &params) override final {
-                    if (command == "stop") {
-                        std::lock_guard<std::mutex> _(mutex_);
-                        if (client_) {
-                            env->rabbitmq_removeExchangeSubscriptionClient(*client_);
-                            client_ = std::nullopt;
+                    std::thread th([this,env,command]() {
+                        if (command == "stop") {
+                            std::lock_guard<std::mutex> _(mutex_);
+                            if (client_) {
+                                env->rabbitmq_removeExchangeSubscriptionClient(*client_);
+                                client_ = std::nullopt;
+                            }
+                        } else if (command == "restart") {
+                            start(env);
                         }
-                    } else if (command == "restart") {
-                        start(env);
-                    }
+                    });
+                    th.detach();
                 }
             };
             return M::importer(new LocalI(exchangeLocator, topic, wireToUserHook));
@@ -92,15 +95,18 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                     }
                 }
                 virtual void control(Env *env, std::string const &command, std::vector<std::string> const &params) override final {
-                    if (command == "stop") {
-                        std::lock_guard<std::mutex> _(mutex_);
-                        if (client_) {
-                            env->rabbitmq_removeExchangeSubscriptionClient(*client_);
-                            client_ = std::nullopt;
+                    std::thread th([this,env,command]() {
+                        if (command == "stop") {
+                            std::lock_guard<std::mutex> _(mutex_);
+                            if (client_) {
+                                env->rabbitmq_removeExchangeSubscriptionClient(*client_);
+                                client_ = std::nullopt;
+                            }
+                        } else if (command == "restart") {
+                            start(env);
                         }
-                    } else if (command == "restart") {
-                        start(env);
-                    }
+                    });
+                    th.detach();
                 }
             };
             return M::importer(new LocalI(exchangeLocator, topic, wireToUserHook));
