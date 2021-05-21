@@ -560,12 +560,10 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         }
         void saveExtraBytes(std::string const &key, basic::ByteData &&data) {
             static_assert(EDPS != BoostSharedMemoryChainExtraDataProtectionStrategy::DontSupportExtraData, "LockFreeInBoostSharedMemoryChain supports storing extra data only if enabled in template signature");
-            if constexpr (ForceSeparate) {
-                if (hookPair_ && hookPair_->userToWire) {
-                    saveExtraBytes_internal(key, hookPair_->userToWire->hook(std::move(data)));
-                } else {
-                    saveExtraBytes_internal(key, std::move(data));
-                }
+            if (hookPair_ && hookPair_->userToWire) {
+                saveExtraBytes_internal(key, hookPair_->userToWire->hook(std::move(data)));
+            } else {
+                saveExtraBytes_internal(key, std::move(data));
             }
         }
     private:
@@ -618,23 +616,14 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
     public:
         std::optional<basic::ByteData> loadExtraBytes(std::string const &key) {
             static_assert(EDPS != BoostSharedMemoryChainExtraDataProtectionStrategy::DontSupportExtraData, "LockFreeInBoostSharedMemoryChain supports loading extra data only if enabled in template signature");
-            if constexpr (ForceSeparate) {
-                auto b = loadExtraBytes_internal(key);
-                if (hookPair_ && hookPair_->wireToUser) {
-                    if (b) {
-                        return hookPair_->wireToUser->hook(*b);
-                    } else {
-                        return std::nullopt;
-                    }
+            auto b = loadExtraBytes_internal(key);
+            if (hookPair_ && hookPair_->wireToUser) {
+                if (b) {
+                    return hookPair_->wireToUser->hook(*b);
                 } else {
-                    if (b) {
-                        return basic::ByteData {std::string(b->content)};
-                    } else {
-                        return std::nullopt;
-                    }
+                    return std::nullopt;
                 }
             } else {
-                auto b = loadExtraBytes_internal(key);
                 if (b) {
                     return basic::ByteData {std::string(b->content)};
                 } else {
@@ -1030,12 +1019,10 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         }
         void saveExtraBytes(std::string const &key, basic::ByteData &&data) {
             static_assert(EDPS != BoostSharedMemoryChainExtraDataProtectionStrategy::DontSupportExtraData, "LockFreeInBoostSharedMemoryChain supports storing extra data only if enabled in template signature");
-            if constexpr (ForceSeparate) {
-                if (hookPair_ && hookPair_->userToWire) {
-                    saveExtraBytes_internal(key, hookPair_->userToWire->hook(std::move(data)));
-                } else {
-                    saveExtraBytes_internal(key, std::move(data));
-                }
+            if (hookPair_ && hookPair_->userToWire) {
+                saveExtraBytes_internal(key, hookPair_->userToWire->hook(std::move(data)));
+            } else {
+                saveExtraBytes_internal(key, std::move(data));
             }
         }
     private:
@@ -1088,23 +1075,14 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
     public:
         std::optional<basic::ByteData> loadExtraBytes(std::string const &key) {
             static_assert(EDPS != BoostSharedMemoryChainExtraDataProtectionStrategy::DontSupportExtraData, "LockFreeInBoostSharedMemoryChain supports loading extra data only if enabled in template signature");
-            if constexpr (ForceSeparate) {
-                auto b = loadExtraBytes_internal(key);
-                if (hookPair_ && hookPair_->wireToUser) {
-                    if (b) {
-                        return hookPair_->wireToUser->hook(*b);
-                    } else {
-                        return std::nullopt;
-                    }
+            auto b = loadExtraBytes_internal(key);
+            if (hookPair_ && hookPair_->wireToUser) {
+                if (b) {
+                    return hookPair_->wireToUser->hook(*b);
                 } else {
-                    if (b) {
-                        return basic::ByteData {std::string(b->content)};
-                    } else {
-                        return std::nullopt;
-                    }
+                    return std::nullopt;
                 }
             } else {
-                auto b = loadExtraBytes_internal(key);
                 if (b) {
                     return basic::ByteData {std::string(b->content)};
                 } else {
