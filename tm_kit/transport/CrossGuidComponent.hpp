@@ -9,6 +9,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
     struct CrossGuidComponent {
         using IDType = xg::Guid;
         using IDHash = std::hash<IDType>;
+        static constexpr std::size_t IDByteRepresentationSize = 16;
         static IDType new_id() {
             return xg::newGuid();
         }

@@ -14,6 +14,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
     struct BoostUUIDComponent {
         using IDType = boost::uuids::uuid;
         using IDHash = boost::hash<boost::uuids::uuid>;
+        static constexpr std::size_t IDByteRepresentationSize = 16;
         static IDType new_id() {
             return boost::uuids::random_generator()();
         }
