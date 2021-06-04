@@ -92,7 +92,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                             if constexpr (RemoveTopic) {
                                 return std::move(data.value);
                             } else {
-                                return {std::move(data.content.value), std::move(data.topic)};
+                                return {std::move(data.topic), std::move(data.content.value)};
                             }
                         }
                     );
@@ -102,7 +102,15 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                     );
                 };
                 setupOneBroadcastListener_internal<RemoveTopic, basic::CBOR<FirstInputType>>(
-                    r, spec, prefix, hookFactory, adapter
+                    r
+                    , MultiTransportBroadcastListenerSpec<basic::CBOR<FirstInputType>> {
+                        .name = spec.name 
+                        , .channel = spec.channel
+                        , .topicDescription = spec.topicDescription
+                    }
+                    , prefix
+                    , hookFactory
+                    , adapter
                 );
             } else {
                 auto parsedSpec = parseMultiTransportBroadcastChannel(spec.channel);
