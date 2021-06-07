@@ -1,6 +1,8 @@
 #ifndef TM_KIT_TRANSPORT_MULTI_TRANSPORT_SHARED_CHAIN_CREATOR_HPP_
 #define TM_KIT_TRANSPORT_MULTI_TRANSPORT_SHARED_CHAIN_CREATOR_HPP_
 
+#include <tm_kit/infra/Environments.hpp>
+
 #include <tm_kit/basic/simple_shared_chain/ChainReader.hpp>
 #include <tm_kit/basic/simple_shared_chain/ChainWriter.hpp>
 #include <tm_kit/basic/simple_shared_chain/OneShotChainWriter.hpp>
@@ -22,7 +24,8 @@
 namespace dev { namespace cd606 { namespace tm { namespace transport {
 
     struct AllChainComponents :
-        public etcd_shared_chain::EtcdChainComponent
+        public virtual infra::HiddenTimeDependencyComponent
+        , public etcd_shared_chain::EtcdChainComponent
         , public redis_shared_chain::RedisChainComponent
         , public lock_free_in_memory_shared_chain::SharedMemoryChainComponent
     {};
