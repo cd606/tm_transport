@@ -104,9 +104,15 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                 setupOneBroadcastListener_internal<RemoveTopic, basic::CBOR<FirstInputType>>(
                     r
                     , MultiTransportBroadcastListenerSpec<basic::CBOR<FirstInputType>> {
+                #ifdef _MSC_VER
+                        spec.name 
+                        , spec.channel
+                        , spec.topicDescription
+                #else
                         .name = spec.name 
                         , .channel = spec.channel
                         , .topicDescription = spec.topicDescription
+                #endif
                     }
                     , prefix
                     , hookFactory
