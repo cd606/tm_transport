@@ -259,6 +259,43 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
         r.exportItem(runHeartbeat, r.importItem(importer));
     }
 
+    struct HeartbeatAndAlertComponentTouchupParameters {
+        std::string channelDescriptor;
+        std::string topic;
+        std::string identity;
+        std::chrono::system_clock::duration period;
+        std::string overallStatusEntry = "";
+        std::chrono::system_clock::duration finishAfter = std::chrono::hours(24);
+    };
+
+    template <class R>
+    struct HeartbeatAndAlertComponentTouchup {
+        HeartbeatAndAlertComponentTouchup(R &r, HeartbeatAndAlertComponentTouchupParameters const &param) {
+            initializeHeartbeatAndAlertComponent<
+                typename R::AppType::EnvironmentType
+            >(
+                r.environment()
+                , param.identity
+                , param.channelDescriptor
+                , std::nullopt 
+            );
+            if (param.overallStatusEntry != "") {
+                r.environment()->HeartbeatAndAlertComponent::setStatus(param.overallStatusEntry, HeartbeatMessage::Status::Good);
+            }
+            r.addTouchup(
+                [param](R &x) {
+                    attachHeartbeatAndAlertComponent<R>(
+                        x 
+                        , x.environment()
+                        , param.topic 
+                        , param.period 
+                        , param.finishAfter
+                    );
+                }
+            );
+        }
+    };
+
 } } } }
 
 #endif
