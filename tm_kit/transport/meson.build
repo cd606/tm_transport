@@ -20,6 +20,7 @@ tm_transport_headers = [
       , 'SharedChainCreator.hpp'
       , 'ExitDataSource.hpp'
       , 'RemoteTransactionSubscriberManagingUtils.hpp'
+      , 'MultiTransportTouchups.hpp'
     ]
   
 install_headers(tm_transport_headers, subdir : 'tm_kit/transport')
