@@ -15,7 +15,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
     template <class R, class T>
     struct PublisherTouchup {
         PublisherTouchup(R &r, PublisherTouchupSpec const &spec) {
-            auto groupName = std::string("publisher_touchup_")+typeid(T).name();
+            auto groupName = std::string("__publisher_touchup_")+typeid(T).name();
             auto pub = MultiTransportBroadcastPublisherManagingUtils<R>
                 ::template oneBroadcastPublisher<T>
                 (
@@ -31,7 +31,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
     template <class R>
     struct PublisherTouchup<R, basic::ByteData> {
         PublisherTouchup(R &r, PublisherTouchupSpec const &spec) {
-            std::string groupName = "publisher_touchup_bytedata";
+            std::string groupName = "__publisher_touchup_bytedata";
             auto pub = MultiTransportBroadcastPublisherManagingUtils<R>
                 ::oneByteDataBroadcastPublisher
                 (
@@ -42,6 +42,66 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                     , spec.threaded
                 );
             r.template connectTypedSinkToAllNodes<basic::ByteDataWithTopic>(pub);
+        }
+    };
+
+    struct ListenerTouchupSpec {
+        std::string channelSpec;
+        bool withTopic = true;
+        std::optional<std::string> topicDescription = std::nullopt;
+        std::optional<WireToUserHook> hook = std::nullopt;
+    };
+
+    template <class R, class T>
+    struct ListenerTouchup {
+        ListenerTouchup(R &r, ListenerTouchupSpec const &spec) {
+            auto groupName = std::string("__listener_touchup_")+typeid(T).name();
+            if (spec.withTopic) {
+                auto sub = MultiTransportBroadcastListenerManagingUtils<R>
+                    ::template oneBroadcastListenerWithTopic<T>(
+                        r 
+                        , groupName 
+                        , spec.channelSpec
+                        , spec.topicDescription
+                        , spec.hook 
+                    );
+                r.template connectSourceToAllUnusedSinks<basic::TypedDataWithTopic<T>>(std::move(sub));
+            } else {
+                auto sub = MultiTransportBroadcastListenerManagingUtils<R>
+                    ::template oneBroadcastListener<T>(
+                        r 
+                        , groupName 
+                        , spec.channelSpec
+                        , spec.topicDescription
+                        , spec.hook 
+                    );
+                r.template connectSourceToAllUnusedSinks<T>(std::move(sub));
+            }
+        }
+    };
+    template <class R>
+    struct ListenerTouchup<R, basic::ByteData> {
+        ListenerTouchup(R &r, ListenerTouchupSpec const &spec) {
+            auto groupName = std::string("__listener_touchup_bytedata");
+            auto sub = MultiTransportBroadcastListenerManagingUtils<R>
+                ::oneByteDataBroadcastListener(
+                    r 
+                    , groupName 
+                    , spec.channelSpec
+                    , spec.topicDescription
+                    , spec.hook 
+                );
+            if (spec.withTopic) {
+                r.template connectSourceToAllUnusedSinks<basic::ByteDataWithTopic>(std::move(sub));
+            } else {
+                auto removeTopic = R::AppType::template liftPure<basic::ByteDataWithTopic>(
+                    [](basic::ByteDataWithTopic &&d) -> basic::ByteData {
+                        return basic::ByteData { std::move(d.content) };
+                    }
+                );
+                r.registerAction(groupName+"/removeTopic", removeTopic);
+                r.template connectSourceToAllUnusedSinks<basic::ByteData>(r.execute(removeTopic, std::move(sub)));
+            }
         }
     };
 
