@@ -105,6 +105,67 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         }
     };
 
+    struct HeartbeatDirectedListenerTouchupSpec {
+        ListenerTouchupSpec heartbeatSpec;
+        std::regex serverNameRE;
+        std::string broadcastSourceLookupName;
+        std::string broadcastTopic;
+        bool withTopic = true;
+        std::optional<WireToUserHook> hook = std::nullopt;
+    };
+    template <class R, class T>
+    class HeartbeatDirectedListenerTouchup {
+    public:
+        HeartbeatDirectedListenerTouchup(R &r, HeartbeatDirectedListenerTouchupSpec const &spec) {
+            auto groupName = std::string("__heartbeat_directed_listener_touchup_")+typeid(T).name();
+            auto heartbeatSub = MultiTransportBroadcastListenerManagingUtils<R>
+                ::template oneBroadcastListener<HeartbeatMessage>(
+                    r 
+                    , groupName+"/heartbeat" 
+                    , spec.heartbeatSpec.channelSpec
+                    , spec.heartbeatSpec.topicDescription
+                    , spec.heartbeatSpec.hook 
+                );
+            if (spec.withTopic) {
+                auto sub = MultiTransportBroadcastListenerManagingUtils<R>
+                    ::template setupBroadcastListenerWithTopicThroughHeartbeat<T>(
+                        r
+                        , heartbeatSub.clone()
+                        , spec.serverNameRE
+                        , spec.broadcastSourceLookupName
+                        , spec.broadcastTopic
+                        , groupName
+                        , spec.hook
+                    );
+                if constexpr (std::is_same_v<T, basic::ByteData>) {
+                    auto conv = R::AppType::template liftPure<basic::TypedDataWithTopic<basic::ByteData>>(
+                        [](basic::TypedDataWithTopic<basic::ByteData> &&t) -> basic::ByteDataWithTopic {
+                            return {
+                                std::move(t.topic)
+                                , std::move(t.content.content)
+                            };
+                        }
+                    );
+                    auto convSrc = r.execute(groupName+"/conv", conv, sub.clone());
+                    r.template connectSourceToAllUnusedSinks<basic::ByteDataWithTopic>(std::move(convSrc));
+                } else {
+                    r.template connectSourceToAllUnusedSinks<basic::TypedDataWithTopic<T>>(std::move(sub));
+                }
+            } else {
+                auto sub = MultiTransportBroadcastListenerManagingUtils<R>
+                    ::template setupBroadcastListenerThroughHeartbeat<T>(
+                        r
+                        , heartbeatSub.clone()
+                        , spec.serverNameRE
+                        , spec.broadcastSourceLookupName
+                        , spec.broadcastTopic
+                        , groupName
+                        , spec.hook
+                    );
+                r.template connectSourceToAllUnusedSinks<T>(std::move(sub));
+            }
+        }
+    };
 } } } } }
 
 #endif
