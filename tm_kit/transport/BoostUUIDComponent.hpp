@@ -76,6 +76,18 @@ namespace dev { namespace cd606 { namespace tm { namespace basic { namespace byt
                 return std::nullopt;
             }
         }
+        static std::optional<size_t> applyInPlace(boost::uuids::uuid &output, std::string_view const &s, size_t start) {
+            try {
+                auto idStr = RunCBORDeserializer<std::string>::apply(s, start);
+                if (!idStr) {
+                    return std::nullopt;
+                }
+                output = boost::lexical_cast<boost::uuids::uuid>(std::get<0>(*idStr));
+                return std::get<1>(*idStr);
+            } catch (boost::bad_lexical_cast const &) {
+                return std::nullopt;
+            }
+        }
     };
 
 } } } } }

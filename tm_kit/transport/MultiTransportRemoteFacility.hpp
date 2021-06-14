@@ -170,7 +170,8 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                             locator
                             , [this,env](bool isFinal, basic::ByteDataWithID &&data) {
                                 if constexpr (std::is_same_v<Identity, void>) {
-                                    auto result = basic::bytedata_utils::RunDeserializer<Output>::apply(data.content);
+                                    Output o;
+                                    auto result = basic::bytedata_utils::RunDeserializer<Output>::applyInPlace(o, data.content);
                                     if (!result) {
                                         return;
                                     }
@@ -178,7 +179,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                                         env
                                         , typename M::template Key<Output> {
                                             Env::id_from_string(data.id)
-                                            , std::move(*result)
+                                            , std::move(o)
                                         }
                                         , isFinal
                                     );
@@ -187,7 +188,8 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                                         basic::ByteData {std::move(data.content)}
                                     );
                                     if (processRes) {
-                                        auto result = basic::bytedata_utils::RunDeserializer<Output>::apply(processRes->content);
+                                        Output o;
+                                        auto result = basic::bytedata_utils::RunDeserializer<Output>::applyInPlace(o, processRes->content);
                                         if (!result) {
                                             return;
                                         }
@@ -195,7 +197,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                                             env
                                             , typename M::template Key<Output> {
                                                 Env::id_from_string(data.id)
-                                                , std::move(*result)
+                                                , std::move(o)
                                             }
                                             , isFinal
                                         );
@@ -257,7 +259,8 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                             }
                             , [this,env](bool isFinal, basic::ByteDataWithID &&data) {
                                 if constexpr (std::is_same_v<Identity, void>) {
-                                    auto result = basic::bytedata_utils::RunDeserializer<Output>::apply(data.content);
+                                    Output o;
+                                    auto result = basic::bytedata_utils::RunDeserializer<Output>::applyInPlace(o, data.content);
                                     if (!result) {
                                         return;
                                     }
@@ -265,7 +268,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                                         env
                                         , typename M::template Key<Output> {
                                             Env::id_from_string(data.id)
-                                            , std::move(*result)
+                                            , std::move(o)
                                         }
                                         , isFinal
                                     );
@@ -274,7 +277,8 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                                         basic::ByteData {std::move(data.content)}
                                     );
                                     if (processRes) {
-                                        auto result = basic::bytedata_utils::RunDeserializer<Output>::apply(processRes->content);
+                                        Output o;
+                                        auto result = basic::bytedata_utils::RunDeserializer<Output>::applyInPlace(o, processRes->content);
                                         if (!result) {
                                             return;
                                         }
@@ -282,7 +286,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                                             env
                                             , typename M::template Key<Output> {
                                                 Env::id_from_string(data.id)
-                                                , std::move(*result)
+                                                , std::move(o)
                                             }
                                             , isFinal
                                         );
@@ -820,6 +824,22 @@ namespace dev { namespace cd606 { namespace tm { namespace basic { namespace byt
                 return std::nullopt;
             }
         }
+        static std::optional<size_t> applyInPlace(transport::MultiTransportRemoteFacilityActionType &output, std::string_view const &data, size_t start) {
+            auto t = RunCBORDeserializer<std::string>::apply(data, start);
+            if (t) {
+                int ii = 0;
+                for (auto const &s : transport::MULTI_TRANSPORT_REMOTE_FACILITY_ACTION_TYPE_STR) {
+                    if (s == std::get<0>(*t)) {
+                        output = static_cast<transport::MultiTransportRemoteFacilityActionType>(ii);
+                        return std::get<1>(*t);
+                    }
+                    ++ii;
+                }
+                return std::nullopt;
+            } else {
+                return std::nullopt;
+            }
+        }
     };
     template <>
     struct RunCBORSerializer<transport::MultiTransportRemoteFacilityConnectionType, void> {
@@ -852,6 +872,22 @@ namespace dev { namespace cd606 { namespace tm { namespace basic { namespace byt
                             static_cast<transport::MultiTransportRemoteFacilityConnectionType>(ii)
                             , std::get<1>(*t)
                         };
+                    }
+                    ++ii;
+                }
+                return std::nullopt;
+            } else {
+                return std::nullopt;
+            }
+        }
+        static std::optional<size_t> applyInPlace(transport::MultiTransportRemoteFacilityConnectionType &output, std::string_view const &data, size_t start) {
+            auto t = RunCBORDeserializer<std::string>::apply(data, start);
+            if (t) {
+                int ii = 0;
+                for (auto const &s : transport::MULTI_TRANSPORT_REMOTE_FACILITY_CONNECTION_TYPE_STR) {
+                    if (s == std::get<0>(*t)) {
+                        output = static_cast<transport::MultiTransportRemoteFacilityConnectionType>(ii);
+                        return std::get<1>(*t);
                     }
                     ++ii;
                 }
@@ -951,6 +987,25 @@ namespace dev { namespace cd606 { namespace tm { namespace basic { namespace byt
             } else {
                 return std::nullopt;
             }
+        }
+        static std::optional<size_t> applyInPlace(transport::MultiTransportRemoteFacilityAction &output, std::string_view const &data, size_t start) {
+            auto x = std::tuple<
+                transport::MultiTransportRemoteFacilityActionType *
+                , transport::MultiTransportRemoteFacilityConnectionType *
+                , transport::ConnectionLocator *
+                , std::string *
+            >(&output.actionType, &output.connectionType, &output.connectionLocator, &output.description);
+            return RunCBORDeserializerWithNameList<std::tuple<
+                transport::MultiTransportRemoteFacilityActionType *
+                , transport::MultiTransportRemoteFacilityConnectionType *
+                , transport::ConnectionLocator *
+                , std::string *
+            >, 4>::applyInPlace(x, data, start, {
+                    "action_type"
+                    , "connection_type"
+                    , "connection_locator"
+                    , "description"
+                });
         }
     };
                 

@@ -55,6 +55,25 @@ namespace dev { namespace cd606 { namespace tm { namespace basic { namespace byt
                 , std::get<1>(*t)
             };
         }
+        static std::optional<size_t> applyInPlace(transport::HeartbeatMessage::Status &output, std::string_view const &data, size_t start) {
+            auto t = RunCBORDeserializer<std::string>::apply(data, start);
+            if (!t) {
+                return std::nullopt;
+            }
+            size_t ii=0;
+            bool good = false;
+            for (ii=0; ii<STATUS_NAMES.size(); ++ii) {
+                if (STATUS_NAMES[ii] == std::get<0>(*t)) {
+                    good = true;
+                    break;
+                }
+            }
+            if (!good) {
+                return std::nullopt;
+            }
+            output = static_cast<transport::HeartbeatMessage::Status>(ii);
+            return std::get<1>(*t);
+        }
     };
     template <>
     struct RunCBORSerializer<transport::HeartbeatMessage::OneItemStatus, void> {
@@ -117,6 +136,21 @@ namespace dev { namespace cd606 { namespace tm { namespace basic { namespace byt
             } else {
                 return std::nullopt;
             }
+        }
+        static std::optional<size_t> applyInPlace(transport::HeartbeatMessage::OneItemStatus &output, std::string_view const &data, size_t start) {
+            auto x = std::tuple<transport::HeartbeatMessage::Status *, std::string *>(
+                &(output.status), &(output.info)
+            );
+            return RunCBORDeserializerWithNameList<
+                std::tuple<transport::HeartbeatMessage::Status *, std::string *>
+                , 2
+            >::applyInPlace(
+                x
+                , data, start
+                , {
+                    "status", "info"
+                }
+            );
         }
     };
 } } } } }

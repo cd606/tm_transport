@@ -279,9 +279,10 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                                 , MultiTransportBroadcastListenerTopicHelper<multicast::MulticastComponent>::parseTopic(x.topicDescription)
                                 , [this,env](basic::ByteDataWithTopic &&d) {
                                     TM_INFRA_IMPORTER_TRACER_WITH_SUFFIX(env, ":data");
-                                    auto t = basic::bytedata_utils::RunDeserializer<T>::apply(d.content);
-                                    if (t) {
-                                        this->ImporterParent::publish(M::template pureInnerData<basic::TypedDataWithTopic<T>>(env, {std::move(d.topic), std::move(*t)}));
+                                    T t;
+                                    auto tRes = basic::bytedata_utils::RunDeserializer<T>::applyInPlace(t, d.content);
+                                    if (tRes) {
+                                        this->ImporterParent::publish(M::template pureInnerData<basic::TypedDataWithTopic<T>>(env, {std::move(d.topic), std::move(t)}));
                                     }
                                 }
                                 , actualHook
@@ -328,9 +329,10 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                                 , x.topicDescription
                                 , [this,env](basic::ByteDataWithTopic &&d) {
                                     TM_INFRA_IMPORTER_TRACER_WITH_SUFFIX(env, ":data");
-                                    auto t = basic::bytedata_utils::RunDeserializer<T>::apply(d.content);
-                                    if (t) {
-                                        this->ImporterParent::publish(M::template pureInnerData<basic::TypedDataWithTopic<T>>(env, {std::move(d.topic), std::move(*t)}));
+                                    T t;
+                                    auto tRes = basic::bytedata_utils::RunDeserializer<T>::applyInPlace(t, d.content);
+                                    if (tRes) {
+                                        this->ImporterParent::publish(M::template pureInnerData<basic::TypedDataWithTopic<T>>(env, {std::move(d.topic), std::move(t)}));
                                     }
                                 }
                                 , actualHook
@@ -377,9 +379,10 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                                 , x.topicDescription
                                 , [this,env](basic::ByteDataWithTopic &&d) {
                                     TM_INFRA_IMPORTER_TRACER_WITH_SUFFIX(env, ":data");
-                                    auto t = basic::bytedata_utils::RunDeserializer<T>::apply(d.content);
-                                    if (t) {
-                                        this->ImporterParent::publish(M::template pureInnerData<basic::TypedDataWithTopic<T>>(env, {std::move(d.topic), std::move(*t)}));
+                                    T t;
+                                    auto tRes = basic::bytedata_utils::RunDeserializer<T>::applyInPlace(t, d.content);
+                                    if (tRes) {
+                                        this->ImporterParent::publish(M::template pureInnerData<basic::TypedDataWithTopic<T>>(env, {std::move(d.topic), std::move(t)}));
                                     }
                                 }
                                 , actualHook
@@ -426,9 +429,10 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                                 , MultiTransportBroadcastListenerTopicHelper<zeromq::ZeroMQComponent>::parseTopic(x.topicDescription)
                                 , [this,env](basic::ByteDataWithTopic &&d) {
                                     TM_INFRA_IMPORTER_TRACER_WITH_SUFFIX(env, ":data");
-                                    auto t = basic::bytedata_utils::RunDeserializer<T>::apply(d.content);
-                                    if (t) {
-                                        this->ImporterParent::publish(M::template pureInnerData<basic::TypedDataWithTopic<T>>(env, {std::move(d.topic), std::move(*t)}));
+                                    T t;
+                                    auto tRes = basic::bytedata_utils::RunDeserializer<T>::applyInPlace(t, d.content);
+                                    if (tRes) {
+                                        this->ImporterParent::publish(M::template pureInnerData<basic::TypedDataWithTopic<T>>(env, {std::move(d.topic), std::move(t)}));
                                     }
                                 }
                                 , actualHook
@@ -475,9 +479,10 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                                 , MultiTransportBroadcastListenerTopicHelper<nng::NNGComponent>::parseTopic(x.topicDescription)
                                 , [this,env](basic::ByteDataWithTopic &&d) {
                                     TM_INFRA_IMPORTER_TRACER_WITH_SUFFIX(env, ":data");
-                                    auto t = basic::bytedata_utils::RunDeserializer<T>::apply(d.content);
-                                    if (t) {
-                                        this->ImporterParent::publish(M::template pureInnerData<basic::TypedDataWithTopic<T>>(env, {std::move(d.topic), std::move(*t)}));
+                                    T t;
+                                    auto tRes = basic::bytedata_utils::RunDeserializer<T>::applyInPlace(t, d.content);
+                                    if (tRes) {
+                                        this->ImporterParent::publish(M::template pureInnerData<basic::TypedDataWithTopic<T>>(env, {std::move(d.topic), std::move(t)}));
                                     }
                                 }
                                 , actualHook
@@ -524,9 +529,10 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                                 , MultiTransportBroadcastListenerTopicHelper<shared_memory_broadcast::SharedMemoryBroadcastComponent>::parseTopic(x.topicDescription)
                                 , [this,env](basic::ByteDataWithTopic &&d) {
                                     TM_INFRA_IMPORTER_TRACER_WITH_SUFFIX(env, ":data");
-                                    auto t = basic::bytedata_utils::RunDeserializer<T>::apply(d.content);
-                                    if (t) {
-                                        this->ImporterParent::publish(M::template pureInnerData<basic::TypedDataWithTopic<T>>(env, {std::move(d.topic), std::move(*t)}));
+                                    T t;
+                                    auto tRes = basic::bytedata_utils::RunDeserializer<T>::applyInPlace(t, d.content);
+                                    if (tRes) {
+                                        this->ImporterParent::publish(M::template pureInnerData<basic::TypedDataWithTopic<T>>(env, {std::move(d.topic), std::move(t)}));
                                     }
                                 }
                                 , actualHook
@@ -831,6 +837,22 @@ namespace dev { namespace cd606 { namespace tm { namespace basic { namespace byt
                 return std::nullopt;
             }
         }
+        static std::optional<size_t> applyInPlace(transport::MultiTransportBroadcastListenerConnectionType &output, std::string_view const &data, size_t start) {
+            auto t = RunCBORDeserializer<std::string>::apply(data, start);
+            if (t) {
+                int ii = 0;
+                for (auto const &s : transport::MULTI_TRANSPORT_SUBSCRIBER_CONNECTION_TYPE_STR) {
+                    if (s == std::get<0>(*t)) {
+                        output = static_cast<transport::MultiTransportBroadcastListenerConnectionType>(ii);
+                        return std::get<1>(*t);
+                    }
+                    ++ii;
+                }
+                return std::nullopt;
+            } else {
+                return std::nullopt;
+            }
+        }
     };
     template <>
     struct RunCBORSerializer<transport::MultiTransportBroadcastListenerAddSubscription, void> {
@@ -911,6 +933,22 @@ namespace dev { namespace cd606 { namespace tm { namespace basic { namespace byt
                 return std::nullopt;
             }
         }
+        static std::optional<size_t> applyInPlace(transport::MultiTransportBroadcastListenerAddSubscription &output, std::string_view const &data, size_t start) {
+            auto x = std::tuple<
+                transport::MultiTransportBroadcastListenerConnectionType *
+                , transport::ConnectionLocator *
+                , std::string *
+            >(&output.connectionType, &output.connectionLocator, &output.topicDescription);
+            return RunCBORDeserializerWithNameList<std::tuple<
+                transport::MultiTransportBroadcastListenerConnectionType *
+                , transport::ConnectionLocator *
+                , std::string *
+            >, 3>::applyInPlace(x, data, start, {
+                    "connection_type"
+                    , "connection_locator"
+                    , "topic_description"
+                });
+        }
     };
     template <>
     struct RunCBORSerializer<transport::MultiTransportBroadcastListenerRemoveSubscription, void> {
@@ -979,6 +1017,19 @@ namespace dev { namespace cd606 { namespace tm { namespace basic { namespace byt
                 return std::nullopt;
             }
         }
+        static std::optional<size_t> applyInPlace(transport::MultiTransportBroadcastListenerRemoveSubscription &output, std::string_view const &data, size_t start) {
+            auto x = std::tuple<
+                transport::MultiTransportBroadcastListenerConnectionType *
+                , uint32_t *
+            >(&(output.connectionType), &(output.subscriptionID));
+            return RunCBORDeserializerWithNameList<std::tuple<
+                transport::MultiTransportBroadcastListenerConnectionType *
+                , uint32_t *
+            >, 2>::applyInPlace(x, data, start, {
+                    "connection_type"
+                    , "subscription_id"
+                });
+        }
     };
     template <>
     struct RunCBORSerializer<transport::MultiTransportBroadcastListenerAddSubscriptionResponse, void> {
@@ -1035,6 +1086,16 @@ namespace dev { namespace cd606 { namespace tm { namespace basic { namespace byt
                 return std::nullopt;
             }
         }
+        static std::optional<size_t> applyInPlace(transport::MultiTransportBroadcastListenerAddSubscriptionResponse &output, std::string_view const &data, size_t start) {
+            auto x = std::tuple<
+                uint32_t *
+            >(&(output.subscriptionID));
+            return RunCBORDeserializerWithNameList<std::tuple<
+                uint32_t *
+            >, 1>::applyInPlace(x, data, start, {
+                    "subscription_id"
+                });
+        }
     };
     template <>
     struct RunCBORSerializer<transport::MultiTransportBroadcastListenerRemoveSubscriptionResponse, void> {
@@ -1057,6 +1118,14 @@ namespace dev { namespace cd606 { namespace tm { namespace basic { namespace byt
                     transport::MultiTransportBroadcastListenerRemoveSubscriptionResponse {}
                     , std::get<1>(*t)
                 };
+            } else {
+                return std::nullopt;
+            }
+        }
+        static std::optional<size_t> applyInPlace(transport::MultiTransportBroadcastListenerRemoveSubscriptionResponse &output, std::string_view const &data, size_t start) {
+            auto t = RunCBORDeserializer<VoidStruct>::apply(data, start);
+            if (t) {
+                return std::get<1>(*t);
             } else {
                 return std::nullopt;
             }

@@ -87,9 +87,10 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                             , topic_
                             , [this,env](basic::ByteDataWithTopic &&d) {
                                 TM_INFRA_IMPORTER_TRACER(env);
-                                auto t = basic::bytedata_utils::RunDeserializer<T>::apply(d.content);
-                                if (t) {
-                                    this->publish(M::template pureInnerData<basic::TypedDataWithTopic<T>>(env, {std::move(d.topic), std::move(*t)}));
+                                T t;
+                                auto tRes = basic::bytedata_utils::RunDeserializer<T>::applyInPlace(t, d.content);
+                                if (tRes) {
+                                    this->publish(M::template pureInnerData<basic::TypedDataWithTopic<T>>(env, {std::move(d.topic), std::move(t)}));
                                 }
                             }
                             , wireToUserHook_
@@ -236,12 +237,13 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 , topic 
                 , [env, ret, id, predicate, done](basic::ByteDataWithTopic &&d) mutable {
                     if (!done) {
-                        auto t = basic::bytedata_utils::RunDeserializer<T>::apply(d.content);
-                        if (t) {
-                            if (!predicate || predicate(*t)) {
-                                basic::TypedDataWithTopic<T> res {std::move(d.topic), std::move(*t)};
+                        T t;
+                        auto tRes = basic::bytedata_utils::RunDeserializer<T>::applyInPlace(t, d.content);
+                        if (tRes) {
+                            if (!predicate || predicate(t)) {
+                                basic::TypedDataWithTopic<T> res {std::move(d.topic), std::move(t)};
                                 done = true;
-                                std::thread([env, ret, id, res = std::move(res)]() {
+                                std::thread([env, ret, id, res = std::move(res)]() mutable {
                                     try {
                                         std::this_thread::sleep_for(std::chrono::milliseconds(10));
                                         env->multicast_removeSubscriptionClient(*id);

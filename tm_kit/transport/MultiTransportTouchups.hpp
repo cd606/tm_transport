@@ -10,17 +10,18 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         std::string channelSpec;
         std::optional<UserToWireHook> hook = std::nullopt;
         bool threaded = false;
+        std::string publisherName = "";
     };
 
     template <class R, class T>
     struct PublisherTouchup {
         PublisherTouchup(R &r, PublisherTouchupSpec const &spec) {
-            auto groupName = std::string("__publisher_touchup_")+typeid(T).name();
+            auto publisherName = ((spec.publisherName=="")?(std::string("__publisher_touchup_")+typeid(T).name()):spec.publisherName);
             auto pub = MultiTransportBroadcastPublisherManagingUtils<R>
                 ::template oneBroadcastPublisher<T>
                 (
                     r
-                    , groupName 
+                    , publisherName 
                     , spec.channelSpec
                     , spec.hook 
                     , spec.threaded
@@ -31,12 +32,12 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
     template <class R>
     struct PublisherTouchup<R, basic::ByteData> {
         PublisherTouchup(R &r, PublisherTouchupSpec const &spec) {
-            std::string groupName = "__publisher_touchup_bytedata";
+            auto publisherName = ((spec.publisherName=="")?"__publisher_touchup_bytedata":spec.publisherName);
             auto pub = MultiTransportBroadcastPublisherManagingUtils<R>
                 ::oneByteDataBroadcastPublisher
                 (
                     r
-                    , groupName 
+                    , publisherName 
                     , spec.channelSpec
                     , spec.hook 
                     , spec.threaded

@@ -196,11 +196,12 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                     virtual void start(Env *env) override final {
                         env_ = env;
                         requester_ = env->rabbitmq_setRPCQueueClient(locator_, [this](bool isFinal, basic::ByteDataWithID &&data) {
-                            auto result = basic::bytedata_utils::RunDeserializer<B>::apply(data.content);
+                            B b;
+                            auto result = basic::bytedata_utils::RunDeserializer<B>::applyInPlace(b, data.content);
                             if (!result) {
                                 return;
                             }
-                            this->publish(env_, typename M::template Key<B> {Env::id_from_string(data.id), std::move(*result)}, isFinal);
+                            this->publish(env_, typename M::template Key<B> {Env::id_from_string(data.id), std::move(b)}, isFinal);
                         }, DefaultHookFactory<Env>::template supplyFacilityHookPair_ClientSide<A,B>(env_, hooks_));
                     }
                     virtual void handle(typename M::template InnerData<typename M::template Key<A>> &&data) override final {
@@ -501,17 +502,18 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 auto requester = env->rabbitmq_setRPCQueueClient(rpcQueueLocator, [autoDisconnect,rpcQueueLocator,env,ret,done](bool isFinal, basic::ByteDataWithID &&data) mutable {
                     if (!done) {
                         try {
-                            auto val = basic::bytedata_utils::RunDeserializer<B>::apply(data.content);
+                            B b;
+                            auto val = basic::bytedata_utils::RunDeserializer<B>::applyInPlace(b, data.content);
                             if (!val) {
                                 throw std::runtime_error("RabbitMQOnOrderFacility::typedOneShotRemoteCall: deserialization error");
                             } else {
                                 done = true;
                                 if (autoDisconnect) {
-                                    std::thread([env,rpcQueueLocator,ret,val=std::move(val)]() {
+                                    std::thread([env,rpcQueueLocator,ret,b=std::move(b)]() mutable {
                                         try {
                                             std::this_thread::sleep_for(std::chrono::milliseconds(10));
                                             env->rabbitmq_removeRPCQueueClient(rpcQueueLocator);
-                                            ret->set_value_at_thread_exit(std::move(*val));
+                                            ret->set_value_at_thread_exit(std::move(b));
                                         } catch (std::future_error const &) {
                                         } catch (std::exception const &) {
                                             try {
@@ -521,7 +523,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                                         }
                                     }).detach();
                                 } else {
-                                    ret->set_value(std::move(*val));
+                                    ret->set_value(std::move(b));
                                 }
                             }
                         } catch (std::future_error const &) {
@@ -595,11 +597,12 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                                 basic::ByteData {std::move(data.content)}
                             );
                             if (processRes) {
-                                auto result = basic::bytedata_utils::RunDeserializer<B>::apply(processRes->content);
+                                B b;
+                                auto result = basic::bytedata_utils::RunDeserializer<B>::applyInPlace(b, processRes->content);
                                 if (!result) {
                                     return;
                                 }
-                                this->publish(env_, typename M::template Key<B> {Env::id_from_string(data.id), std::move(*result)}, isFinal);
+                                this->publish(env_, typename M::template Key<B> {Env::id_from_string(data.id), std::move(b)}, isFinal);
                             }
                         }, DefaultHookFactory<Env>::template supplyFacilityHookPair_ClientSide<A,B>(env_, hooks_));
                     }
@@ -906,17 +909,18 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                                 basic::ByteData {std::move(data.content)}
                             );
                             if (processRes) {
-                                auto val = basic::bytedata_utils::RunDeserializer<B>::apply(processRes->content);
+                                B b;
+                                auto val = basic::bytedata_utils::RunDeserializer<B>::applyInPlace(b, processRes->content);
                                 if (!val) {
                                     throw std::runtime_error("RabbitMQOnOrderFacility::typedOneShotRemoteCall: deserialization error"); 
                                 } else {
                                     done = true;
                                     if (autoDisconnect) {
-                                        std::thread([env,rpcQueueLocator,ret,val=std::move(val)]() {
+                                        std::thread([env,rpcQueueLocator,ret,b=std::move(b)]() mutable {
                                             try {
                                                 std::this_thread::sleep_for(std::chrono::milliseconds(10));
                                                 env->rabbitmq_removeRPCQueueClient(rpcQueueLocator);
-                                                ret->set_value_at_thread_exit(std::move(*val));
+                                                ret->set_value_at_thread_exit(std::move(b));
                                             } catch (std::future_error const &) {
                                             } catch (std::exception const &) {
                                                 try {
@@ -926,7 +930,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                                             }
                                         }).detach();
                                     } else {
-                                        ret->set_value(std::move(*val));
+                                        ret->set_value(std::move(b));
                                     }
                                 }
                             }

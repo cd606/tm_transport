@@ -57,7 +57,8 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 } else if (boost::starts_with(kv.key(), storagePrefix_+":")) {
                     std::string realKey = kv.key().substr(storagePrefix_.length()+1);
                     if (eventType == mvccpb::Event::PUT) {
-                        auto parseRes = basic::bytedata_utils::RunDeserializer<Data>::apply(kv.value());
+                        Data d;
+                        auto parseRes = basic::bytedata_utils::RunDeserializer<Data>::applyInPlace(d, kv.value());
                         if (parseRes) {
                             return typename DI::OneDeltaUpdateItem {
                                 basic::VoidStruct {}
@@ -65,7 +66,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                                 , Delta {
                                     {}
                                     , {
-                                        {realKey, std::move(*parseRes)}
+                                        {realKey, std::move(d)}
                                     }
                                 }
                             };

@@ -345,6 +345,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                     , ParsedNodeData<T, ForceSeparate> {}
                 };
             } else {
+                std::optional<T> t {T {}};
                 if (ptr) {
                     if (ptr->data == 0) {
                         return ItemType {
@@ -362,11 +363,19 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                                 basic::ByteDataView {std::string_view {dataPtr+sizeof(std::size_t), sz}}
                             );
                             if (parsed) {
-                                return ItemType {
-                                    ptr
-                                    , id
-                                    , basic::bytedata_utils::RunDeserializer<T>::apply(std::string_view {parsed->content})
-                                };
+                                if (basic::bytedata_utils::RunDeserializer<T>::applyInPlace(*t, std::string_view {parsed->content})) {
+                                    return ItemType {
+                                        ptr
+                                        , id
+                                        , std::move(t)
+                                    };
+                                } else {
+                                    return ItemType {
+                                        ptr
+                                        , id
+                                        , ParsedNodeData<T, ForceSeparate> {}
+                                    };
+                                }
                             } else {
                                 return ItemType {
                                     ptr
@@ -375,18 +384,34 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                                 };
                             }
                         } else {
+                            if (basic::bytedata_utils::RunDeserializer<T>::applyInPlace(*t, std::string_view {dataPtr+sizeof(std::size_t), sz})) {
+                                return ItemType {
+                                    ptr
+                                    , id
+                                    , std::move(t)
+                                };
+                            } else {
+                                return ItemType {
+                                    ptr
+                                    , id
+                                    , ParsedNodeData<T, ForceSeparate> {}
+                                };
+                            }
+                        }
+                    } else {
+                        if (basic::bytedata_utils::RunDeserializer<T>::applyInPlace(*t, std::string_view {dataPtr+sizeof(std::size_t), sz})) {
                             return ItemType {
                                 ptr
                                 , id
-                                , basic::bytedata_utils::RunDeserializer<T>::apply(std::string_view {dataPtr+sizeof(std::size_t), sz})
+                                , std::move(t)
+                            };
+                        } else {
+                            return ItemType {
+                                ptr
+                                , id
+                                , ParsedNodeData<T, ForceSeparate> {}
                             };
                         }
-                    } else {
-                        return ItemType {
-                            ptr
-                            , id
-                            , basic::bytedata_utils::RunDeserializer<T>::apply(std::string_view {dataPtr+sizeof(std::size_t), sz})
-                        };
                     }
                 } else {
                     return ItemType {
@@ -552,7 +577,12 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             } else {
                 auto b = loadExtraBytes(key);
                 if (b) {
-                    return basic::bytedata_utils::RunDeserializer<ExtraData>::apply(std::string_view {b->content});
+                    std::optional<ExtraData> e {ExtraData {}};
+                    if (basic::bytedata_utils::RunDeserializer<ExtraData>::applyInPlace(*e, std::string_view {b->content})) {
+                        return std::move(e);
+                    } else {
+                        return std::nullopt;
+                    }
                 } else {
                     return std::nullopt;
                 }
@@ -796,6 +826,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                     , ParsedNodeData<T, ForceSeparate> {}
                 };
             } else {
+                std::optional<T> t {T {}};
                 if (ptr) {
                     if (ptr->data == 0) {
                         return ItemType {
@@ -813,11 +844,19 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                                 basic::ByteDataView {std::string_view {dataPtr+sizeof(std::size_t), sz}}
                             );
                             if (parsed) {
-                                return ItemType {
-                                    ptr
-                                    , reinterpret_cast<char const *>(ptr)-reinterpret_cast<char const *>(head_)
-                                    , basic::bytedata_utils::RunDeserializer<T>::apply(std::string_view {parsed->content})
-                                };
+                                if (basic::bytedata_utils::RunDeserializer<T>::applyInPlace(*t, std::string_view {parsed->content})) {
+                                    return ItemType {
+                                        ptr
+                                        , reinterpret_cast<char const *>(ptr)-reinterpret_cast<char const *>(head_)
+                                        , std::move(t)
+                                    };
+                                } else {
+                                    return ItemType {
+                                        ptr
+                                        , reinterpret_cast<char const *>(ptr)-reinterpret_cast<char const *>(head_)
+                                        , ParsedNodeData<T, ForceSeparate> {}
+                                    };
+                                }
                             } else {
                                 return ItemType {
                                     ptr
@@ -826,18 +865,34 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                                 };
                             }
                         } else {
+                            if (basic::bytedata_utils::RunDeserializer<T>::applyInPlace(*t, std::string_view {dataPtr+sizeof(std::size_t), sz})) {
+                                return ItemType {
+                                    ptr
+                                    , reinterpret_cast<char const *>(ptr)-reinterpret_cast<char const *>(head_)
+                                    , std::move(t)
+                                };
+                            } else {
+                                return ItemType {
+                                    ptr
+                                    , reinterpret_cast<char const *>(ptr)-reinterpret_cast<char const *>(head_)
+                                    , ParsedNodeData<T, ForceSeparate> {}
+                                };
+                            }
+                        }
+                    } else {
+                        if (basic::bytedata_utils::RunDeserializer<T>::applyInPlace(*t, std::string_view {dataPtr+sizeof(std::size_t), sz})) {
                             return ItemType {
                                 ptr
                                 , reinterpret_cast<char const *>(ptr)-reinterpret_cast<char const *>(head_)
-                                , basic::bytedata_utils::RunDeserializer<T>::apply(std::string_view {dataPtr+sizeof(std::size_t), sz})
+                                , std::move(t)
+                            };
+                        } else {
+                            return ItemType {
+                                ptr
+                                , reinterpret_cast<char const *>(ptr)-reinterpret_cast<char const *>(head_)
+                                , ParsedNodeData<T, ForceSeparate> {}
                             };
                         }
-                    } else {
-                        return ItemType {
-                            ptr
-                            , reinterpret_cast<char const *>(ptr)-reinterpret_cast<char const *>(head_)
-                            , basic::bytedata_utils::RunDeserializer<T>::apply(std::string_view {dataPtr+sizeof(std::size_t), sz})
-                        };
                     }
                 } else {
                     return ItemType {
@@ -1011,7 +1066,12 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             } else {
                 auto b = loadExtraBytes(key);
                 if (b) {
-                    return basic::bytedata_utils::RunDeserializer<ExtraData>::apply(b->content);
+                    std::optional<ExtraData> e {ExtraData {}};
+                    if (basic::bytedata_utils::RunDeserializer<ExtraData>::applyInPlace(*e, b->content)) {
+                        return std::move(e);
+                    } else {
+                        return std::nullopt;
+                    }
                 } else {
                     return std::nullopt;
                 }

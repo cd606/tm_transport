@@ -125,6 +125,19 @@ namespace dev { namespace cd606 { namespace tm { namespace basic { namespace byt
                 return std::nullopt;
             }
         }
+        static std::optional<size_t> applyInPlace(transport::ConnectionLocator &output, std::string_view const &data, size_t start) {
+            auto t = RunCBORDeserializer<std::string>::apply(data, start);
+            if (t) {
+                try {
+                    output = transport::ConnectionLocator::parse(std::get<0>(*t));
+                    return std::get<1>(*t);
+                } catch (transport::ConnectionLocatorParseError const &) {
+                    return std::nullopt;
+                }
+            } else {
+                return std::nullopt;
+            }
+        }
     };
 } } } } }
 

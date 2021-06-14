@@ -43,11 +43,12 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
     class ServerSideSimpleIdentityCheckerComponent : public ServerSideAbstractIdentityCheckerComponent<Identity,Request> {
     public:
         virtual std::optional<std::tuple<Identity, basic::ByteData>> check_identity(basic::ByteData &&d) override final {
+            basic::CBOR<std::tuple<Identity, basic::ByteData>> ret;
             auto t = basic::bytedata_utils::RunDeserializer<
                 basic::CBOR<std::tuple<Identity, basic::ByteData>>
-            >::apply(d.content);
+            >::applyInPlace(ret, d.content);
             if (t) {
-                return t->value;
+                return {std::move(ret.value)};
             } else {
                 return std::nullopt;
             }

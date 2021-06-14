@@ -64,6 +64,14 @@ namespace dev { namespace cd606 { namespace tm { namespace basic { namespace byt
             xg::Guid id {std::get<0>(*idStr)};
             return std::tuple<xg::Guid,size_t> {std::move(id), std::get<1>(*idStr)};
         }
+        static std::optional<size_t> applyInPlace(xg::Guid &output, std::string_view const &s, size_t start) {
+            auto idStr = RunCBORDeserializer<std::string>::apply(s, start);
+            if (!idStr) {
+                return std::nullopt;
+            }
+            output = xg::Guid {std::get<0>(*idStr)};
+            return std::get<1>(*idStr);
+        }
     };
 
 } } } } }

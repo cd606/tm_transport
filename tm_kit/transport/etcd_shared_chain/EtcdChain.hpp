@@ -213,34 +213,52 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         }
 
         std::optional<ChainRedisStorage<T>> parseRedisData(redisReply *r) {
+            std::optional<ChainRedisStorage<T>> s {ChainRedisStorage<T> {}};
             if (hookPair_ && hookPair_->wireToUser) {
                 auto parsed = hookPair_->wireToUser->hook(basic::ByteDataView {std::string_view(r->str, r->len)});
                 if (!parsed) {
                     return std::nullopt;
                 }
-                return basic::bytedata_utils::RunDeserializer<ChainRedisStorage<T>>::apply(
-                    std::string_view(parsed->content)
-                );
+                if (basic::bytedata_utils::RunDeserializer<ChainRedisStorage<T>>::applyInPlace(
+                    *s, std::string_view(parsed->content)
+                )) {
+                    return std::move(s);
+                } else {
+                    return std::nullopt;
+                }
             } else {
-                return basic::bytedata_utils::RunDeserializer<ChainRedisStorage<T>>::apply(
-                    std::string_view(r->str, r->len)
-                );
+                if (basic::bytedata_utils::RunDeserializer<ChainRedisStorage<T>>::applyInPlace(
+                    *s, std::string_view(r->str, r->len)
+                )) {
+                    return std::move(s);
+                } else {
+                    return std::nullopt;
+                }
             }
         }
         template <class X>
         std::optional<X> parseEtcdData(std::string const &v) {
+            std::optional<X> x {X {}};
             if (hookPair_ && hookPair_->wireToUser) {
                 auto parsed = hookPair_->wireToUser->hook(basic::ByteDataView {std::string_view(v)});
                 if (!parsed) {
                     return std::nullopt;
                 }
-                return basic::bytedata_utils::RunDeserializer<X>::apply(
-                    std::string_view(parsed->content)
-                );
+                if (basic::bytedata_utils::RunDeserializer<X>::applyInPlace(
+                    *x, std::string_view(parsed->content)
+                )) {
+                    return std::move(x);
+                } else {
+                    return std::nullopt;
+                }
             } else {
-                return basic::bytedata_utils::RunDeserializer<X>::apply(
-                    std::string_view(v)
-                );
+                if (basic::bytedata_utils::RunDeserializer<X>::applyInPlace(
+                    *x, std::string_view(v)
+                )) {
+                    return std::move(x);
+                } else {
+                    return std::nullopt;
+                }
             }
         }
         template <class X>
