@@ -3,6 +3,7 @@
 
 #include <tm_kit/transport/MultiTransportBroadcastListenerManagingUtils.hpp>
 #include <tm_kit/transport/MultiTransportBroadcastPublisherManagingUtils.hpp>
+#include <tm_kit/transport/MultiTransportRemoteFacilityManagingUtils.hpp>
 
 namespace dev { namespace cd606 { namespace tm { namespace transport { namespace multi_transport_touchups {
 
@@ -167,6 +168,28 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             }
         }
     };
+
+    struct FacilityTouchupSpec {
+        std::string channelSpec;
+        std::optional<ByteDataHookPair> hooks = std::nullopt;
+        std::string facilityName = "";
+    };
+    template <class R, class A, class B>
+    struct FacilityTouchup {
+        FacilityTouchup(R &r, FacilityTouchupSpec const &spec) {
+            auto facilityName = ((spec.facilityName=="")?(std::string("__facility_touchup_")+typeid(A).name()+"_"+typeid(B).name()):spec.facilityName);
+            auto f = MultiTransportRemoteFacilityManagingUtils<R>
+                ::template setupSimpleRemoteFacility<A,B>
+                (
+                    r
+                    , spec.channelSpec
+                    , spec.hooks
+                );
+            r.registerOnOrderFacility(facilityName, f);
+            r.template connectFacilitioidToAllPossiblePlaces<A,B>(r.template facilityConnector<A,B>(f));
+        }
+    };
+
 } } } } }
 
 #endif
