@@ -674,7 +674,7 @@ namespace Dev.CD606.TM.Transport
                         return;
                     }
                     var replyTo = cborDecoded[0].AsString();
-                    cborDecoded = cborDecoded[1];
+                    cborDecoded = CBORObject.DecodeFromBytes(cborDecoded[1].ToObject<byte[]>());
                     if (cborDecoded.Type != CBORType.Array)
                     {
                         return;
@@ -754,7 +754,7 @@ namespace Dev.CD606.TM.Transport
                         return;
                     }
                     var replyTo = cborDecoded[0].AsString();
-                    cborDecoded = cborDecoded[1];
+                    cborDecoded = CBORObject.DecodeFromBytes(cborDecoded[1].ToObject<byte[]>());
                     if (cborDecoded.Type != CBORType.Array)
                     {
                         return;
