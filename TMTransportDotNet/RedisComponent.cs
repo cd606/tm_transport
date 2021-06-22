@@ -347,11 +347,12 @@ namespace Dev.CD606.TM.Transport
                 {
                     b = hookPair.userToWireHook.hook(b);
                 }
+                var keyObj = CBORObject.NewArray()
+                    .Add(data.timedData.value.id)
+                    .Add(b);
                 var cborObj = CBORObject.NewArray()
                     .Add(myID)
-                    .Add(CBORObject.NewArray()
-                        .Add(data.timedData.value.id)
-                        .Add(b));
+                    .Add(keyObj.EncodeToBytes());
                 subscriber.Publish(
                     new RedisChannel(locator.Identifier, RedisChannel.PatternMode.Literal)
                     , cborObj.EncodeToBytes()
