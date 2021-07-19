@@ -969,6 +969,12 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
         }
 
         template <class Request, class Result>
+        struct SimpleRemoteFacilitioidForGraph {
+            typename R::template FacilitioidConnector<Request, Result> facility;
+            typename R::template Source<basic::VoidStruct> facilityFirstReady;
+        };
+
+        template <class Request, class Result>
         static auto setupSimpleRemoteFacilitioidByHeartbeat(
             R &r 
             , std::string const &heartbeatSpec
@@ -980,7 +986,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
             , std::optional<WireToUserHook> heartbeatHook = std::nullopt
             , std::chrono::system_clock::duration ttl = std::chrono::seconds(3)
             , std::chrono::system_clock::duration checkPeriod = std::chrono::seconds(5)
-        ) ->  typename R::template FacilitioidConnector<Request, Result>
+        ) ->  SimpleRemoteFacilitioidForGraph<Request, Result>
         {
             auto heartbeatSource = MultiTransportBroadcastListenerManagingUtils<R>::template oneBroadcastListener<HeartbeatMessage>(
                 r 
@@ -998,28 +1004,50 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                 , ttl
                 , checkPeriod
             );
-            auto discard = M::template trivialExporter<std::size_t>();
+            auto convertToFirstReady = M::template liftMaybe<std::size_t>(
+                [](std::size_t &&x) -> std::optional<basic::VoidStruct> {
+                    if (x > 0) {
+                        return basic::VoidStruct {};
+                    } else {
+                        return std::nullopt;
+                    }
+                }
+            );
+            r.registerAction(prefix+"/convertToFirstReady", convertToFirstReady);
+            facility.feedUnderlyingCount(r, r.actionAsSink(convertToFirstReady));
+            auto discard = M::template trivialExporter<basic::VoidStruct>();
             r.registerExporter(prefix+"/discard", discard);
-            facility.feedUnderlyingCount(r, r.exporterAsSink(discard));
-            return facility.facility;
+            r.exportItem(discard, r.actionAsSource(convertToFirstReady));
+            return {
+                facility.facility
+                , r.actionAsSource(convertToFirstReady)
+            };
         }
         
         template <class Request, class Result>
         static auto setupSimpleRemoteFacilitioid(
             R &r 
             , SimpleRemoteFacilitySpec const &spec
-            , std::string const &prefixOrName
+            , std::string const &prefix
             , std::optional<ByteDataHookPair> hooks = std::nullopt
-        ) ->  typename R::template FacilitioidConnector<Request, Result> 
+        ) ->  SimpleRemoteFacilitioidForGraph<Request, Result> 
         {
             return std::visit(
-                [&r,prefixOrName,hooks](auto const &x) -> typename R::template FacilitioidConnector<Request, Result>
+                [&r,prefix,hooks](auto const &x) -> SimpleRemoteFacilitioidForGraph<Request, Result>
                 {
                     using T = std::decay_t<decltype(x)>;
                     if constexpr (std::is_same_v<T, std::string>) {
                         auto facility = setupSimpleRemoteFacility<Request,Result>(r, x, hooks);
-                        r.registerOnOrderFacility(prefixOrName, facility);
-                        return r.facilityConnector(facility);
+                        r.registerOnOrderFacility(prefix+"/facility", facility);
+                        auto trigger = M::template constFirstPushImporter<basic::VoidStruct>();
+                        r.registerImporter(prefix+"/trigger", trigger);
+                        auto discard = M::template trivialExporter<basic::VoidStruct>();
+                        r.registerExporter(prefix+"/discard", discard);
+                        r.exportItem(discard, r.importItem(trigger));
+                        return {
+                            r.facilityConnector(facility)
+                            , r.importItem(trigger)
+                        };
                     } else {
                         return setupSimpleRemoteFacilitioidByHeartbeat<Request,Result>(
                             r 
@@ -1027,7 +1055,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                             , x.heartbeatTopic
                             , x.facilityServerHeartbeatIdentityRE
                             , x.facilityRegistrationName
-                            , prefixOrName
+                            , prefix
                             , hooks
                             , x.heartbeatHook
                             , x.ttl
