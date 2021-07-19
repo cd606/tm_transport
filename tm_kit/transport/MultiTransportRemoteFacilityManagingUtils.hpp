@@ -3,6 +3,7 @@
 
 #include <tm_kit/transport/MultiTransportRemoteFacility.hpp>
 #include <tm_kit/transport/MultiTransportBroadcastListener.hpp>
+#include <tm_kit/transport/MultiTransportBroadcastListenerManagingUtils.hpp>
 #include <tm_kit/transport/HeartbeatMessageToRemoteFacilityCommand.hpp>
 
 #include <tm_kit/basic/real_time_clock/ClockComponent.hpp>
@@ -11,6 +12,20 @@
 #include <tm_kit/basic/AppRunnerUtils.hpp>
 
 namespace dev { namespace cd606 { namespace tm { namespace transport {
+
+    struct SimpleRemoteFacilitySpecByHeartbeat {
+        std::string heartbeatSpec;
+        std::string heartbeatTopic;
+        std::regex facilityServerHeartbeatIdentityRE;
+        std::string facilityRegistrationName; 
+        std::optional<WireToUserHook> heartbeatHook = std::nullopt;
+        std::chrono::system_clock::duration ttl = std::chrono::seconds(3);
+        std::chrono::system_clock::duration checkPeriod = std::chrono::seconds(5);
+    };
+    using SimpleRemoteFacilitySpec = std::variant<
+        std::string 
+        , SimpleRemoteFacilitySpecByHeartbeat
+    >;
 
     template <class R>
     class MultiTransportRemoteFacilityManagingUtils {
@@ -951,6 +966,77 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
             } else {
                 throw std::runtime_error("[MultiTransportRemoteFacilityManagingUtils::setupSimpleRemoteFacility] unknown channel spec '"+channelSpec+"'");
             }
+        }
+
+        template <class Request, class Result>
+        static auto setupSimpleRemoteFacilitioidByHeartbeat(
+            R &r 
+            , std::string const &heartbeatSpec
+            , std::string const &heartbeatTopic
+            , std::regex const &facilityServerHeartbeatIdentityRE
+            , std::string const &facilityRegistrationName
+            , std::string const &prefix
+            , std::optional<ByteDataHookPair> hooks = std::nullopt
+            , std::optional<WireToUserHook> heartbeatHook = std::nullopt
+            , std::chrono::system_clock::duration ttl = std::chrono::seconds(3)
+            , std::chrono::system_clock::duration checkPeriod = std::chrono::seconds(5)
+        ) ->  typename R::template FacilitioidConnector<Request, Result>
+        {
+            auto heartbeatSource = MultiTransportBroadcastListenerManagingUtils<R>::template oneBroadcastListener<HeartbeatMessage>(
+                r 
+                , prefix 
+                , heartbeatSpec
+                , heartbeatTopic
+                , heartbeatHook
+            );
+            auto facility = setupOneNonDistinguishedRemoteFacility<Request, Result>(
+                r 
+                , typename R::template ConvertibleToSourceoid<HeartbeatMessage> {std::move(heartbeatSource)}
+                , facilityServerHeartbeatIdentityRE
+                , facilityRegistrationName
+                , hooks
+                , ttl
+                , checkPeriod
+            );
+            auto discard = M::template trivialExporter<std::size_t>();
+            r.registerExporter(prefix+"/discard", discard);
+            facility.feedUnderlyingCount(r, r.exporterAsSink(discard));
+            return facility.facility;
+        }
+        
+        template <class Request, class Result>
+        static auto setupSimpleRemoteFacilitioid(
+            R &r 
+            , SimpleRemoteFacilitySpec const &spec
+            , std::string const &prefixOrName
+            , std::optional<ByteDataHookPair> hooks = std::nullopt
+        ) ->  typename R::template FacilitioidConnector<Request, Result> 
+        {
+            return std::visit(
+                [&r,prefixOrName,hooks](auto const &x) -> typename R::template FacilitioidConnector<Request, Result>
+                {
+                    using T = std::decay_t<decltype(x)>;
+                    if constexpr (std::is_same_v<T, std::string>) {
+                        auto facility = setupSimpleRemoteFacility<Request,Result>(r, x, hooks);
+                        r.registerOnOrderFacility(prefixOrName, facility);
+                        return r.facilityConnector(facility);
+                    } else {
+                        return setupSimpleRemoteFacilitioidByHeartbeat<Request,Result>(
+                            r 
+                            , x.heartbeatSpec
+                            , x.heartbeatTopic
+                            , x.facilityServerHeartbeatIdentityRE
+                            , x.facilityRegistrationName
+                            , prefixOrName
+                            , hooks
+                            , x.heartbeatHook
+                            , x.ttl
+                            , x.checkPeriod
+                        );
+                    }
+                }
+                , spec
+            );
         }
     };
     

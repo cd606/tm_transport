@@ -271,28 +271,40 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
     template <class R>
     struct HeartbeatAndAlertComponentTouchup {
         HeartbeatAndAlertComponentTouchup(R &r, HeartbeatAndAlertComponentTouchupParameters const &param) {
-            initializeHeartbeatAndAlertComponent<
-                typename R::AppType::EnvironmentType
-            >(
-                r.environment()
-                , param.identity
-                , param.channelDescriptor
-                , std::nullopt 
-            );
-            if (param.overallStatusEntry != "") {
-                r.environment()->HeartbeatAndAlertComponent::setStatus(param.overallStatusEntry, HeartbeatMessage::Status::Good);
-            }
-            r.addTouchup(
-                [param](R &x) {
-                    attachHeartbeatAndAlertComponent<R>(
-                        x 
-                        , x.environment()
-                        , param.topic 
-                        , param.period 
-                        , param.finishAfter
-                    );
+            if constexpr (std::is_convertible_v<typename R::AppType::EnvironmentType *, HeartbeatAndAlertComponent *>) {
+                if (
+                    param.channelDescriptor == "" 
+                    || param.topic == ""
+                    || param.identity == ""
+                )
+                {
+                    return;
                 }
-            );
+                initializeHeartbeatAndAlertComponent<
+                    typename R::AppType::EnvironmentType
+                >(
+                    r.environment()
+                    , param.identity
+                    , param.channelDescriptor
+                    , std::nullopt 
+                );
+                if (param.overallStatusEntry != "") {
+                    r.environment()->HeartbeatAndAlertComponent::setStatus(param.overallStatusEntry, HeartbeatMessage::Status::Good);
+                }
+                r.addTouchup(
+                    [param](R &x) {
+                        attachHeartbeatAndAlertComponent<R>(
+                            x 
+                            , x.environment()
+                            , param.topic 
+                            , param.period 
+                            , param.finishAfter
+                        );
+                    }
+                );
+            } else {
+                throw std::runtime_error("HeartbeatAndAlertComponentTouchup being used without HeartbeatAndAlertComponent in the environment");
+            }
         }
     };
 
