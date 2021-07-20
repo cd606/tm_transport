@@ -99,6 +99,8 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                             std::cerr << "RabbitMQComponent exchange subscription client exception: " << ex.what() << "\n";
                             running_ = false;
                             break;
+                        case RabbitMQComponent::ExceptionPolicy::Ignore:
+                            break;
                         default:
                             throw;
                             break;
@@ -193,6 +195,8 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                         case RabbitMQComponent::ExceptionPolicy::IgnoreForWriteAndStopForRead:
                             std::cerr << "RabbitMQComponent publishing exception: " << ex.what() << "\n";
                             break;
+                        case RabbitMQComponent::ExceptionPolicy::Ignore:
+                            break;
                         default:
                             throw;
                             break;
@@ -217,6 +221,8 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                         case RabbitMQComponent::ExceptionPolicy::IgnoreForWriteAndThrowForRead:
                         case RabbitMQComponent::ExceptionPolicy::IgnoreForWriteAndStopForRead:
                             std::cerr << "RabbitMQComponent publishing exception: " << ex.what() << "\n";
+                            break;
+                        case RabbitMQComponent::ExceptionPolicy::Ignore:
                             break;
                         default:
                             throw;
@@ -269,6 +275,8 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                         case RabbitMQComponent::ExceptionPolicy::IgnoreForWriteAndStopForRead:
                             std::cerr << "RabbitMQComponent RPC queue client exception: " << ex.what() << "\n";
                             running_ = false;
+                            break;
+                        case RabbitMQComponent::ExceptionPolicy::Ignore:
                             break;
                         default:
                             throw;
@@ -364,6 +372,8 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                         case RabbitMQComponent::ExceptionPolicy::IgnoreForWriteAndStopForRead:
                             std::cerr << "RabbitMQComponent RPC queue server exception: " << ex.what() << "\n";
                             running_ = false;
+                            break;
+                        case RabbitMQComponent::ExceptionPolicy::Ignore:
                             break;
                         default:
                             throw;

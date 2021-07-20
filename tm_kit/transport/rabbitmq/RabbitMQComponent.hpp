@@ -30,6 +30,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             Throw
             , IgnoreForWriteAndThrowForRead
             , IgnoreForWriteAndStopForRead
+            , Ignore
         };
         RabbitMQComponent(ExceptionPolicy exceptionPolicy=ExceptionPolicy::Throw);
         RabbitMQComponent(RabbitMQComponent &&);
