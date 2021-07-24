@@ -198,6 +198,7 @@ namespace Dev.CD606.TM.Transport
                 {
                     if (actualFacility != null)
                     {
+                        copyOneHandlerTo(data.timedData.value.id, actualFacility);
                         actualFacility.handle(data);
                     }
                 }
