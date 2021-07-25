@@ -5,6 +5,10 @@ import * as zmq from 'zeromq'
 import * as cbor from 'cbor'
 import * as Stream from 'stream'
 import * as fs from 'fs'
+import * as os from 'os'
+import * as process from 'process'
+import * as _ from 'lodash'
+import * as moment from 'moment'
 import {v4 as uuidv4} from "uuid"
 import {eddsa as EDDSA} from "elliptic"
 
@@ -1368,6 +1372,47 @@ export namespace RemoteComponents {
         sender : string;
         level : string;
         message : string;
+    }
+    export class HeartbeatPublisher {
+        private _address : string;
+        private _topic : string;
+        private _frequencyMs : number;
+        private _value : Heartbeat;
+        constructor(address : string, topic : string, description : string, frequencyMs : number) {
+            this._address = address;
+            this._topic = topic;
+            this._value = {
+                uuid_str : uuidv4()
+                , timestamp : 0
+                , host : os.hostname()
+                , pid : process.pid
+                , sender_description : description 
+                , broadcast_channels : {}
+                , facility_channels : {}
+                , details : {}
+            };
+            this._frequencyMs = frequencyMs;
+        }
+        registerFacility(facilityName : string, channel : string) : void {
+            this._value.facility_channels[facilityName] = channel;
+        }
+        registerBroadcat(broadcastName : string, channel : string) : void {
+            if (this._value.broadcast_channels.hasOwnProperty(broadcastName)) {
+                var x = this._value.broadcast_channels[broadcastName];
+                x.push(channel);
+                this._value.broadcast_channels[broadcastName] = _.uniq(x);
+            } else {
+                this._value.broadcast_channels[broadcastName] = [channel];
+            }
+        }
+        addToRunner<Env extends TMBasic.ClockEnv>(r : TMInfra.RealTimeApp.Runner<Env>) : void {
+            /*
+            var exporter = TMBasic.ClockImporter.createRecurringClockImporter<Env,TMBasic.TypedDataWithTopic<Heartbeat>>(
+                new Date()
+                , new Date()
+            )
+            */
+        }
     }
 
     export namespace Security {
