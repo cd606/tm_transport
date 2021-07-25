@@ -1453,7 +1453,7 @@ export namespace RemoteComponents {
             var exporter = RemoteComponents.createExporter<Env>(
                 this._address
             );
-            var timer = TMBasic.ClockImporter.createRecurringClockImporter<Env,TMBasic.TypedDataWithTopic<Heartbeat>>(
+            var timer = TMBasic.ClockImporter.createRecurringClockImporter<Env,TMBasic.ByteDataWithTopic>(
                 now
                 , date_fns.add(now, {hours: 24})
                 , this._frequencyMs
@@ -1461,7 +1461,7 @@ export namespace RemoteComponents {
                     thisObj._value.timestamp = new Date().getTime();
                     return {
                         topic : thisObj._topic
-                        , content : thisObj._value
+                        , content : cbor.encode(thisObj._value) as Buffer
                     };
                 }
             );
