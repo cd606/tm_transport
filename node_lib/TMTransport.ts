@@ -8,7 +8,7 @@ import * as fs from 'fs'
 import * as os from 'os'
 import * as process from 'process'
 import * as _ from 'lodash'
-import * as moment from 'moment'
+import * as date_fns from 'date-fns'
 import {v4 as uuidv4} from "uuid"
 import {eddsa as EDDSA} from "elliptic"
 
@@ -1355,6 +1355,48 @@ export namespace RemoteComponents {
         return o;
     }
 
+    export async function wrapFacility<Env extends TMBasic.ClockEnv,InputT, OutputT>(
+        r : TMInfra.RealTimeApp.Runner<Env>
+        , facility : TMInfra.RealTimeApp.OnOrderFacility<Env, InputT, OutputT>
+        , encoder: Encoder<OutputT>
+        , decoder : Decoder<InputT>
+        , param : ServerFacilityStreamParameters
+    ) {
+        var s = await MultiTransportFacilityServer.facilityStream(param);
+        var env = r.environment();
+        var decodeStream = new Stream.Transform({
+            transform : function(chunk : [string, Buffer], encoding : BufferEncoding, callback) {
+                this.push({
+                    environment : env
+                    , timedData : {
+                        timePoint : env.now()
+                        , value : {
+                            id : chunk[0]
+                            , key : decoder(chunk[1])
+                        }
+                        , finalFlag : false
+                    }
+                }, encoding);
+                callback();
+            }
+            , objectMode : true
+        });
+        var encodeStream = new Stream.Transform({
+            transform : function(chunk : TMInfra.TimedDataWithEnvironment<Env, TMInfra.KeyedData<InputT,OutputT>>, encoding : BufferEncoding, callback) {
+                this.push([chunk.timedData.value.key.id, encoder(chunk.timedData.value.data), chunk.timedData.finalFlag], encoding);
+                callback();
+            }
+            , objectMode : true
+        })
+        s[1].pipe(decodeStream);
+        encodeStream.pipe(s[0]);
+        r.placeOrderWithFacility(
+            new TMInfra.RealTimeApp.Source<Env,TMInfra.Key<InputT>>(decodeStream)
+            , facility 
+            , new TMInfra.RealTimeApp.Sink<Env,TMInfra.KeyedData<InputT,OutputT>>(encodeStream)
+        );
+    }
+
     export interface Heartbeat {
         uuid_str : string;
         timestamp : number;
@@ -1396,7 +1438,7 @@ export namespace RemoteComponents {
         registerFacility(facilityName : string, channel : string) : void {
             this._value.facility_channels[facilityName] = channel;
         }
-        registerBroadcat(broadcastName : string, channel : string) : void {
+        registerBroadcast(broadcastName : string, channel : string) : void {
             if (this._value.broadcast_channels.hasOwnProperty(broadcastName)) {
                 var x = this._value.broadcast_channels[broadcastName];
                 x.push(channel);
@@ -1406,12 +1448,24 @@ export namespace RemoteComponents {
             }
         }
         addToRunner<Env extends TMBasic.ClockEnv>(r : TMInfra.RealTimeApp.Runner<Env>) : void {
-            /*
-            var exporter = TMBasic.ClockImporter.createRecurringClockImporter<Env,TMBasic.TypedDataWithTopic<Heartbeat>>(
-                new Date()
-                , new Date()
-            )
-            */
+            var now = new Date();
+            var thisObj = this;
+            var exporter = RemoteComponents.createExporter<Env>(
+                this._address
+            );
+            var timer = TMBasic.ClockImporter.createRecurringClockImporter<Env,TMBasic.TypedDataWithTopic<Heartbeat>>(
+                now
+                , date_fns.add(now, {hours: 24})
+                , this._frequencyMs
+                , function (d : Date) {
+                    thisObj._value.timestamp = new Date().getTime();
+                    return {
+                        topic : thisObj._topic
+                        , content : thisObj._value
+                    };
+                }
+            );
+            r.exportItem(exporter, r.importItem(timer));
         }
     }
 
