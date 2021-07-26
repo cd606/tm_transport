@@ -20,7 +20,8 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             std::optional<WireToUserHook> wireToUserHook_;
             boost::asio::ip::tcp::endpoint remotePoint_;
             boost::asio::ip::tcp::socket sock_;
-            std::array<char, 16*1024*1024> buffer_;
+            std::array<char, 8192> buffer_;
+            std::vector<char> dynamicBuffer_;
             bool good_;
             uint32_t reconnectTimeoutMs_;
             std::mutex mutex_;
@@ -73,16 +74,30 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             void handleDataLengthRead(boost::system::error_code const &ec, size_t bytes_transferred) {
                 if (!ec && bytes_transferred == sizeof(uint32_t)) {
                     uint32_t len = boost::endian::little_to_native<uint32_t>(*reinterpret_cast<uint32_t const *>(buffer_.data()));
-                    boost::asio::async_read(
-                        sock_
-                        , boost::asio::buffer(buffer_.data(), len)
-                        , boost::bind(
-                            &OneSocketRPCClient::handleDataRead
-                            , this
-                            , boost::asio::placeholders::error
-                            , boost::asio::placeholders::bytes_transferred
-                        )
-                    );
+                    if (len <= 8192) {
+                        boost::asio::async_read(
+                            sock_
+                            , boost::asio::buffer(buffer_.data(), len)
+                            , boost::bind(
+                                &OneSocketRPCClient::handleDataRead
+                                , this
+                                , boost::asio::placeholders::error
+                                , boost::asio::placeholders::bytes_transferred
+                            )
+                        );
+                    } else {
+                        dynamicBuffer_.resize(len);
+                        boost::asio::async_read(
+                            sock_
+                            , boost::asio::buffer(dynamicBuffer_.data(), len)
+                            , boost::bind(
+                                &OneSocketRPCClient::handleDataRead
+                                , this
+                                , boost::asio::placeholders::error
+                                , boost::asio::placeholders::bytes_transferred
+                            )
+                        );
+                    }
                 } else {
                     good_ = false;
                     if (reconnectTimeoutMs_ <= 2000) {
@@ -103,11 +118,21 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             void handleDataRead(boost::system::error_code const &ec, size_t bytes_transferred) {
                 if (!ec) {
                     std::tuple<bool, basic::ByteDataWithID> decodedDataWithID;
-                    auto res = basic::bytedata_utils::RunCBORDeserializer<std::tuple<bool, basic::ByteDataWithID>>::applyInPlace(
-                        decodedDataWithID 
-                        , std::string_view {buffer_.data(), bytes_transferred}
-                        , 0
-                    );
+                    std::optional<size_t> res;
+                    if (bytes_transferred <= 8192) {
+                        res = basic::bytedata_utils::RunCBORDeserializer<std::tuple<bool, basic::ByteDataWithID>>::applyInPlace(
+                            decodedDataWithID 
+                            , std::string_view {buffer_.data(), bytes_transferred}
+                            , 0
+                        );
+                    } else {
+                        res = basic::bytedata_utils::RunCBORDeserializer<std::tuple<bool, basic::ByteDataWithID>>::applyInPlace(
+                            decodedDataWithID 
+                            , std::string_view {dynamicBuffer_.data(), bytes_transferred}
+                            , 0
+                        );
+                        dynamicBuffer_.resize(0);
+                    }
                     if (res && *res == bytes_transferred) {
                         if (wireToUserHook_) {
                             auto d = (wireToUserHook_->hook)(basic::ByteDataView {std::string_view(std::get<1>(decodedDataWithID).content)});
@@ -153,6 +178,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 , wireToUserHook_(wireToUserHook)
                 , sock_(*service)
                 , buffer_()
+                , dynamicBuffer_()
                 , good_(false)
                 , reconnectTimeoutMs_(50)
                 , mutex_()
@@ -161,7 +187,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 boost::asio::ip::tcp::resolver::query query(locator_.host(), std::to_string(locator_.port()));
                 remotePoint_ = resolver.resolve(query)->endpoint();
                 sock_.open(remotePoint_.protocol());
-                sock_.set_option(boost::asio::ip::tcp::socket::receive_buffer_size(16*1024*1024));
+                sock_.set_option(boost::asio::ip::tcp::socket::receive_buffer_size(8192));
                 sock_.async_connect(
                     remotePoint_
                     , boost::bind(
@@ -204,7 +230,8 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 friend class OneSocketRPCServer;
                 OneSocketRPCServer *parent_;
                 boost::asio::ip::tcp::socket sock_;
-                std::array<char, 16*1024*1024> buffer_;
+                std::array<char, 8192> buffer_;
+                std::vector<char> dynamicBuffer_;
                 std::atomic<bool> stopped_;
                 void handleAccept(boost::system::error_code const &ec) {
                     if (ec) {
@@ -214,7 +241,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                         new OneConnection(parent_);
                         boost::asio::async_read(
                             sock_
-                            , boost::asio::buffer(buffer_, sizeof(uint32_t))
+                            , boost::asio::buffer(buffer_.data(), sizeof(uint32_t))
                             , boost::bind(
                                 &OneConnection::handleDataLength
                                 , this
@@ -227,16 +254,30 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 void handleDataLength(boost::system::error_code const &ec, size_t bytes_transferred) {
                     if (!ec && bytes_transferred == sizeof(uint32_t)) {
                         uint32_t len = boost::endian::little_to_native<uint32_t>(*reinterpret_cast<uint32_t const *>(buffer_.data()));
-                        boost::asio::async_read(
-                            sock_ 
-                            , boost::asio::buffer(buffer_, len)
-                            , boost::bind(
-                                &OneConnection::handleData
-                                , this
-                                , boost::asio::placeholders::error
-                                , boost::asio::placeholders::bytes_transferred
-                            )
-                        );
+                        if (len <= 8192) {
+                            boost::asio::async_read(
+                                sock_ 
+                                , boost::asio::buffer(buffer_.data(), len)
+                                , boost::bind(
+                                    &OneConnection::handleData
+                                    , this
+                                    , boost::asio::placeholders::error
+                                    , boost::asio::placeholders::bytes_transferred
+                                )
+                            );
+                        } else {
+                            dynamicBuffer_.resize(len);
+                            boost::asio::async_read(
+                                sock_ 
+                                , boost::asio::buffer(dynamicBuffer_.data(), len)
+                                , boost::bind(
+                                    &OneConnection::handleData
+                                    , this
+                                    , boost::asio::placeholders::error
+                                    , boost::asio::placeholders::bytes_transferred
+                                )
+                            );
+                        }
                     } else {
                         stopped_ = true;
                         delete this;
@@ -245,9 +286,17 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 void handleData(boost::system::error_code const &ec, size_t bytes_transferred) {
                     if (!ec) {
                         basic::ByteDataWithID data;
-                        auto res = basic::bytedata_utils::RunCBORDeserializer<basic::ByteDataWithID>::applyInPlace(
-                            data, std::string_view(buffer_.data(), bytes_transferred), 0
-                        );
+                        std::optional<size_t> res;
+                        if (bytes_transferred <= 8192) {
+                            res = basic::bytedata_utils::RunCBORDeserializer<basic::ByteDataWithID>::applyInPlace(
+                                data, std::string_view(buffer_.data(), bytes_transferred), 0
+                            );
+                        } else {
+                            res = basic::bytedata_utils::RunCBORDeserializer<basic::ByteDataWithID>::applyInPlace(
+                                data, std::string_view(dynamicBuffer_.data(), bytes_transferred), 0
+                            );
+                            dynamicBuffer_.resize(0);
+                        }
                         if (res && *res == bytes_transferred) {
                             parent_->registerConnection(data.id, this);
                             if (parent_->wireToUserHook_) {
@@ -261,7 +310,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                         }
                         boost::asio::async_read(
                             sock_ 
-                            , boost::asio::buffer(buffer_, sizeof(uint32_t))
+                            , boost::asio::buffer(buffer_.data(), sizeof(uint32_t))
                             , boost::bind(
                                 &OneConnection::handleDataLength
                                 , this
@@ -295,6 +344,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                     : parent_(parent)
                     , sock_(*(parent_->service_)) 
                     , buffer_()
+                    , dynamicBuffer_()
                     , stopped_(false)
                 {
                     parent_->acceptor_.async_accept(
@@ -353,7 +403,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 auto ep = resolver.resolve(query)->endpoint();
 
                 acceptor_.open(ep.protocol());
-                acceptor_.set_option(boost::asio::ip::udp::socket::send_buffer_size(16*1024*1024));
+                acceptor_.set_option(boost::asio::ip::udp::socket::send_buffer_size(8192));
                 acceptor_.bind(ep);
 
                 acceptor_.listen(boost::asio::socket_base::max_listen_connections);
