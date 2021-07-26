@@ -959,6 +959,13 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                         throw std::runtime_error("[MultiTransportRemoteFacilityManagingUtils::setupSimpleRemoteFacility] trying to set up redis facility for channel spec '"+channelSpec+"', but redis is unsupported in the environment");
                     }
                     break;
+                case MultiTransportRemoteFacilityConnectionType::SocketRPC:
+                    if constexpr(std::is_convertible_v<typename R::EnvironmentType *, socket_rpc::SocketRPCComponent *>) {
+                        return socket_rpc::SocketRPCOnOrderFacility<typename R::EnvironmentType>::template createTypedRPCOnOrderFacility<Request,Result>(std::get<1>(*parsed), hooks);
+                    } else {
+                        throw std::runtime_error("[MultiTransportRemoteFacilityManagingUtils::setupSimpleRemoteFacility] trying to set up socket rpc facility for channel spec '"+channelSpec+"', but socket rpc is unsupported in the environment");
+                    }
+                    break;
                 default:
                     throw std::runtime_error("[MultiTransportRemoteFacilityManagingUtils::setupSimpleRemoteFacility] trying to set up unsupported facility for channel spec '"+channelSpec+"'");
                     break;

@@ -11,6 +11,8 @@
 #include <tm_kit/transport/rabbitmq/RabbitMQOnOrderFacility.hpp>
 #include <tm_kit/transport/redis/RedisComponent.hpp>
 #include <tm_kit/transport/redis/RedisOnOrderFacility.hpp>
+#include <tm_kit/transport/socket_rpc/SocketRPCComponent.hpp>
+#include <tm_kit/transport/socket_rpc/SocketRPCOnOrderFacility.hpp>
 #include <tm_kit/transport/AbstractIdentityCheckerComponent.hpp>
 #include <tm_kit/transport/MultiTransportBroadcastListenerManagingUtils.hpp>
 
@@ -31,10 +33,12 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
     enum class MultiTransportRemoteFacilityConnectionType {
         RabbitMQ
         , Redis
+        , SocketRPC
     };
-    inline const std::array<std::string,2> MULTI_TRANSPORT_REMOTE_FACILITY_CONNECTION_TYPE_STR = {
+    inline const std::array<std::string,3> MULTI_TRANSPORT_REMOTE_FACILITY_CONNECTION_TYPE_STR = {
         "rabbitmq"
         , "redis"
+        , "socket_rpc"
     };
 
     inline auto parseMultiTransportRemoteFacilityChannel(std::string const &s) 
@@ -335,6 +339,90 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                 }
                 return {newSize, true};
                 break;
+            case MultiTransportRemoteFacilityConnectionType::SocketRPC:
+                if constexpr (std::is_convertible_v<Env *, socket_rpc::SocketRPCComponent *>) {
+                    auto *component = static_cast<socket_rpc::SocketRPCComponent *>(env);
+                    try {
+                        auto rawReq = component->socket_rpc_setRPCClient(
+                            locator
+                            , [this,env](bool isFinal, basic::ByteDataWithID &&data) {
+                                if constexpr (std::is_same_v<Identity, void>) {
+                                    Output o;
+                                    auto result = basic::bytedata_utils::RunDeserializer<Output>::applyInPlace(o, data.content);
+                                    if (!result) {
+                                        return;
+                                    }
+                                    this->FacilityParent::publish(
+                                        env
+                                        , typename M::template Key<Output> {
+                                            Env::id_from_string(data.id)
+                                            , std::move(o)
+                                        }
+                                        , isFinal
+                                    );
+                                } else {
+                                    auto processRes = static_cast<ClientSideAbstractIdentityAttacherComponent<Identity,A> *>(env)->process_incoming_data(
+                                        basic::ByteData {std::move(data.content)}
+                                    );
+                                    if (processRes) {
+                                        Output o;
+                                        auto result = basic::bytedata_utils::RunDeserializer<Output>::applyInPlace(o, processRes->content);
+                                        if (!result) {
+                                            return;
+                                        }
+                                        this->FacilityParent::publish(
+                                            env
+                                            , typename M::template Key<Output> {
+                                                Env::id_from_string(data.id)
+                                                , std::move(o)
+                                            }
+                                            , isFinal
+                                        );
+                                    }
+                                }
+                            }
+                            , DefaultHookFactory<Env>::template supplyFacilityHookPair_ClientSide<A,B>(env, hookPairFactory_(description, locator))
+                        );
+                        RequestSender req;
+                        if constexpr (std::is_same_v<Identity,void>) {
+                            req = rawReq;
+                        } else {
+                            static_assert(std::is_convertible_v<Env *, ClientSideAbstractIdentityAttacherComponent<Identity,A> *>
+                                        , "the client side identity attacher must be present");
+                            auto *attacher = static_cast<ClientSideAbstractIdentityAttacherComponent<Identity,A> *>(env);
+                            req = [attacher,rawReq](basic::ByteDataWithID &&data) {
+                                rawReq(basic::ByteDataWithID {
+                                    std::move(data.id)
+                                    , attacher->attach_identity(basic::ByteData {std::move(data.content)}).content
+                                });
+                            };
+                        }
+                        {
+                            std::lock_guard<std::mutex> _(mutex_);
+                            underlyingSenders_.push_back({locator, std::make_unique<RequestSender>(std::move(req))});
+                            if constexpr (DispatchStrategy == MultiTransportRemoteFacilityDispatchStrategy::Designated) {
+                                senderMap_.insert({locator, std::get<1>(underlyingSenders_.back()).get()});
+                            }
+                            newSize = underlyingSenders_.size();
+                        }
+                        std::ostringstream oss;
+                        oss << "[MultiTransportRemoteFacility::registerFacility] Registered Socket RPC facility for "
+                            << locator;
+                        env->log(infra::LogLevel::Info, oss.str());
+                    } catch (socket_rpc::SocketRPCComponentException const &ex) {
+                        std::ostringstream oss;
+                        oss << "[MultiTransportRemoteFacility::registerFacility] Error registering Socket RPC facility for "
+                            << locator
+                            << ": " << ex.what();
+                        env->log(infra::LogLevel::Error, oss.str());
+                    }
+                } else {
+                    std::ostringstream errOss;
+                    errOss << "[MultiTransportRemoteFacility::registerFacility] Trying to set up socket rpc facility for " << locator << ", but socket rpc is unsupported in the environment";
+                    env->log(infra::LogLevel::Warning, errOss.str());
+                }
+                return {newSize, true};
+                break;
             default:
                 return {0, false};
                 break;
@@ -394,6 +482,34 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                     }
                     std::ostringstream oss;
                     oss << "[MultiTransportRemoteFacility::deregisterFacility] De-registered Redis facility for "
+                        << locator;
+                    env->log(infra::LogLevel::Info, oss.str());
+                }
+                return {newSize, true};
+                break;
+            case MultiTransportRemoteFacilityConnectionType::SocketRPC:
+                if constexpr (std::is_convertible_v<Env *, socket_rpc::SocketRPCComponent *>) {
+                    auto *component = static_cast<socket_rpc::SocketRPCComponent *>(env);
+                    component->socket_rpc_removeRPCClient(locator);
+                    {
+                        std::lock_guard<std::mutex> _(mutex_);
+                        if constexpr (DispatchStrategy == MultiTransportRemoteFacilityDispatchStrategy::Designated) {
+                            senderMap_.erase(locator);
+                        }
+                        underlyingSenders_.erase(
+                            std::remove_if(
+                                underlyingSenders_.begin()
+                                , underlyingSenders_.end()
+                                , [&locator](auto const &x) {
+                                    return (std::get<0>(x) == locator);
+                                }
+                            )
+                            , underlyingSenders_.end()
+                        );
+                        newSize = underlyingSenders_.size();
+                    }
+                    std::ostringstream oss;
+                    oss << "[MultiTransportRemoteFacility::deregisterFacility] De-registered Socket RPC facility for "
                         << locator;
                     env->log(infra::LogLevel::Info, oss.str());
                 }
@@ -536,6 +652,14 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                 } else {
                     throw std::runtime_error("OneShotMultiTransportRemoteFacilityCall::call: connection type Redis not supported in environment");
                 }
+            } else if (connType == MultiTransportRemoteFacilityConnectionType::SocketRPC) {
+                if constexpr (std::is_convertible_v<Env *, socket_rpc::SocketRPCComponent *>) {
+                    return socket_rpc::SocketRPCOnOrderFacility<Env>::template typedOneShotRemoteCall<A,B>(
+                        env, locator, std::move(request), hooks, autoDisconnect
+                    );
+                } else {
+                    throw std::runtime_error("OneShotMultiTransportRemoteFacilityCall::call: connection type Socket RPC not supported in environment");
+                }
             } else {
                 throw std::runtime_error("OneShotMultiTransportRemoteFacilityCall::call: unknown connection type");
             }
@@ -580,6 +704,14 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                 } else {
                     throw std::runtime_error("OneShotMultiTransportRemoteFacilityCall::callNoReply: connection type Redis not supported in environment");
                 }
+            } else if (connType == MultiTransportRemoteFacilityConnectionType::SocketRPC) {
+                if constexpr (std::is_convertible_v<Env *, socket_rpc::SocketRPCComponent *>) {
+                    return socket_rpc::SocketRPCOnOrderFacility<Env>::template typedOneShotRemoteCallNoReply<A,B>(
+                        env, locator, std::move(request), hooks, autoDisconnect
+                    );
+                } else {
+                    throw std::runtime_error("OneShotMultiTransportRemoteFacilityCall::callNoReply: connection type Socket RPC not supported in environment");
+                }
             } else {
                 throw std::runtime_error("OneShotMultiTransportRemoteFacilityCall::callNoReply: unknown connection type");
             }
@@ -615,6 +747,12 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                     env->redis_removeRPCClient(locator);
                 } else {
                     throw std::runtime_error("OneShotMultiTransportRemoteFacilityCall::removeClient: connection type Redis not supported in environment");
+                }
+            } else if (connType == MultiTransportRemoteFacilityConnectionType::SocketRPC) {
+                if constexpr (std::is_convertible_v<Env *, socket_rpc::SocketRPCComponent *>) {
+                    env->socket_rpc_removeRPCClient(locator);
+                } else {
+                    throw std::runtime_error("OneShotMultiTransportRemoteFacilityCall::removeClient: connection type Socket RPC not supported in environment");
                 }
             } else {
                 throw std::runtime_error("OneShotMultiTransportRemoteFacilityCall::removeClient: unknown connection type");

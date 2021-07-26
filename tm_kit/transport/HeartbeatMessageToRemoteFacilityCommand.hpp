@@ -87,6 +87,15 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                     } catch (ConnectionLocatorParseError const &) {
                         return std::nullopt;
                     }
+                } else if (boost::starts_with(s, "socket_rpc://")) {
+                    try {
+                        return std::tuple<MultiTransportRemoteFacilityConnectionType, ConnectionLocator> {
+                            MultiTransportRemoteFacilityConnectionType::SocketRPC
+                            , ConnectionLocator::parse(s.substr(std::string("socket_rpc://").length()))
+                        };
+                    } catch (ConnectionLocatorParseError const &) {
+                        return std::nullopt;
+                    }
                 } else {
                     return std::nullopt;
                 }

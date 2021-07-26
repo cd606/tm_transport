@@ -10,6 +10,7 @@ tm_transport_sources = [
       , 'nng/NNGComponent.cpp'
       , 'security/SignatureHelper.cpp'
       , 'shared_memory_broadcast/SharedMemoryBroadcastComponent.cpp'
+      , 'socket_rpc/SocketRPCComponent.cpp'
 ]
 tm_transport_lib = static_library('tm_kit_transport', tm_transport_sources, include_directories: inc, dependencies: common_deps, install: true)
 pkg.generate(tm_transport_lib)
