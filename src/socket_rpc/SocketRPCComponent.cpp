@@ -308,6 +308,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 }
                 ~OneConnection() {
                     stopped_ = true;
+                    parent_->removeConnection(this);
                     sock_.close();
                 }
             };
