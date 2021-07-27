@@ -15,6 +15,8 @@ tm_transport_headers = [
       , 'MultiTransportFacilityWrapper.hpp'
       , 'MultiTransportBroadcastListenerManagingUtils.hpp'
       , 'MultiTransportBroadcastPublisherManagingUtils.hpp'
+      , 'MultiTransportBroadcastListenerManagingUtils_SynchronousRunner.hpp'
+      , 'MultiTransportRemoteFacilityManagingUtils_SynchronousRunner.hpp'
       , 'CrossGuidComponent.hpp'
       , 'AbstractHookFactoryComponent.hpp'
       , 'SharedChainCreator.hpp'

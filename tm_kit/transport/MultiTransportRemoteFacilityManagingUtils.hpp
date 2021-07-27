@@ -937,8 +937,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
         }
         template <class Request, class Result>
         static auto setupSimpleRemoteFacility(
-            R &r 
-            , std::string const &channelSpec
+            std::string const &channelSpec
             , std::optional<ByteDataHookPair> hooks = std::nullopt
         ) ->  typename R::template OnOrderFacilityPtr<Request, Result>
         {
@@ -973,6 +972,15 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
             } else {
                 throw std::runtime_error("[MultiTransportRemoteFacilityManagingUtils::setupSimpleRemoteFacility] unknown channel spec '"+channelSpec+"'");
             }
+        }
+        template <class Request, class Result>
+        static auto setupSimpleRemoteFacility(
+            R &r 
+            , std::string const &channelSpec
+            , std::optional<ByteDataHookPair> hooks = std::nullopt
+        ) ->  typename R::template OnOrderFacilityPtr<Request, Result>
+        {
+            return setupSimpleRemoteFacility<Request,Result>(channelSpec, hooks);
         }
 
         template <class Request, class Result>
