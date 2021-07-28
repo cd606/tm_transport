@@ -1483,4 +1483,51 @@ export namespace RemoteComponents {
             }
         }
     }
+
+    export async function createRemoteFacilityFromHeartbeatSynchronously<Env extends TMBasic.ClockEnv,InputT,OutputT>(
+        r : TMInfra.RealTimeApp.SynchronousRunner<Env>
+        , heartbeatSpec : string
+        , heartbeatTopic : string
+        , facilityServerHeartbeatIdentityRE : RegExp
+        , facilityRegistrationName : string
+        , encoder : Encoder<InputT>
+        , decoder : Decoder<OutputT>
+        , facilityParam? : ClientFacilityStreamParameters
+        , heartbeatHook? : ((data: Buffer) => Buffer)
+    ) : Promise<TMInfra.RealTimeApp.OnOrderFacility<Env,InputT,OutputT>>
+    {
+        let importer = createTypedImporter<Env,Heartbeat>(
+            (b : Buffer) => cbor.decode(b) as Heartbeat
+            , heartbeatSpec
+            , heartbeatTopic
+            , heartbeatHook
+        );
+        let cond = (h : TMInfra.TimedDataWithEnvironment<Env,TMBasic.TypedDataWithTopic<Heartbeat>>) => {
+            let h1 = h.timedData.value.content;
+            if (!facilityServerHeartbeatIdentityRE.test(h1.sender_description)) {
+                return false;
+            }
+            return h1.facility_channels.hasOwnProperty(facilityRegistrationName);
+        }
+        for await (const h of r.importItemUntil(importer, cond)) {
+            if (cond(h)) {
+                if (facilityParam) {
+                    facilityParam.address = h.timedData.value.content.facility_channels[facilityRegistrationName];
+                    return createFacilityProxy<Env,InputT,OutputT>(
+                        encoder 
+                        , decoder 
+                        , facilityParam
+                    );
+                } else {
+                    return createFacilityProxy<Env,InputT,OutputT>(
+                        encoder 
+                        , decoder 
+                        , {
+                            address : h.timedData.value.content.facility_channels[facilityRegistrationName]
+                        }
+                    );
+                }
+            }
+        }
+    }
 }
