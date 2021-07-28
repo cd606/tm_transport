@@ -284,5 +284,46 @@ namespace Dev.CD606.TM.Transport
             var parsedAddr = TransportUtils.ParseAddress(address);
             WrapOnOrderFacilityWithoutReply(r, facility, decoder, parsedAddr.Item1, parsedAddr.Item2, hookPair);
         }
+        public async static Task<AbstractOnOrderFacility<Env,InT,OutT>> CreateRemoteFacilityFromHeartbeatSynchronously<InT,OutT>(
+            SynchronousRunner<Env> r 
+            , string heartbeatSpec
+            , string heartbeatTopic
+            , Regex facilityServerHeartbeatIdentityRE
+            , string facilityRegistrationName
+            , Func<InT, byte[]> encoder
+            , Func<byte[], Option<OutT>> decoder
+            , HookPair hookPair = null
+            , ClientSideIdentityAttacher identityAttacher = null
+            , WireToUserHook heartbeatHook=null
+        )
+        {
+            var importer = MultiTransportImporter<Env>.CreateTypedImporter<Heartbeat>(
+                decoder : (x) => CborDecoder<Heartbeat>.Decode(CBORObject.DecodeFromBytes(x))
+                , address : heartbeatSpec
+                , topicStr: heartbeatTopic
+                , hook : heartbeatHook
+            );
+            Predicate<TimedDataWithEnvironment<Env,TypedDataWithTopic<Heartbeat>>> cond = (TimedDataWithEnvironment<Env,TypedDataWithTopic<Heartbeat>> h) => {
+                if (!facilityServerHeartbeatIdentityRE.IsMatch(h.timedData.value.content.sender_description))
+                {
+                    return false;
+                }
+                return (h.timedData.value.content.facility_channels.ContainsKey(facilityRegistrationName));
+            };
+            await foreach (var x in r.importItemUntil(importer, cond))
+            {
+                if (cond(x))
+                {
+                    return CreateFacility<InT,OutT>(
+                        encoder : encoder
+                        , decoder : decoder 
+                        , address : x.timedData.value.content.facility_channels[facilityRegistrationName]
+                        , hookPair : hookPair
+                        , identityAttacher : identityAttacher
+                    );
+                }
+            }
+            return null;
+        }
     }
 }
