@@ -90,7 +90,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                     using DF = basic::struct_field_info_utils::StructFieldInfoBasedDataFiller<T>;
                     using Key = std::decay_t<decltype(keyExtractor(std::declval<T>()))>;
                     static bool first = true;
-                    static std::unordered_set<Key> seen;
+                    static std::unordered_set<Key, basic::struct_field_info_utils::StructFieldInfoBasedHash<Key>> seen;
                     
                     if (!first) {
                         std::this_thread::sleep_for(interval);
