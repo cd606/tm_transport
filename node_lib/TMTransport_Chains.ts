@@ -33,6 +33,7 @@ export class EtcdSharedChain {
     client : Etcd3;
     redisClient : any;
     current : EtcdSharedChainItem;
+    separateStorageDecoder : (x : any) => any;
 
     static defaultEtcdSharedChainConfiguration(commonPrefix = "", useDate = true) : EtcdSharedChainConfiguration {
         var today = dateFormat(new Date(), "yyyy_mm_dd");
@@ -50,13 +51,18 @@ export class EtcdSharedChain {
         };
     }
 
-    constructor(config : EtcdSharedChainConfiguration) {
+    constructor(config : EtcdSharedChainConfiguration, separateStorageDecoder? : (x : any) => any) {
         this.config = config;
         this.client = new Etcd3(config.etcd3Options);
         if (config.duplicateFromRedis || config.automaticallyDuplicateToRedis) {
             this.redisClient = asyncRedis.createClient(`redis://${this.config.redisServerAddr}`, {'return_buffers': true});
         }
         this.current = null;
+        if (separateStorageDecoder) {
+            this.separateStorageDecoder = separateStorageDecoder;
+        } else {
+            this.separateStorageDecoder = (x) => cbor.decode(x);
+        }
     }
 
     async start(defaultData : any) {
@@ -176,7 +182,7 @@ export class EtcdSharedChain {
                 this.current = {
                     revision : BigInt(etcdReply.responses[0].response_range.kvs[0].mod_revision)
                     , id : id
-                    , data : cbor.decode(etcdReply.responses[1].response_range.kvs[0].value)
+                    , data : this.separateStorageDecoder(etcdReply.responses[1].response_range.kvs[0].value)
                     , nextID : etcdReply.responses[0].response_range.kvs[0].value.toString()
                 };
                 return true;
@@ -276,7 +282,7 @@ export class EtcdSharedChain {
                 this.current = {
                     revision : BigInt(nextEtcdReply.responses[0].response_range.kvs[0].mod_revision)
                     , id : nextID
-                    , data : cbor.decode(nextEtcdReply.responses[1].response_range.kvs[0].value)
+                    , data : this.separateStorageDecoder(nextEtcdReply.responses[1].response_range.kvs[0].value)
                     , nextID : nextEtcdReply.responses[0].response_range.kvs[0].value.toString()
                 };
                 return true;
@@ -444,6 +450,7 @@ export class RedisSharedChain {
     config : RedisSharedChainConfiguration;
     client : any;
     current : RedisSharedChainItem;
+    decoder : ((x : any) => any);
 
     static defaultRedisSharedChainConfiguration(commonPrefix = "", useDate = true) : RedisSharedChainConfiguration {
         var today = dateFormat(new Date(), "yyyy_mm_dd");
@@ -456,10 +463,15 @@ export class RedisSharedChain {
         };
     }
 
-    constructor(config : RedisSharedChainConfiguration) {
+    constructor(config : RedisSharedChainConfiguration, decoder? : ((x : any) => any)) {
         this.config = config;
         this.client = asyncRedis.createClient(`redis://${this.config.redisServerAddr}`, {'return_buffers': true});
         this.current = null;
+        if (decoder) {
+            this.decoder = decoder;
+        } else {
+            this.decoder = (x) => cbor.decode(x);
+        }
     }
 
     async start(defaultData : any) {
@@ -488,7 +500,7 @@ export class RedisSharedChain {
         }
         this.current = {
             id : id
-            , data : cbor.decode(dataReply)
+            , data : this.decoder(dataReply)
             , nextID : chainReply.toString('utf-8')
         };
         return true;
@@ -518,7 +530,7 @@ export class RedisSharedChain {
         }
         this.current = {
             id : nextID
-            , data : cbor.decode(dataReply)
+            , data : this.decoder(dataReply)
             , nextID : chainReply.toString('utf-8')
         };
         return true;
