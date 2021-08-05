@@ -30,6 +30,42 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             oss << ')';
             return oss.str();
         }
+        template <class ItemKey, class ItemData>
+        static std::string insertTemplateWithDuplicateCheck(std::string const &tableName) {
+            using KF = basic::struct_field_info_utils::StructFieldInfoBasedDataFiller<ItemKey>;
+            using DF = basic::struct_field_info_utils::StructFieldInfoBasedDataFiller<ItemData>;
+            std::ostringstream oss;
+            oss << "INSERT INTO " << tableName << '(';
+            oss << KF::commaSeparatedFieldNames();
+            oss << ", ";
+            oss << DF::commaSeparatedFieldNames();
+            oss << ") VALUES (";
+            bool begin = true;
+            for (auto const &s : basic::StructFieldInfo<ItemKey>::FIELD_NAMES) {
+                if (!begin) {
+                    oss << ',';
+                }
+                begin = false;
+                oss << ':' << s;
+            }
+            for (auto const &s : basic::StructFieldInfo<ItemData>::FIELD_NAMES) {
+                if (!begin) {
+                    oss << ',';
+                }
+                begin = false;
+                oss << ':' << s;
+            }
+            oss << ") ON DUPLICATE KEY UPDATE ";
+            begin = true;
+            for (auto const &s : basic::StructFieldInfo<ItemData>::FIELD_NAMES) {
+                if (!begin) {
+                    oss << ", ";
+                }
+                begin = false;
+                oss << s << "=VALUES(" << s << ")";
+            }
+            return oss.str();
+        }
         template <class T, int FieldCount, int FieldIndex>
         static void sociBindFields_internal(soci::statement &stmt, T const &data) {
             using DF = basic::struct_field_info_utils::StructFieldInfoBasedDataFiller<T>;
@@ -78,6 +114,26 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                     stmt.alloc();
                     stmt.prepare(insertStmt);
                     sociBindFields(stmt, data);
+                    stmt.define_and_bind();
+                    stmt.execute(true);
+                }
+            );
+        }
+        template <class ItemKey, class ItemData, typename = std::enable_if_t<basic::StructFieldInfo<ItemKey>::HasGeneratedStructFieldInfo && basic::StructFieldInfo<ItemData>::HasGeneratedStructFieldInfo>>
+        static auto createExporterWithDuplicateCheck(std::shared_ptr<soci::session> const &session, std::string const &tableName)
+            -> std::shared_ptr<typename M::template Exporter<std::tuple<ItemKey,ItemData>>>
+        {
+            return M::template pureExporter<std::tuple<ItemKey,ItemData>>(
+                [session,tableName](
+                    std::tuple<ItemKey,ItemData> &&data
+                ) {
+                    static std::string insertStmt = insertTemplateWithDuplicateCheck<ItemKey,ItemData>(tableName);
+                    
+                    soci::statement stmt(*session);
+                    stmt.alloc();
+                    stmt.prepare(insertStmt);
+                    sociBindFields(stmt, std::get<0>(data));
+                    sociBindFields(stmt, std::get<1>(data));
                     stmt.define_and_bind();
                     stmt.execute(true);
                 }
