@@ -10,6 +10,8 @@
 #include <iostream>
 #include <sstream>
 
+#include <boost/algorithm/string.hpp>
+
 namespace dev { namespace cd606 { namespace tm { namespace transport { namespace complex_key_value_store_components {
 
     template <class M>
@@ -60,7 +62,11 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             using DBDataStorage = basic::transaction::complex_key_value_store::as_collection::Collection<ItemKey,ItemData>;
             using KF = basic::struct_field_info_utils::StructFieldInfoBasedDataFiller<ItemKey>;
             using DF = basic::struct_field_info_utils::StructFieldInfoBasedDataFiller<ItemData>;
-            std::string query = "SELECT "+DF::commaSeparatedFieldNames()+" "+selectMainPartFromCriteria(OnDemandReadonlyServer<M>::template sociWhereClause<ItemKey>());
+            auto x = selectMainPartFromCriteria(OnDemandReadonlyServer<M>::template sociWhereClause<ItemKey>());
+            if (!boost::starts_with(boost::to_upper_copy(boost::trim_copy(x)), "FROM ")) {
+                x = "FROM "+x;
+            }
+            std::string query = "SELECT "+DF::commaSeparatedFieldNames()+" "+x;
             return M::template liftPureOnOrderFacility<ItemKey>(
                 [query,session](ItemKey &&k) -> basic::transaction::complex_key_value_store::KeyBasedQueryResult<ItemData>
                 {
@@ -93,7 +99,11 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         {
             using KF = basic::struct_field_info_utils::StructFieldInfoBasedDataFiller<ItemKey>;
             using DF = basic::struct_field_info_utils::StructFieldInfoBasedDataFiller<ItemData>;
-            std::string query = ("SELECT "+KF::commaSeparatedFieldNames()+", "+DF::commaSeparatedFieldNames()+" "+selectMainPart);
+            auto x = selectMainPart;
+            if (!boost::starts_with(boost::to_upper_copy(boost::trim_copy(x)), "FROM ")) {
+                x = "FROM "+x;
+            }
+            std::string query = ("SELECT "+KF::commaSeparatedFieldNames()+", "+DF::commaSeparatedFieldNames()+" "+x);
             return M::template liftPureOnOrderFacility<QueryType>(
                 [query,session](QueryType &&) 
                     -> basic::transaction::complex_key_value_store::FullDataResult<ItemKey,ItemData>
