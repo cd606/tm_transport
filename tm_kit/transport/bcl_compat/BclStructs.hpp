@@ -101,6 +101,9 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             BclGuidProtoWrapper w(p);
             id_ = GuidConverter<Env>::read(w);
         }
+        operator typename Env::IDType()  {
+            return id_;
+        }
     };
 
     class BclDecimal {
@@ -180,12 +183,18 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             BclDecimalProtoWrapper w(p);
             value_ = DecimalConverter::read(w);
         }
+        operator boost::multiprecision::cpp_dec_float_100() {
+            return value_;
+        }
     };
 
 } } } } }
 
 TM_BASIC_CBOR_CAPABLE_STRUCT_SERIALIZE(dev::cd606::tm::transport::bcl_compat::BclGuidProto, BCL_COMPAT_BCL_GUID_PROTO_FIELDS);
 TM_BASIC_CBOR_CAPABLE_STRUCT_SERIALIZE(dev::cd606::tm::transport::bcl_compat::BclDecimalProto, BCL_COMPAT_BCL_DECIMAL_PROTO_FIELDS);
+
+#undef BCL_COMPAT_BCL_GUID_PROTO_FIELDS
+#undef BCL_COMPAT_BCL_DECIMAL_PROTO_FIELDS
 
 namespace std {
     template <class Env>
@@ -202,6 +211,15 @@ namespace std {
             return std::hash<std::string>()(boost::lexical_cast<std::string>(*value));
         }
     };
+    template <class Env>
+    inline std::ostream &operator<<(std::ostream &os, dev::cd606::tm::transport::bcl_compat::BclGuid<Env> const &id) {
+        os << Env::id_to_string(*id);
+        return os;
+    }
+    inline std::ostream &operator<<(std::ostream &os, dev::cd606::tm::transport::bcl_compat::BclDecimal const &value) {
+        os << *value;
+        return os;
+    }
 }
 
 namespace dev { namespace cd606 { namespace tm { namespace basic { 
