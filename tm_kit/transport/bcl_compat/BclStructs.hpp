@@ -12,20 +12,14 @@
 
 namespace dev { namespace cd606 { namespace tm { namespace transport { namespace bcl_compat {
 
-#ifdef _MSC_VER
-    #define BCL_COMPAT_BCL_GUID_PROTO_FIELDS \
-        ((TM_BASIC_CBOR_CAPABLE_STRUCT_PROTECT_TYPE(dev::cd606::tm::basic::SingleLayerWrapperWithTypeMark<dev::cd606::tm::basic::proto_interop::Fixed,uint64_t>), lo)) \
-        ((TM_BASIC_CBOR_CAPABLE_STRUCT_PROTECT_TYPE(dev::cd606::tm::basic::SingleLayerWrapperWithTypeMark<dev::cd606::tm::basic::proto_interop::Fixed,uint64_t>), hi))
-#else
-    #define BCL_COMPAT_BCL_GUID_PROTO_FIELDS \
-        (((dev::cd606::tm::basic::SingleLayerWrapperWithTypeMark<dev::cd606::tm::basic::proto_interop::Fixed,uint64_t>), lo)) \
-        (((dev::cd606::tm::basic::SingleLayerWrapperWithTypeMark<dev::cd606::tm::basic::proto_interop::Fixed,uint64_t>), hi))
-#endif
+#define BCL_COMPAT_BCL_GUID_PROTO_FIELDS \
+    ((dev::cd606::tm::basic::proto_interop::Fixed64, lo)) \
+    ((dev::cd606::tm::basic::proto_interop::Fixed64, hi))
 
-    #define BCL_COMPAT_BCL_DECIMAL_PROTO_FIELDS \
-        ((uint64_t, lo)) \
-        ((uint32_t, hi)) \
-        ((uint32_t, signScale))
+#define BCL_COMPAT_BCL_DECIMAL_PROTO_FIELDS \
+    ((uint64_t, lo)) \
+    ((uint32_t, hi)) \
+    ((uint32_t, signScale))
 
     TM_BASIC_CBOR_CAPABLE_STRUCT(BclGuidProto, BCL_COMPAT_BCL_GUID_PROTO_FIELDS);
     TM_BASIC_CBOR_CAPABLE_STRUCT(BclDecimalProto, BCL_COMPAT_BCL_DECIMAL_PROTO_FIELDS);
