@@ -2,6 +2,7 @@
 #define TM_KIT_TRANSPORT_DB_TABLE_IMPORTER_EXPORTER_DB_TABLE_EXPORTER_FACTORY_HPP_
 
 #include <tm_kit/basic/StructFieldInfoUtils.hpp>
+#include <tm_kit/basic/DateHolder.hpp>
 
 #include <soci/soci.h>
 
@@ -68,9 +69,21 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         }
         template <class T, int FieldCount, int FieldIndex>
         static void sociBindFields_internal(soci::statement &stmt, T const &data) {
-            using DF = basic::struct_field_info_utils::StructFieldInfoBasedDataFiller<T>;
             if constexpr (FieldIndex>=0 && FieldIndex<FieldCount) {
-                stmt.exchange(soci::use(data.*(basic::StructFieldTypeInfo<T,FieldIndex>::fieldPointer()), std::string(basic::StructFieldInfo<T>::FIELD_NAMES[FieldIndex])));
+                if constexpr (std::is_same_v<typename basic::StructFieldTypeInfo<T,FieldIndex>::TheType, basic::DateHolder>) {
+                    std::tm t;
+                    auto const &x = data.*(basic::StructFieldTypeInfo<T,FieldIndex>::fieldPointer());
+                    t.tm_year = ((x.year==0)?0:x.year-1900);
+                    t.tm_mon = ((x.month==0)?0:x.month-1);
+                    t.tm_mday = ((x.day==0)?1:x.day);
+                    t.tm_hour = 0;
+                    t.tm_min = 0;
+                    t.tm_sec = 0;
+                    t.tm_isdst = -1;
+                    stmt.exchange(soci::use(t, std::string(basic::StructFieldInfo<T>::FIELD_NAMES[FieldIndex])));
+                } else {
+                    stmt.exchange(soci::use(data.*(basic::StructFieldTypeInfo<T,FieldIndex>::fieldPointer()), std::string(basic::StructFieldInfo<T>::FIELD_NAMES[FieldIndex])));
+                }
                 if constexpr (FieldIndex < FieldCount-1) {
                     sociBindFields_internal<T,FieldCount,FieldIndex+1>(stmt, data);
                 }
@@ -81,15 +94,32 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             sociBindFields_internal<T, basic::StructFieldInfo<T>::FIELD_NAMES.size(), 0>(stmt, data);
         }
         template <class T, int FieldCount, int FieldIndex>
-        static void sociBindFieldsBatch_internal(soci::statement &stmt, std::vector<T> const &data, std::vector<std::function<void()>> &deletors) {
-            using DF = basic::struct_field_info_utils::StructFieldInfoBasedDataFiller<T>;
+        static void sociBindFieldsBatch_internal(soci::statement &stmt, std::vector<T> const &data, std::vector<std::function<void()>> &deletors) {            
             if constexpr (FieldIndex>=0 && FieldIndex<FieldCount) {
-                auto *v = new std::vector<typename basic::StructFieldTypeInfo<T,FieldIndex>::TheType>();
-                for (auto const &x : data) {
-                    v->push_back(x.*(basic::StructFieldTypeInfo<T,FieldIndex>::fieldPointer()));
+                if constexpr (std::is_same_v<typename basic::StructFieldTypeInfo<T,FieldIndex>::TheType, basic::DateHolder>) {
+                    auto *v = new std::vector<std::tm>();
+                    for (auto const &x : data) {
+                        auto const &y = x.*(basic::StructFieldTypeInfo<T,FieldIndex>::fieldPointer());
+                        std::tm t;
+                        t.tm_year = ((y.year==0)?0:y.year-1900);
+                        t.tm_mon = ((y.month==0)?0:y.month-1);
+                        t.tm_mday = ((y.day==0)?1:y.day);
+                        t.tm_hour = 0;
+                        t.tm_min = 0;
+                        t.tm_sec = 0;
+                        t.tm_isdst = -1;
+                        v->push_back(t);
+                    }
+                    stmt.exchange(soci::use(*v, std::string(basic::StructFieldInfo<T>::FIELD_NAMES[FieldIndex])));
+                    deletors.push_back([v]() {delete v;});
+                } else {
+                    auto *v = new std::vector<typename basic::StructFieldTypeInfo<T,FieldIndex>::TheType>();
+                    for (auto const &x : data) {
+                        v->push_back(x.*(basic::StructFieldTypeInfo<T,FieldIndex>::fieldPointer()));
+                    }
+                    stmt.exchange(soci::use(*v, std::string(basic::StructFieldInfo<T>::FIELD_NAMES[FieldIndex])));
+                    deletors.push_back([v]() {delete v;});
                 }
-                stmt.exchange(soci::use(*v, std::string(basic::StructFieldInfo<T>::FIELD_NAMES[FieldIndex])));
-                deletors.push_back([v]() {delete v;});
                 if constexpr (FieldIndex < FieldCount-1) {
                     sociBindFieldsBatch_internal<T,FieldCount,FieldIndex+1>(stmt, data, deletors);
                 }
