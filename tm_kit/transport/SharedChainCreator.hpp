@@ -8,6 +8,7 @@
 #include <tm_kit/basic/simple_shared_chain/OneShotChainWriter.hpp>
 #include <tm_kit/basic/simple_shared_chain/InMemoryWithLockChain.hpp>
 #include <tm_kit/basic/simple_shared_chain/InMemoryLockFreeChain.hpp>
+#include <tm_kit/basic/simple_shared_chain/EmptyChain.hpp>
 
 #include <tm_kit/transport/etcd_shared_chain/EtcdChain.hpp>
 #include <tm_kit/transport/redis_shared_chain/RedisChain.hpp>
@@ -37,14 +38,16 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
         , InMemoryLockFree
         , InSharedMemoryWithLock
         , InSharedMemoryLockFree
+        , Empty
     };
-    inline const std::array<std::string,6> SHARED_CHAIN_PROTOCOL_STR = {
+    inline const std::array<std::string,7> SHARED_CHAIN_PROTOCOL_STR = {
         "etcd"
         , "redis"
         , "in_memory_with_lock"
         , "in_memory_lock_free"
         , "in_shared_memory_with_lock"
         , "in_shared_memory_lock_free"
+        , "empty"
     };
 
     namespace shared_chain_utils {
@@ -920,6 +923,36 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                         }
                     } else {
                         throw new std::runtime_error("sharedChainCreator::dispatch: Shared memory chain is not supported by the environment");
+                    }
+                }
+                break;
+            case SharedChainProtocol::Empty:
+                {
+                    bool supportsExtraData = (locator.query("supprtsExtraData", "false") == "true");
+                    if (supportsExtraData) {
+                        auto *chain = getChain<basic::simple_shared_chain::EmptyChain<ChainData,true>>(
+                            shared_chain_utils::makeSharedChainLocator(protocol, locator)
+                            , []() {
+                                return new basic::simple_shared_chain::EmptyChain<ChainData,true>();
+                            }
+                        );
+                        if constexpr (std::is_same_v<typename Action::Result, void>) {
+                            std::move(action).template invoke<std::remove_pointer_t<decltype(chain)>>(env, chain);
+                        } else {
+                            return std::move(action).template invoke<std::remove_pointer_t<decltype(chain)>>(env, chain);
+                        }
+                    } else {
+                        auto *chain = getChain<basic::simple_shared_chain::EmptyChain<ChainData,false>>(
+                            shared_chain_utils::makeSharedChainLocator(protocol, locator)
+                            , []() {
+                                return new basic::simple_shared_chain::EmptyChain<ChainData,false>();
+                            }
+                        );
+                        if constexpr (std::is_same_v<typename Action::Result, void>) {
+                            std::move(action).template invoke<std::remove_pointer_t<decltype(chain)>>(env, chain);
+                        } else {
+                            return std::move(action).template invoke<std::remove_pointer_t<decltype(chain)>>(env, chain);
+                        }
                     }
                 }
                 break;
