@@ -7,58 +7,75 @@
 #include <vector>
 #include <unordered_map>
 
-#include <SimpleAmqpClient/SimpleAmqpClient.h>
+#include <amqp.h>
+#include <amqp_tcp_socket.h>
+#include <amqp_ssl_socket.h>
 #include <boost/algorithm/string.hpp>
 
 namespace dev { namespace cd606 { namespace tm { namespace transport { namespace rabbitmq {
     
     class RabbitMQComponentImpl {
     private:
-        static AmqpClient::Channel::ptr_t createChannel(ConnectionLocator const &l) {
+        static amqp_connection_state_t createConnection(ConnectionLocator const &l) {
+            auto conn = amqp_new_connection();
+            amqp_socket_t *socket = nullptr;
+            int port = 0;
+
             std::string useSSL = boost::to_lower_copy(boost::trim_copy(l.query("ssl", "false")));
             if (useSSL == "true" || useSSL == "yes") {
-#if (SIMPLEAMQPCLIENT_VERSION_MAJOR >= 3) || (SIMPLEAMQPCLIENT_VERSION_MAJOR == 2 && SIMPLEAMQPCLIENT_VERSION_MINOR >= 6)
-                AmqpClient::Channel::OpenOpts opts;
-                opts.host = l.host();
-                opts.vhost = l.query("vhost", "/");
-                opts.port = (l.port()==0?5671:l.port());
-                opts.auth = AmqpClient::Channel::OpenOpts::BasicAuth {
-                    l.userName()
-                    , l.password()
-                };
-                AmqpClient::Channel::OpenOpts::TLSParams tlsParams;
-                tlsParams.client_key_path = l.query("client_key", "");
-                tlsParams.client_cert_path = l.query("client_cert", "");
-                tlsParams.ca_cert_path = l.query("ca_cert", "");
-                opts.tls_params = tlsParams;
-                return AmqpClient::Channel::Open(opts);
-#else
-                return AmqpClient::Channel::CreateSecure(
-                    l.query("ca_cert", ""), l.host(), l.query("client_key", ""), l.query("client_cert", ""),
-                    (l.port()==0?5671:l.port()), l.userName(), l.password(), l.query("vhost", "/")
-                );
-#endif
+                socket = amqp_ssl_socket_new(conn);
+                if (!socket) {
+                    throw RabbitMQComponentException("Cannot open RabbitMQ socket to "+l.toPrintFormat());
+                }
+                amqp_ssl_socket_set_verify_peer(socket, 0);
+                amqp_ssl_socket_set_verify_hostname(socket, 0);
+                auto caCert = l.query("ca_cert", "");
+                if (caCert != "") {
+                    if (amqp_ssl_socket_set_cacert(socket, caCert.c_str()) != AMQP_STATUS_OK) {
+                        throw RabbitMQComponentException("Cannot set RabbitMQ CA Cert for "+l.toPrintFormat());
+                    }
+                }
+                auto clientCert = l.query("client_cert", "");
+                auto clientKey = l.query("client_key", "");
+                if (amqp_ssl_socket_set_key(socket, clientCert.c_str(), clientKey.c_str()) != AMQP_STATUS_OK) {
+                    throw RabbitMQComponentException("Cannot set RabbitMQ client key for "+l.toPrintFormat());
+                }
+                port = (l.port()==0?5671:l.port());
             } else {
-#if (SIMPLEAMQPCLIENT_VERSION_MAJOR >= 3) || (SIMPLEAMQPCLIENT_VERSION_MAJOR == 2 && SIMPLEAMQPCLIENT_VERSION_MINOR >= 6)
-                AmqpClient::Channel::OpenOpts opts;
-                opts.host = l.host();
-                opts.vhost = l.query("vhost", "/");
-                opts.port = (l.port()==0?5672:l.port());
-                opts.auth = AmqpClient::Channel::OpenOpts::BasicAuth {
-                    l.userName()
-                    , l.password()
-                };
-                return AmqpClient::Channel::Open(opts);
-#else
-                return AmqpClient::Channel::Create(
-                    l.host(), (l.port()==0?5672:l.port()), l.userName(), l.password(), l.query("vhost", "/")
-                );  
-#endif              
+                socket = amqp_tcp_socket_new(conn);
+                if (!socket) {
+                    throw RabbitMQComponentException("Cannot open RabbitMQ socket to "+l.toPrintFormat());
+                }
+                port = (l.port()==0?5672:l.port());
             }
+
+            struct timeval tv {1, 0};
+            auto status = amqp_socket_open_noblock(socket, l.host().c_str(), port, &tv);
+            if (status != AMQP_STATUS_OK) {
+                throw RabbitMQComponentException("Cannot connect RabbitMQ socket to "+l.toPrintFormat());
+            }
+            if (amqp_login(
+                conn 
+                , l.query("vhost", "/").c_str()
+                , 0
+                , 131072
+                , 0
+                , AMQP_SASL_METHOD_PLAIN
+                , l.userName().c_str()
+                , l.password().c_str()
+            ).reply_type != AMQP_RESPONSE_NORMAL) {
+                throw RabbitMQComponentException("Cannot log into RabbitMQ "+l.toPrintFormat());
+            }
+            amqp_channel_open(conn, 1);
+            if (amqp_get_rpc_reply(conn).reply_type != AMQP_RESPONSE_NORMAL) {
+                throw RabbitMQComponentException("Cannot open RabbitMQ channel for "+l.toPrintFormat());
+            }
+            return conn;
         }
+
         class OneExchangeSubscriptionConnection {
         private:
-            AmqpClient::Channel::ptr_t channel_;
+            amqp_connection_state_t connection_;
             ConnectionLocator locator_;
             std::function<void(basic::ByteDataWithTopic &&)> callback_;
             std::optional<WireToUserHook> wireToUserHook_;
@@ -68,24 +85,30 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             void run(std::string const &tag) {
                 while (running_) {
                     try {
-                        AmqpClient::Envelope::ptr_t msg;
-                        if (channel_->BasicConsumeMessage(tag, msg, 1000)) {
+                        amqp_rpc_reply_t res;
+                        amqp_envelope_t envelop;
+
+                        amqp_maybe_release_buffers(connection_);
+                        struct timeval tv {1, 0};
+                        res = amqp_consume_message(connection_, &envelop, &tv, 0);
+                        if (res.reply_type == AMQP_RESPONSE_NORMAL) {
                             if (running_) {
                                 if (wireToUserHook_) {
-                                    auto b = (wireToUserHook_->hook)(basic::ByteDataView {std::string_view(msg->Message()->Body())});
+                                    auto b = (wireToUserHook_->hook)(basic::ByteDataView {std::string_view((char const *) envelop.message.body.bytes, envelop.message.body.len)});
                                     if (b) {
                                         callback_({ 
-                                            msg->RoutingKey()
+                                            std::string((char const *) envelop.routing_key.bytes, envelop.routing_key.len)
                                             , std::move(b->content)
                                         });
                                     }
                                 } else {
                                     callback_({
-                                        msg->RoutingKey()
-                                        , msg->Message()->Body()
+                                        std::string((char const *) envelop.routing_key.bytes, envelop.routing_key.len)
+                                        , std::string((char const *) envelop.message.body.bytes, envelop.message.body.len)
                                     });
                                 }
                             }
+                            amqp_destroy_envelope(&envelop);
                         }
                     } catch (std::exception &ex) {
                         switch (exceptionPolicy_) {
@@ -110,7 +133,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             }
         public:
             OneExchangeSubscriptionConnection(RabbitMQComponent::ExceptionPolicy exceptionPolicy, ConnectionLocator const &l, std::string const &topic, std::function<void(basic::ByteDataWithTopic &&)> callback, std::optional<WireToUserHook> wireToUserHook)
-                : channel_(createChannel(l))
+                : connection_(createConnection(l))
                 , locator_(l)
                 , callback_(callback)
                 , wireToUserHook_(wireToUserHook)
@@ -118,28 +141,58 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 , running_(true)
                 , exceptionPolicy_(exceptionPolicy)
             {
-                channel_->DeclareExchange(
-                    l.identifier()
-
-#ifdef _MSC_VER
-                    , "topic"
-#else
-                    , AmqpClient::Channel::EXCHANGE_TYPE_TOPIC
-#endif
+                amqp_exchange_declare(
+                    connection_
+                    , 1
+                    , amqp_cstring_bytes(l.identifier().c_str())
+                    , amqp_cstring_bytes("topic")
                     , (l.query("passive", "false") == "true")
                     , (l.query("durable", "false") == "true")
                     , (l.query("auto_delete", "false") == "true")
+                    , false
+                    , amqp_empty_table
                 );
-                std::string queueName = channel_->DeclareQueue("");
-                channel_->BindQueue(
-                    queueName
-                    , l.identifier()
-                    , topic
+                if (amqp_get_rpc_reply(connection_).reply_type != AMQP_RESPONSE_NORMAL) {
+                    throw RabbitMQComponentException("Cannot declare RabbitMQ exchange for "+l.toPrintFormat());
+                }
+                auto q = amqp_queue_declare(
+                    connection_
+                    , 1
+                    , amqp_cstring_bytes("")
+                    , false
+                    , false
+                    , false
+                    , false
+                    , amqp_empty_table
                 );
-                channel_->BasicConsume(
-                    queueName
-                    , queueName
+                if (amqp_get_rpc_reply(connection_).reply_type != AMQP_RESPONSE_NORMAL) {
+                    throw RabbitMQComponentException("Cannot declare RabbitMQ queue for "+l.toPrintFormat());
+                }
+                std::string queueName {(char *) q->queue.bytes, q->queue.len};
+                amqp_queue_bind(
+                    connection_
+                    , 1
+                    , amqp_cstring_bytes(queueName.c_str())
+                    , amqp_cstring_bytes(l.identifier().c_str())
+                    , amqp_cstring_bytes(topic.c_str())
+                    , amqp_empty_table 
                 );
+                if (amqp_get_rpc_reply(connection_).reply_type != AMQP_RESPONSE_NORMAL) {
+                    throw RabbitMQComponentException("Cannot bind RabbitMQ queue for "+l.toPrintFormat());
+                }
+                amqp_basic_consume(
+                    connection_
+                    , 1 
+                    , amqp_cstring_bytes(queueName.c_str())
+                    , amqp_cstring_bytes(queueName.c_str())
+                    , false
+                    , false
+                    , false
+                    , amqp_empty_table
+                );
+                if (amqp_get_rpc_reply(connection_).reply_type != AMQP_RESPONSE_NORMAL) {
+                    throw RabbitMQComponentException("Cannot consume on RabbitMQ queue for "+l.toPrintFormat());
+                }
                 th_ = std::thread(&OneExchangeSubscriptionConnection::run, this, queueName);
             }
             ~OneExchangeSubscriptionConnection() {
@@ -148,6 +201,9 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                     th_.join();
                 } catch (std::system_error const &) {
                 }
+                amqp_channel_close(connection_, 1, AMQP_REPLY_SUCCESS);
+                amqp_connection_close(connection_, AMQP_REPLY_SUCCESS);
+                amqp_destroy_connection(connection_);
             }
             std::thread::native_handle_type getThreadHandle() {
                 return th_.native_handle();
@@ -160,32 +216,46 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
 
         class OnePublishingConnection {
         private:
-            AmqpClient::Channel::ptr_t channel_;
+            amqp_connection_state_t connection_;
             std::mutex mutex_;
             RabbitMQComponent::ExceptionPolicy exceptionPolicy_;
         public:
             OnePublishingConnection(RabbitMQComponent::ExceptionPolicy exceptionPolicy, ConnectionLocator const &l) 
-                : channel_(createChannel(l))
+                : connection_(createConnection(l))
                 , mutex_()
                 , exceptionPolicy_(exceptionPolicy)
             {
             }
             ~OnePublishingConnection() {
+                amqp_channel_close(connection_, 1, AMQP_REPLY_SUCCESS);
+                amqp_connection_close(connection_, AMQP_REPLY_SUCCESS);
+                amqp_destroy_connection(connection_);
             }
             void publishOnExchange(std::string const &exchange, basic::ByteDataWithTopic &&data) {
                 {
                     std::lock_guard<std::mutex> _(mutex_);
-                    auto msg = AmqpClient::BasicMessage::Create(data.content);
-                    msg->DeliveryMode(AmqpClient::BasicMessage::dm_nonpersistent);
-#if !((SIMPLEAMQPCLIENT_VERSION_MAJOR >= 3) || (SIMPLEAMQPCLIENT_VERSION_MAJOR == 2 && SIMPLEAMQPCLIENT_VERSION_MINOR >= 6))
-                    msg->Expiration("1000");
-#endif              
+
+                    amqp_basic_properties_t props;
+                    props._flags = AMQP_BASIC_DELIVERY_MODE_FLAG | AMQP_BASIC_EXPIRATION_FLAG;
+                    props.delivery_mode = AMQP_DELIVERY_NONPERSISTENT;
+                    props.expiration = amqp_cstring_bytes("1000");
+
+                    amqp_bytes_t b {data.content.length(), const_cast<char *>(data.content.c_str())};
+                    amqp_basic_publish(
+                        connection_
+                        , 1
+                        , amqp_cstring_bytes(exchange.c_str())
+                        , amqp_cstring_bytes(data.topic.c_str())
+                        , false 
+                        , false 
+                        , &props
+                        , b
+                    );
                     try {     
-                        channel_->BasicPublish(
-                            exchange
-                            , data.topic
-                            , msg
-                        );
+                        auto reply = amqp_get_rpc_reply(connection_);
+                        if (reply.reply_type != AMQP_RESPONSE_NORMAL) {
+                            throw std::runtime_error("Publishing on exchange");
+                        }
                     } catch (std::exception &ex) {
                         switch (exceptionPolicy_) {
                         case RabbitMQComponent::ExceptionPolicy::Throw:
@@ -204,15 +274,25 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                     }
                 }
             }
-            void publishOnQueue(std::string const &queue, AmqpClient::BasicMessage::ptr_t message) {
+            void publishOnQueue(std::string const &queue, amqp_basic_properties_t *props, std::string const &message) {
                 {
                     std::lock_guard<std::mutex> _(mutex_);
+                    amqp_bytes_t b {message.length(), const_cast<char *>(message.c_str())};
+                    amqp_basic_publish(
+                        connection_
+                        , 1
+                        , amqp_cstring_bytes("")
+                        , amqp_cstring_bytes(queue.c_str())
+                        , false 
+                        , false 
+                        , props
+                        , b
+                    );
                     try {
-                        channel_->BasicPublish(
-                            ""
-                            , queue
-                            , message
-                        );
+                        auto reply = amqp_get_rpc_reply(connection_);
+                        if (reply.reply_type != AMQP_RESPONSE_NORMAL) {
+                            throw std::runtime_error("Publishing on queue");
+                        }
                     } catch (std::exception &ex) {
                         switch (exceptionPolicy_) {
                         case RabbitMQComponent::ExceptionPolicy::Throw:
@@ -236,7 +316,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         
         class OneRPCQueueClientConnection {
         private:
-            AmqpClient::Channel::ptr_t channel_;
+            amqp_connection_state_t connection_;
             std::string rpcQueue_, localQueue_;
             std::function<void(bool, basic::ByteDataWithID &&)> callback_;
             std::optional<WireToUserHook> wireToUserHook_;
@@ -249,20 +329,30 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             void run() {
                 while (running_) {
                     try {
-                        AmqpClient::Envelope::ptr_t msg;
-                        if (channel_->BasicConsumeMessage(localQueue_, msg, 1000)) {
+                        amqp_rpc_reply_t res;
+                        amqp_envelope_t envelop;
+
+                        amqp_maybe_release_buffers(connection_);
+                        struct timeval tv {1, 0};
+                        res = amqp_consume_message(connection_, &envelop, &tv, 0);
+                        if (res.reply_type == AMQP_RESPONSE_NORMAL) {
                             if (running_) {
-                                std::string corrID = msg->Message()->CorrelationId();
-                                bool isFinal = (msg->Message()->ContentTypeIsSet() && msg->Message()->ContentType() == "final");
+                                std::string corrID { (char *) envelop.message.properties.correlation_id.bytes, envelop.message.properties.correlation_id.len};
+                                bool isFinal = (
+                                    ((envelop.message.properties._flags & AMQP_BASIC_CONTENT_TYPE_FLAG) != 0)
+                                    &&
+                                    (std::string_view((char *) envelop.message.properties.content_type.bytes, envelop.message.properties.content_type.len) == "final")
+                                );
                                 if (wireToUserHook_) {
-                                    auto d = (wireToUserHook_->hook)(basic::ByteDataView {std::string_view(msg->Message()->Body())});
+                                    auto d = (wireToUserHook_->hook)(basic::ByteDataView {std::string_view((char *) envelop.message.body.bytes, envelop.message.body.len)});
                                     if (d) {
                                         callback_(isFinal, {corrID, std::move(d->content)});
                                     }
                                 } else {
-                                    callback_(isFinal, {corrID, msg->Message()->Body()});
+                                    callback_(isFinal, {corrID, std::string((char *) envelop.message.body.bytes, envelop.message.body.len)});
                                 }
                             }
+                            amqp_destroy_envelope(&envelop);
                         }
                     } catch (std::exception const &ex) {
                         switch (exceptionPolicy_) {
@@ -287,9 +377,9 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             }
         public:
             OneRPCQueueClientConnection(RabbitMQComponent::ExceptionPolicy exceptionPolicy, ConnectionLocator const &l, std::function<void(bool, basic::ByteDataWithID &&)> callback, std::optional<WireToUserHook> wireToUserHook, OnePublishingConnection *publishing)
-                : channel_(createChannel(l))
+                : connection_(createConnection(l))
                 , rpcQueue_(l.identifier())
-                , localQueue_(channel_->DeclareQueue(""))
+                , localQueue_("")
                 , callback_(callback)
                 , wireToUserHook_(wireToUserHook)
                 , th_()
@@ -298,10 +388,33 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 , persistent_(l.query("persistent", "false") == "true")
                 , exceptionPolicy_(exceptionPolicy)
             {
-                channel_->BasicConsume(
-                    localQueue_
-                    , localQueue_
+                auto q = amqp_queue_declare(
+                    connection_
+                    , 1
+                    , amqp_cstring_bytes("")
+                    , false
+                    , false
+                    , false
+                    , false
+                    , amqp_empty_table
                 );
+                if (amqp_get_rpc_reply(connection_).reply_type != AMQP_RESPONSE_NORMAL) {
+                    throw RabbitMQComponentException("Cannot declare RabbitMQ queue for "+l.toPrintFormat());
+                }
+                localQueue_ = std::string {(char *) q->queue.bytes, q->queue.len};
+                amqp_basic_consume(
+                    connection_
+                    , 1 
+                    , amqp_cstring_bytes(localQueue_.c_str())
+                    , amqp_cstring_bytes(localQueue_.c_str())
+                    , false
+                    , false
+                    , false
+                    , amqp_empty_table
+                );
+                if (amqp_get_rpc_reply(connection_).reply_type != AMQP_RESPONSE_NORMAL) {
+                    throw RabbitMQComponentException("Cannot consume on RabbitMQ queue for "+l.toPrintFormat());
+                }
                 th_ = std::thread(&OneRPCQueueClientConnection::run, this);
             }
             ~OneRPCQueueClientConnection() {
@@ -310,16 +423,19 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                     th_.join();
                 } catch (std::system_error const &) {
                 }
+                amqp_channel_close(connection_, 1, AMQP_REPLY_SUCCESS);
+                amqp_connection_close(connection_, AMQP_REPLY_SUCCESS);
+                amqp_destroy_connection(connection_);
             }
             void sendRequest(basic::ByteDataWithID &&data) {
-                AmqpClient::BasicMessage::ptr_t msg = AmqpClient::BasicMessage::Create(std::move(data.content));
-                msg->CorrelationId(data.id);
-                msg->ReplyTo(localQueue_);
-                msg->DeliveryMode(persistent_?AmqpClient::BasicMessage::dm_persistent:AmqpClient::BasicMessage::dm_nonpersistent);
-#if !((SIMPLEAMQPCLIENT_VERSION_MAJOR >= 3) || (SIMPLEAMQPCLIENT_VERSION_MAJOR == 2 && SIMPLEAMQPCLIENT_VERSION_MINOR >= 6))                
-                msg->Expiration("5000");
-#endif                
-                publishing_->publishOnQueue(rpcQueue_, msg);           
+                amqp_basic_properties_t props;
+                props._flags = AMQP_BASIC_CORRELATION_ID_FLAG | AMQP_BASIC_REPLY_TO_FLAG | AMQP_BASIC_DELIVERY_MODE_FLAG | AMQP_BASIC_EXPIRATION_FLAG;
+                props.correlation_id = amqp_cstring_bytes(data.id.c_str());
+                props.reply_to = amqp_cstring_bytes(localQueue_.c_str());
+                props.delivery_mode = (persistent_?AMQP_DELIVERY_PERSISTENT:AMQP_DELIVERY_NONPERSISTENT);
+                props.expiration = amqp_cstring_bytes("5000");
+       
+                publishing_->publishOnQueue(rpcQueue_, &props, data.content);           
             }
             std::thread::native_handle_type getThreadHandle() {
                 return th_.native_handle();
@@ -329,7 +445,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         
         class OneRPCQueueServerConnection {
         private:
-            AmqpClient::Channel::ptr_t channel_;
+            amqp_connection_state_t connection_;
             std::string rpcQueue_;
             std::function<void(basic::ByteDataWithID &&)> callback_;
             std::optional<WireToUserHook> wireToUserHook_;
@@ -341,25 +457,31 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             RabbitMQComponent::ExceptionPolicy exceptionPolicy_;
             void run() {
                 while (running_) {
-                    AmqpClient::Envelope::ptr_t msg;
                     try {
-                        if (channel_->BasicConsumeMessage(rpcQueue_, msg, 1000)) {
-                            channel_->BasicAck(msg);
+                        amqp_rpc_reply_t res;
+                        amqp_envelope_t envelop;
+
+                        amqp_maybe_release_buffers(connection_);
+                        struct timeval tv {1, 0};
+                        res = amqp_consume_message(connection_, &envelop, &tv, 0);
+                        if (res.reply_type == AMQP_RESPONSE_NORMAL) {
+                            amqp_basic_ack(connection_, 1, envelop.delivery_tag, false);
                             if (running_) {
-                                std::string corrID = msg->Message()->CorrelationId();
+                                std::string corrID { (char *) envelop.message.properties.correlation_id.bytes, envelop.message.properties.correlation_id.len};
                                 {
                                     std::lock_guard<std::mutex> _(mutex_);
-                                    replyQueueMap_[corrID] = msg->Message()->ReplyTo();
+                                    replyQueueMap_[corrID] = std::string {(char *) envelop.message.properties.reply_to.bytes, envelop.message.properties.reply_to.len};
                                 }
                                 if (wireToUserHook_) {
-                                    auto d = (wireToUserHook_->hook)(basic::ByteDataView {std::string_view(msg->Message()->Body())});
+                                    auto d = (wireToUserHook_->hook)(basic::ByteDataView {std::string_view((char *) envelop.message.body.bytes, envelop.message.body.len)});
                                     if (d) {
                                         callback_({corrID, std::move(d->content)});
                                     }
                                 } else {
-                                    callback_({corrID, msg->Message()->Body()});
+                                    callback_({corrID, std::string((char *) envelop.message.body.bytes, envelop.message.body.len)});
                                 }
                             }
+                            amqp_destroy_envelope(&envelop);
                         }
                     } catch (std::exception &ex) {
                         switch (exceptionPolicy_) {
@@ -384,7 +506,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             }
         public:
             OneRPCQueueServerConnection(RabbitMQComponent::ExceptionPolicy exceptionPolicy, ConnectionLocator const &l, std::function<void(basic::ByteDataWithID &&)> callback, std::optional<WireToUserHook> wireToUserHook, OnePublishingConnection *publishing)
-                : channel_(createChannel(l))
+                : connection_(createConnection(l))
                 , rpcQueue_(l.identifier())
                 , callback_(callback)
                 , wireToUserHook_(wireToUserHook)
@@ -395,20 +517,42 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 , publishing_(publishing)
                 , exceptionPolicy_(exceptionPolicy)
             {
-                channel_->DeclareQueue(
-                    rpcQueue_
+                amqp_queue_declare(
+                    connection_
+                    , 1
+                    , amqp_cstring_bytes(rpcQueue_.c_str())
                     , false //passive
                     , false //durable
                     , false //exclusive
                     , false //auto_delete
+                    , amqp_empty_table
                 );
-                channel_->BasicConsume(
-                    rpcQueue_
-                    , rpcQueue_
+                if (amqp_get_rpc_reply(connection_).reply_type != AMQP_RESPONSE_NORMAL) {
+                    throw RabbitMQComponentException("Cannot declare RabbitMQ queue for "+l.toPrintFormat());
+                }
+                amqp_basic_consume(
+                    connection_
+                    , 1 
+                    , amqp_cstring_bytes(rpcQueue_.c_str())
+                    , amqp_cstring_bytes(rpcQueue_.c_str())
                     , true //no_local
                     , false //no_ack
-                );                 
-                channel_->BasicQos(rpcQueue_, 0);
+                    , false
+                    , amqp_empty_table
+                );
+                if (amqp_get_rpc_reply(connection_).reply_type != AMQP_RESPONSE_NORMAL) {
+                    throw RabbitMQComponentException("Cannot consume on RabbitMQ queue for "+l.toPrintFormat());
+                }
+                amqp_basic_qos(
+                    connection_
+                    , 1
+                    , 0
+                    , 0
+                    , false
+                );
+                if (amqp_get_rpc_reply(connection_).reply_type != AMQP_RESPONSE_NORMAL) {
+                    throw RabbitMQComponentException("Cannot set QoS on RabbitMQ queue for "+l.toPrintFormat());
+                }
                 th_ = std::thread(&OneRPCQueueServerConnection::run, this);
             }
             ~OneRPCQueueServerConnection() {
@@ -417,6 +561,9 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                     th_.join();
                 } catch (std::system_error const &) {
                 }
+                amqp_channel_close(connection_, 1, AMQP_REPLY_SUCCESS);
+                amqp_connection_close(connection_, AMQP_REPLY_SUCCESS);
+                amqp_destroy_connection(connection_);
             }
             void sendReply(bool isFinal, basic::ByteDataWithID &&data) {
                 std::string replyQueue;
@@ -431,13 +578,19 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                         replyQueueMap_.erase(iter);
                     }
                 }
-                AmqpClient::BasicMessage::ptr_t msg = AmqpClient::BasicMessage::Create(std::move(data.content));
-                msg->CorrelationId(data.id);
-                msg->ReplyTo(rpcQueue_);
+                amqp_basic_properties_t props;
                 if (isFinal) {
-                    msg->ContentType("final");
+                    props._flags = AMQP_BASIC_CORRELATION_ID_FLAG | AMQP_BASIC_REPLY_TO_FLAG | AMQP_BASIC_CONTENT_TYPE_FLAG;
+                } else {
+                    props._flags = AMQP_BASIC_CORRELATION_ID_FLAG | AMQP_BASIC_REPLY_TO_FLAG;
                 }
-                publishing_->publishOnQueue(replyQueue, msg);            
+                
+                props.correlation_id = amqp_cstring_bytes(data.id.c_str());
+                props.reply_to = amqp_cstring_bytes(rpcQueue_.c_str());
+                if (isFinal) {
+                    props.content_type = amqp_cstring_bytes("final");
+                }
+                publishing_->publishOnQueue(replyQueue, &props, data.content);            
             }
             std::thread::native_handle_type getThreadHandle() {
                 return th_.native_handle();
