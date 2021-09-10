@@ -7,12 +7,16 @@
 #include <vector>
 #include <unordered_map>
 
+#ifdef _MSC_VER
+#include <winsock.h>
+#else
+#include <sys/time.h>
+#endif
+
 #include <amqp.h>
 #include <amqp_tcp_socket.h>
 #include <amqp_ssl_socket.h>
 #include <boost/algorithm/string.hpp>
-
-#include <sys/time.h>
 
 namespace dev { namespace cd606 { namespace tm { namespace transport { namespace rabbitmq {
     
