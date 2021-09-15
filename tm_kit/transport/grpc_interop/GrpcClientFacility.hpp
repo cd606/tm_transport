@@ -133,7 +133,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 }
                 virtual void start(Env *env) override final {
                     std::lock_guard<std::mutex> _(startMutex_);
-                    channel_ = grpc::CreateChannel(channelAddr_, grpc::InsecureChannelCredentials());
+                    channel_ = static_cast<GrpcInteropComponent *>(env)->grpc_interop_getChannel(channelAddr_);
                     startCond_.notify_one();
                 }
                 void actuallyHandle(typename M::template InnerData<typename M::template Key<Req>> &&req) {
