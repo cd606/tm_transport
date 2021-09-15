@@ -86,9 +86,9 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             std::mutex mutex_;
 
             std::optional<WireToUserHook> wireToUserHook_;
-            std::function<void(bool, std::optional<basic::ByteDataWithID> &&)> cb_;
+            std::function<void(bool, std::string const &, std::optional<std::string> &&)> cb_;
         public:
-            RpcSender(GrpcInteropComponentImpl *parent, ConnectionLocator const &locator, std::optional<WireToUserHook> wireToUserHook, std::function<void(bool, std::optional<basic::ByteDataWithID> &&)> const &cb)
+            RpcSender(GrpcInteropComponentImpl *parent, ConnectionLocator const &locator, std::optional<WireToUserHook> wireToUserHook, std::function<void(bool, std::string const &, std::optional<std::string> &&)> const &cb)
                 : serviceInfo_(connection_locator_utils::parseServiceInfo(locator))
                 , serviceInfoStr_(grpcServiceInfoAsEndPointString(serviceInfo_))
                 , channel_(parent->grpc_interop_getChannel(locator))
@@ -148,18 +148,14 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 if (wireToUserHook_) {
                     auto d = (wireToUserHook_->hook)(basic::byteDataView(data));
                     if (d) {
-                        cb_(false, basic::ByteDataWithID{
-                            id, std::move(d->content)
-                        });
+                        cb_(false, id, std::move(d->content));
                     }
                 } else {
-                    cb_(false, basic::ByteDataWithID {
-                        id, std::move(data.content)
-                    });
+                    cb_(false, id, std::move(data.content));
                 }
             }
             void finalCallback(std::string const &id) {
-                cb_(true, std::nullopt);
+                cb_(true, id, std::nullopt);
             }
         };
         //Please note that the RpcSenders are deliberately leaked
@@ -208,7 +204,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             }
         }
         std::function<void(basic::ByteDataWithID &&)> grpc_interop_setRPCClient(ConnectionLocator const &locator,
-                        std::function<void(bool, std::optional<basic::ByteDataWithID> &&)> client,
+                        std::function<void(bool, std::string const &, std::optional<std::string> &&)> client,
                         std::optional<ByteDataHookPair> hookPair = std::nullopt)
         {
             std::lock_guard<std::mutex> _(rpcClientsMutex_);
@@ -259,9 +255,12 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         impl_->grpc_interop_registerService(locator, service);
     }
     std::function<void(basic::ByteDataWithID &&)> GrpcInteropComponent::grpc_interop_setRPCClient(ConnectionLocator const &locator,
-        std::function<void(bool, std::optional<basic::ByteDataWithID> &&)> client,
+        std::function<void(bool, std::string const &, std::optional<std::string> &&)> client,
         std::optional<ByteDataHookPair> hookPair)
     {
+        if (hookPair) {
+            throw GrpcInteropComponentException("GrpcInteropComponent::grpc_interop_setRPCClient: hook is not supported");
+        }
         return impl_->grpc_interop_setRPCClient(locator, client, hookPair);
     }
     void GrpcInteropComponent::grpc_interop_removeRPCClient(ConnectionLocator const &locator) {

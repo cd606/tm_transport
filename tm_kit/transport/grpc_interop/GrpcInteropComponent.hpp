@@ -2,6 +2,7 @@
 #define TM_KIT_TRANSPORT_GRPC_INTEROP_GRPC_INTEROP_COMPONENT_HPP_
 
 #include <memory>
+#include <optional>
 
 #include <tm_kit/transport/grpc_interop/GrpcInteropComponentException.hpp>
 #include <tm_kit/transport/ConnectionLocator.hpp>
@@ -33,7 +34,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         //RPC client facilities for grpc_interop. They are provided 
         //for compatibility with MultiTransportRemoteFacility
         std::function<void(basic::ByteDataWithID &&)> grpc_interop_setRPCClient(ConnectionLocator const &locator,
-                        std::function<void(bool, std::optional<basic::ByteDataWithID> &&)> client,
+                        std::function<void(bool, std::string const &, std::optional<std::string> &&)> client,
                         std::optional<ByteDataHookPair> hookPair = std::nullopt);
         void grpc_interop_removeRPCClient(ConnectionLocator const &locator);
         void finalizeEnvironment();

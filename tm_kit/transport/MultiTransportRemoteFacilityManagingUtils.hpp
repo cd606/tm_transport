@@ -965,6 +965,21 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                         throw std::runtime_error("[MultiTransportRemoteFacilityManagingUtils::setupSimpleRemoteFacility] trying to set up socket rpc facility for channel spec '"+channelSpec+"', but socket rpc is unsupported in the environment");
                     }
                     break;
+                case MultiTransportRemoteFacilityConnectionType::GrpcInterop:
+                    if constexpr(std::is_convertible_v<typename R::EnvironmentType *, grpc_interop::GrpcInteropComponent *>) {
+                        if constexpr(DetermineClientSideIdentityForRequest<typename R::EnvironmentType, Request>::HasIdentity) {
+                            throw std::runtime_error("[MultiTransportRemoteFacilityManagingUtils::setupSimpleRemoteFacility] trying to set up grpc interop facility for channel spec '"+channelSpec+"', but grpc interop does not support requests with identity");
+                        } else {
+                            if (hooks) {
+                                throw std::runtime_error("[MultiTransportRemoteFacilityManagingUtils::setupSimpleRemoteFacility] trying to set up grpc interop facility for channel spec '"+channelSpec+"', but grpc interop does not support requests with hooks");
+                            } else {
+                                return grpc_interop::GrpcClientFacilityFactory<typename R::AppType>::template createClientFacility<Request, Result>(std::get<1>(*parsed));
+                            }
+                        }
+                    } else {
+                        throw std::runtime_error("[MultiTransportRemoteFacilityManagingUtils::setupSimpleRemoteFacility] trying to set up grpc interop facility for channel spec '"+channelSpec+"', but grpc interop is unsupported in the environment");
+                    }
+                    break;
                 default:
                     throw std::runtime_error("[MultiTransportRemoteFacilityManagingUtils::setupSimpleRemoteFacility] trying to set up unsupported facility for channel spec '"+channelSpec+"'");
                     break;

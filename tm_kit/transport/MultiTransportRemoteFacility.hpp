@@ -427,6 +427,69 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                 }
                 return {newSize, true};
                 break;
+            case MultiTransportRemoteFacilityConnectionType::GrpcInterop:
+                if constexpr (std::is_convertible_v<Env *, grpc_interop::GrpcInteropComponent *>) {
+                    if constexpr (std::is_same_v<Identity, void>) {
+                        auto *component = static_cast<grpc_interop::GrpcInteropComponent *>(env);
+                        try {
+                            auto req = component->grpc_interop_setRPCClient(
+                                locator
+                                , [this,env](bool isFinal, std::string const &id, std::optional<std::string> &&data) {
+                                    if (data) {
+                                        Output o;
+                                        auto result = basic::bytedata_utils::RunDeserializer<Output>::applyInPlace(o, *data);
+                                        if (!result) {
+                                            return;
+                                        }
+                                        this->FacilityParent::publish(
+                                            env
+                                            , typename M::template Key<Output> {
+                                                Env::id_from_string(id)
+                                                , std::move(o)
+                                            }
+                                            , isFinal
+                                        );
+                                    } else {
+                                        if (isFinal) {
+                                            this->FacilityParent::markEndHandlingRequest(
+                                                Env::id_from_string(id)
+                                            );
+                                        }
+                                    }
+                                }
+                                , DefaultHookFactory<Env>::template supplyFacilityHookPair_ClientSide<A,B>(env, hookPairFactory_(description, locator))
+                            );
+                            {
+                                std::lock_guard<std::mutex> _(mutex_);
+                                underlyingSenders_.push_back({locator, std::make_unique<RequestSender>(std::move(req))});
+                                if constexpr (DispatchStrategy == MultiTransportRemoteFacilityDispatchStrategy::Designated) {
+                                    senderMap_.insert({locator, std::get<1>(underlyingSenders_.back()).get()});
+                                }
+                                newSize = underlyingSenders_.size();
+                            }
+                            std::ostringstream oss;
+                            oss << "[MultiTransportRemoteFacility::registerFacility] Registered grpc interop facility for "
+                                << locator;
+                            env->log(infra::LogLevel::Info, oss.str());
+                        } catch (grpc_interop::GrpcInteropComponentException const &ex) {
+                            std::ostringstream oss;
+                            oss << "[MultiTransportRemoteFacility::registerFacility] Error registering grpc interop facility for "
+                                << locator
+                                << ": " << ex.what();
+                            env->log(infra::LogLevel::Error, oss.str());
+                        }
+                    } else {
+                        std::ostringstream errOss;
+                        errOss << "[MultiTransportRemoteFacility::registerFacility] Trying to set up grpc interop rpc facility for " << locator << ", but grpc interop does not support identities in request";
+                        env->log(infra::LogLevel::Warning, errOss.str());
+                    }
+                } else {
+                    std::ostringstream errOss;
+                    errOss << "[MultiTransportRemoteFacility::registerFacility] Trying to set up grpc interop facility for " << locator << ", but grpc interop is unsupported in the environment";
+                    env->log(infra::LogLevel::Warning, errOss.str());
+                }
+                return {newSize, true};
+                break;
             default:
                 return {0, false};
                 break;
@@ -514,6 +577,34 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                     }
                     std::ostringstream oss;
                     oss << "[MultiTransportRemoteFacility::deregisterFacility] De-registered Socket RPC facility for "
+                        << locator;
+                    env->log(infra::LogLevel::Info, oss.str());
+                }
+                return {newSize, true};
+                break;
+            case MultiTransportRemoteFacilityConnectionType::GrpcInterop:
+                if constexpr (std::is_convertible_v<Env *, grpc_interop::GrpcInteropComponent *>) {
+                    auto *component = static_cast<grpc_interop::GrpcInteropComponent *>(env);
+                    component->grpc_interop_removeRPCClient(locator);
+                    {
+                        std::lock_guard<std::mutex> _(mutex_);
+                        if constexpr (DispatchStrategy == MultiTransportRemoteFacilityDispatchStrategy::Designated) {
+                            senderMap_.erase(locator);
+                        }
+                        underlyingSenders_.erase(
+                            std::remove_if(
+                                underlyingSenders_.begin()
+                                , underlyingSenders_.end()
+                                , [&locator](auto const &x) {
+                                    return (std::get<0>(x) == locator);
+                                }
+                            )
+                            , underlyingSenders_.end()
+                        );
+                        newSize = underlyingSenders_.size();
+                    }
+                    std::ostringstream oss;
+                    oss << "[MultiTransportRemoteFacility::deregisterFacility] De-registered grpc interop facility for "
                         << locator;
                     env->log(infra::LogLevel::Info, oss.str());
                 }
@@ -664,6 +755,17 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                 } else {
                     throw std::runtime_error("OneShotMultiTransportRemoteFacilityCall::call: connection type Socket RPC not supported in environment");
                 }
+            } else if (connType == MultiTransportRemoteFacilityConnectionType::GrpcInterop) {
+                if constexpr (std::is_convertible_v<Env *, grpc_interop::GrpcInteropComponent *>) {
+                    if (hooks) {
+                        throw std::runtime_error("OneShotMultiTransportRemoteFacilityCall::call: connection type grpc interop does not support hooks");
+                    }
+                    return grpc_interop::GrpcClientFacilityFactory<infra::RealTimeApp<Env>>::template typedOneShotRemoteCall<A,B>(
+                        env, locator, std::move(request)
+                    );
+                } else {
+                    throw std::runtime_error("OneShotMultiTransportRemoteFacilityCall::call: connection type grpc interop not supported in environment");
+                }
             } else {
                 throw std::runtime_error("OneShotMultiTransportRemoteFacilityCall::call: unknown connection type");
             }
@@ -702,7 +804,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                 }
             } else if (connType == MultiTransportRemoteFacilityConnectionType::Redis) {
                 if constexpr (std::is_convertible_v<Env *, redis::RedisComponent *>) {
-                    return redis::RedisOnOrderFacility<Env>::template typedOneShotRemoteCallNoReply<A,B>(
+                    redis::RedisOnOrderFacility<Env>::template typedOneShotRemoteCallNoReply<A,B>(
                         env, locator, std::move(request), hooks, autoDisconnect
                     );
                 } else {
@@ -710,11 +812,22 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                 }
             } else if (connType == MultiTransportRemoteFacilityConnectionType::SocketRPC) {
                 if constexpr (std::is_convertible_v<Env *, socket_rpc::SocketRPCComponent *>) {
-                    return socket_rpc::SocketRPCOnOrderFacility<Env>::template typedOneShotRemoteCallNoReply<A,B>(
+                    socket_rpc::SocketRPCOnOrderFacility<Env>::template typedOneShotRemoteCallNoReply<A,B>(
                         env, locator, std::move(request), hooks, autoDisconnect
                     );
                 } else {
                     throw std::runtime_error("OneShotMultiTransportRemoteFacilityCall::callNoReply: connection type Socket RPC not supported in environment");
+                }
+            } else if (connType == MultiTransportRemoteFacilityConnectionType::GrpcInterop) {
+                if constexpr (std::is_convertible_v<Env *, grpc_interop::GrpcInteropComponent *>) {
+                    if (hooks) {
+                        throw std::runtime_error("OneShotMultiTransportRemoteFacilityCall::call: connection type grpc interop does not support hooks");
+                    }
+                    grpc_interop::GrpcClientFacilityFactory<infra::RealTimeApp<Env>>::template typedOneShotRemoteCall<A,B>(
+                        env, locator, std::move(request)
+                    );
+                } else {
+                    throw std::runtime_error("OneShotMultiTransportRemoteFacilityCall::callNoReply: connection type grpc interop not supported in environment");
                 }
             } else {
                 throw std::runtime_error("OneShotMultiTransportRemoteFacilityCall::callNoReply: unknown connection type");
@@ -757,6 +870,12 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                     env->socket_rpc_removeRPCClient(locator);
                 } else {
                     throw std::runtime_error("OneShotMultiTransportRemoteFacilityCall::removeClient: connection type Socket RPC not supported in environment");
+                }
+            } else if (connType == MultiTransportRemoteFacilityConnectionType::GrpcInterop) {
+                if constexpr (std::is_convertible_v<Env *, grpc_interop::GrpcInteropComponent *>) {
+                    env->grpc_interop_removeRPCClient(locator);
+                } else {
+                    throw std::runtime_error("OneShotMultiTransportRemoteFacilityCall::callNoReply: connection type grpc interop not supported in environment");
                 }
             } else {
                 throw std::runtime_error("OneShotMultiTransportRemoteFacilityCall::removeClient: unknown connection type");

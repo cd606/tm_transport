@@ -8,6 +8,7 @@
 #include <tm_kit/transport/grpc_interop/GrpcServiceInfo.hpp>
 #include <tm_kit/transport/grpc_interop/GrpcSerializationHelper.hpp>
 #include <tm_kit/transport/grpc_interop/GrpcConnectionLocatorUtils.hpp>
+#include <tm_kit/transport/AbstractIdentityCheckerComponent.hpp>
 
 #include <type_traits>
 #include <memory>
@@ -201,7 +202,8 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         }
         template <class Req, class Resp>
         static std::vector<Resp> runSyncClient(
-            ConnectionLocator const &locator
+            Env *env
+            , ConnectionLocator const &locator
             , Req const &req
         )
         {
@@ -212,10 +214,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             ) {
                 auto serviceInfo = connection_locator_utils::parseServiceInfo(locator);
                 auto serviceInfoStr = grpcServiceInfoAsEndPointString(serviceInfo);
-
-                std::ostringstream oss;
-                oss << locator.host() << ":" << locator.port();
-                auto channel = grpc::CreateChannel(oss.str(), grpc::InsecureChannelCredentials());
+                auto channel = static_cast<grpc_interop::GrpcInteropComponent *>(env)->grpc_interop_getChannel(locator);
                 
                 std::vector<Resp> ret;
                 grpc::ClientContext ctx;
@@ -255,6 +254,29 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 return ret;
             } else {
                 throw GrpcInteropComponentException("grpc sync client only works when the data types are protobuf-encodable");
+            }
+        }
+        template <class Req, class Resp>
+        static std::future<Resp> typedOneShotRemoteCall(Env *env, ConnectionLocator const &rpcQueueLocator, Req &&request) {
+            if constexpr (
+                basic::bytedata_utils::ProtobufStyleSerializableChecker<Req>::IsProtobufStyleSerializable()
+                &&
+                basic::bytedata_utils::ProtobufStyleSerializableChecker<Resp>::IsProtobufStyleSerializable()
+            ) {
+                if constexpr(DetermineClientSideIdentityForRequest<Env, Req>::HasIdentity) {
+                    throw GrpcInteropComponentException("grpc typed one shot remote call does not work when the request has identity");
+                } else {
+                    auto ret = std::make_shared<std::promise<Resp>>();
+                    std::thread th([env,rpcQueueLocator,request=std::move(request),ret]() mutable {
+                        auto callRes = runSyncClient<Req,Resp>(env, rpcQueueLocator, std::move(request));
+                        if (!callRes.empty()) {
+                            ret->set_value(callRes[0]);
+                        }
+                    });
+                    return ret->get_future();
+                }
+            } else {
+                throw GrpcInteropComponentException("grpc typed one shot remote call only works when the data types are protobuf-encodable");
             }
         }
     };

@@ -96,6 +96,15 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                     } catch (ConnectionLocatorParseError const &) {
                         return std::nullopt;
                     }
+                } else if (boost::starts_with(s, "grpc_interop://")) {
+                    try {
+                        return std::tuple<MultiTransportRemoteFacilityConnectionType, ConnectionLocator> {
+                            MultiTransportRemoteFacilityConnectionType::GrpcInterop
+                            , ConnectionLocator::parse(s.substr(std::string("grpc_interop://").length()))
+                        };
+                    } catch (ConnectionLocatorParseError const &) {
+                        return std::nullopt;
+                    }
                 } else {
                     return std::nullopt;
                 }
