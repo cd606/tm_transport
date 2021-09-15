@@ -2,6 +2,7 @@
 #define TM_KIT_TRANSPORT_MULTI_TRANSPORT_FACILITY_WRAPPER_HPP_
 
 #include <tm_kit/transport/MultiTransportRemoteFacility.hpp>
+#include <tm_kit/transport/grpc_interop/GrpcServerFacility.hpp>
 #include <tm_kit/basic/AppRunnerUtils.hpp>
 
 namespace dev { namespace cd606 { namespace tm { namespace transport {
@@ -163,6 +164,23 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                     throw std::runtime_error(errOss.str());
                 }
                 break;
+            case MultiTransportRemoteFacilityConnectionType::GrpcInterop:
+                if constexpr (std::is_convertible_v<Env *, grpc_interop::GrpcInteropComponent *>) {
+                    if constexpr (DetermineServerSideIdentityForRequest<Env, A>::HasIdentity) {
+                        std::ostringstream errOss;
+                        errOss << "[MultiTransportFacilityWrapper::wrap(onOrderFacility)] trying to wrap a facility with grpc interop channel '" << rpcQueueLocator << "', but grpc interop does not support facilities with identity on input";
+                        throw std::runtime_error(errOss.str());
+                    } else {
+                        grpc_interop::GrpcServerFacilityWrapper<M>::template wrapOnOrderFacility<A,B>(
+                            runner, toBeWrapped, rpcQueueLocator, wrapperItemsNamePrefix
+                        );
+                    }
+                } else {
+                    std::ostringstream errOss;
+                    errOss << "[MultiTransportFacilityWrapper::wrap(onOrderFacility)] trying to wrap a facility with grpc interop channel '" << rpcQueueLocator << "', but grpc interop is unsupported in the environment";
+                    throw std::runtime_error(errOss.str());
+                }
+                break;
             default:
                 throw std::runtime_error("[MultiTransportFacilityWrapper::wrap(onOrderFacility)] Unknown connection type");
                 break;
@@ -248,6 +266,23 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                 } else {
                     std::ostringstream errOss;
                     errOss << "[MultiTransportFacilityWrapper::wrap(localOnOrderFacility)] trying to wrap a facility with socket rpc channel '" << rpcQueueLocator << "', but socket rpc is unsupported in the environment";
+                    throw std::runtime_error(errOss.str());
+                }
+                break;
+            case MultiTransportRemoteFacilityConnectionType::GrpcInterop:
+                if constexpr (std::is_convertible_v<Env *, grpc_interop::GrpcInteropComponent *>) {
+                    if constexpr (DetermineServerSideIdentityForRequest<Env, A>::HasIdentity) {
+                        std::ostringstream errOss;
+                        errOss << "[MultiTransportFacilityWrapper::wrap(localOnOrderFacility)] trying to wrap a facility with grpc interop channel '" << rpcQueueLocator << "', but grpc interop does not support facilities with identity on input";
+                        throw std::runtime_error(errOss.str());
+                    } else {
+                        grpc_interop::GrpcServerFacilityWrapper<M>::template wrapLocalOnOrderFacility<A,B,C>(
+                            runner, toBeWrapped, rpcQueueLocator, wrapperItemsNamePrefix
+                        );
+                    }
+                } else {
+                    std::ostringstream errOss;
+                    errOss << "[MultiTransportFacilityWrapper::wrap(localOnOrderFacility)] trying to wrap a facility with grpc interop channel '" << rpcQueueLocator << "', but grpc interop is unsupported in the environment";
                     throw std::runtime_error(errOss.str());
                 }
                 break;
@@ -337,6 +372,23 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                 } else {
                     std::ostringstream errOss;
                     errOss << "[MultiTransportFacilityWrapper::wrap(onOrderFacilityWithExternalEffects)] trying to wrap a facility with socket rpc channel '" << rpcQueueLocator << "', but socket rpc is unsupported in the environment";
+                    throw std::runtime_error(errOss.str());
+                }
+                break;
+            case MultiTransportRemoteFacilityConnectionType::GrpcInterop:
+                if constexpr (std::is_convertible_v<Env *, grpc_interop::GrpcInteropComponent *>) {
+                    if constexpr (DetermineServerSideIdentityForRequest<Env, A>::HasIdentity) {
+                        std::ostringstream errOss;
+                        errOss << "[MultiTransportFacilityWrapper::wrap(onOrderFacilityWithExternalEffects)] trying to wrap a facility with grpc interop channel '" << rpcQueueLocator << "', but grpc interop does not support facilities with identity on input";
+                        throw std::runtime_error(errOss.str());
+                    } else {
+                        grpc_interop::GrpcServerFacilityWrapper<M>::template wrapOnOrderFacilityWithExternalEffects<A,B,C>(
+                            runner, toBeWrapped, rpcQueueLocator, wrapperItemsNamePrefix
+                        );
+                    }
+                } else {
+                    std::ostringstream errOss;
+                    errOss << "[MultiTransportFacilityWrapper::wrap(onOrderFacilityWithExternalEffects)] trying to wrap a facility with grpc interop channel '" << rpcQueueLocator << "', but grpc interop is unsupported in the environment";
                     throw std::runtime_error(errOss.str());
                 }
                 break;
@@ -430,6 +482,23 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                     throw std::runtime_error(errOss.str());
                 }
                 break;
+            case MultiTransportRemoteFacilityConnectionType::GrpcInterop:
+                if constexpr (std::is_convertible_v<Env *, grpc_interop::GrpcInteropComponent *>) {
+                    if constexpr (DetermineServerSideIdentityForRequest<Env, A>::HasIdentity) {
+                        std::ostringstream errOss;
+                        errOss << "[MultiTransportFacilityWrapper::wrap(vieOrderFacility)] trying to wrap a facility with grpc interop channel '" << rpcQueueLocator << "', but grpc interop does not support facilities with identity on input";
+                        throw std::runtime_error(errOss.str());
+                    } else {
+                        grpc_interop::GrpcServerFacilityWrapper<M>::template wrapVIEOnOrderFacility<A,B,C,D>(
+                            runner, toBeWrapped, rpcQueueLocator, wrapperItemsNamePrefix
+                        );
+                    }
+                } else {
+                    std::ostringstream errOss;
+                    errOss << "[MultiTransportFacilityWrapper::wrap(vieOnOrderFacility)] trying to wrap a facility with grpc interop channel '" << rpcQueueLocator << "', but grpc interop is unsupported in the environment";
+                    throw std::runtime_error(errOss.str());
+                }
+                break;
             default:
                 throw std::runtime_error("[MultiTransportFacilityWrapper::wrap(vieOnOrderFacility)] Unknown connection type");
                 break;
@@ -517,6 +586,23 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                 } else {
                     std::ostringstream errOss;
                     errOss << "[MultiTransportFacilityWrapper::wrap(FacilitioidConnector)] trying to wrap a facility with socket rpc channel '" << rpcQueueLocator << "', but socket rpc is unsupported in the environment";
+                    throw std::runtime_error(errOss.str());
+                }
+                break;
+            case MultiTransportRemoteFacilityConnectionType::GrpcInterop:
+                if constexpr (std::is_convertible_v<Env *, grpc_interop::GrpcInteropComponent *>) {
+                    if constexpr (DetermineServerSideIdentityForRequest<Env, A>::HasIdentity) {
+                        std::ostringstream errOss;
+                        errOss << "[MultiTransportFacilityWrapper::wrap(FacilitioidConnector)] trying to wrap a facility with grpc interop channel '" << rpcQueueLocator << "', but grpc interop does not support facilities with identity on input";
+                        throw std::runtime_error(errOss.str());
+                    } else {
+                        grpc_interop::GrpcServerFacilityWrapper<M>::template wrapFacilitioidConnector<A,B>(
+                            runner, registeredNameForFacilitioid, toBeWrapped, rpcQueueLocator, wrapperItemsNamePrefix
+                        );
+                    }
+                } else {
+                    std::ostringstream errOss;
+                    errOss << "[MultiTransportFacilityWrapper::wrap(FacilitiodConnector)] trying to wrap a facility with grpc interop channel '" << rpcQueueLocator << "', but grpc interop is unsupported in the environment";
                     throw std::runtime_error(errOss.str());
                 }
                 break;

@@ -3,6 +3,7 @@
 
 #include <tm_kit/infra/RealTimeApp.hpp>
 #include <tm_kit/infra/TraceNodesComponent.hpp>
+#include <tm_kit/infra/Environments.hpp>
 
 #include <tm_kit/basic/ByteData.hpp>
 
@@ -14,6 +15,7 @@
 #include <tm_kit/transport/socket_rpc/SocketRPCComponent.hpp>
 #include <tm_kit/transport/shared_memory_broadcast/SharedMemoryBroadcastComponent.hpp>
 #include <tm_kit/transport/AbstractHookFactoryComponent.hpp>
+#include <tm_kit/transport/grpc_interop/GrpcInteropComponent.hpp>
 
 #include <type_traits>
 #include <regex>
@@ -22,15 +24,16 @@
 
 namespace dev { namespace cd606 { namespace tm { namespace transport {
 
-    struct AllNetworkTransportComponents :
-        public multicast::MulticastComponent
-        , public rabbitmq::RabbitMQComponent
-        , public redis::RedisComponent
-        , public zeromq::ZeroMQComponent
-        , public nng::NNGComponent
-        , public shared_memory_broadcast::SharedMemoryBroadcastComponent
-        , public socket_rpc::SocketRPCComponent
-    {};
+    using AllNetworkTransportComponents = infra::Environment<
+        multicast::MulticastComponent
+        , rabbitmq::RabbitMQComponent
+        , redis::RedisComponent
+        , zeromq::ZeroMQComponent
+        , nng::NNGComponent
+        , shared_memory_broadcast::SharedMemoryBroadcastComponent
+        , socket_rpc::SocketRPCComponent
+        , grpc_interop::GrpcInteropComponent
+    >;
 
     template <class Env>
     inline std::unordered_map<

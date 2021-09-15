@@ -7,9 +7,12 @@
 #include <tm_kit/transport/grpc_interop/GrpcInteropComponent.hpp>
 #include <tm_kit/transport/grpc_interop/GrpcServiceInfo.hpp>
 #include <tm_kit/transport/grpc_interop/GrpcSerializationHelper.hpp>
+#include <tm_kit/transport/grpc_interop/GrpcConnectionLocatorUtils.hpp>
+#include <tm_kit/transport/HeartbeatAndAlertComponent.hpp>
 
 #include <grpcpp/impl/codegen/server_callback.h>
 #include <grpcpp/impl/codegen/server_callback_handlers.h>
+#include <grpcpp/impl/codegen/proto_utils.h>
 #include <grpcpp/impl/codegen/method_handler.h>
 
 namespace dev { namespace cd606 { namespace tm { namespace transport { namespace grpc_interop {
@@ -26,21 +29,24 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
     private:
         using Env = typename M::EnvironmentType;
         using R = infra::AppRunner<M>;
-    public:
         template <class Req, class Resp, typename=std::enable_if_t<
-            basic::bytedata_utils::ProtobufStyleSerializableChecker<Req>::IsProtobufStyleSerializable()
-            &&
-            basic::bytedata_utils::ProtobufStyleSerializableChecker<Resp>::IsProtobufStyleSerializable()
+            (
+                basic::bytedata_utils::ProtobufStyleSerializableChecker<Req>::IsProtobufStyleSerializable()
+                &&
+                basic::bytedata_utils::ProtobufStyleSerializableChecker<Resp>::IsProtobufStyleSerializable()
+            )
+            , void
         >>
-        static void wrapFacilitioidConnector(
+        static void wrapFacilitioidConnector_internal(
             R &r
             , std::string const &registeredNameForFacility
             , typename infra::AppRunner<M>::template FacilitioidConnector<Req,Resp> const &toBeWrapped
-            , int port
-            , GrpcServiceInfo const &serviceInfo
+            , ConnectionLocator const &locator
             , std::string const &wrapperItemsNamePrefix
         )
         {
+            auto serviceInfo = connection_locator_utils::parseServiceInfo(locator);
+
             auto triggerImporterPair = M::template triggerImporter<typename M::template Key<Req>>();
             auto importer = std::get<0>(triggerImporterPair);
             r.registerImporter(wrapperItemsNamePrefix+"/importer", importer);
@@ -97,7 +103,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 Env *env_;
                 std::function<void(typename M::template Key<Req> &&)> triggerFunc_;
                 std::string serviceInfoStr_;
-                std::unordered_map<typename Env::IDType, std::unique_ptr<LocalReactor>> reactors_;
+                std::unordered_map<typename Env::IDType, std::unique_ptr<LocalReactor>, typename Env::IDHash> reactors_;
                 std::mutex mutex_;
             public:
                 LocalService(Env *env, GrpcServiceInfo const &serviceInfo, std::function<void(typename M::template Key<Req> &&)> const &triggerFunc) 
@@ -166,8 +172,99 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             });
             r.registerExporter(wrapperItemsNamePrefix+"/exporter", exporter);
             toBeWrapped(r, r.importItem(importer), r.exporterAsSink(exporter));
-            static_cast<GrpcInteropComponent *>(r.environment())->grpc_interop_getServerBuilder(port)
-                ->RegisterService(service.get());
+            static_cast<GrpcInteropComponent *>(r.environment())->grpc_interop_registerService(locator, service.get());
+
+            if constexpr (std::is_convertible_v<
+                Env *
+                , HeartbeatAndAlertComponent *
+            >) {
+                static_cast<HeartbeatAndAlertComponent *>(r.environment())->addFacilityChannel(
+                    registeredNameForFacility
+                    , std::string("grpc_interop://")+locator.toSerializationFormat()
+                );
+            }
+        }
+    public:
+        template <class Req, class Resp>
+        static void wrapFacilitioidConnector(
+            R &r
+            , std::string const &registeredNameForFacility
+            , typename infra::AppRunner<M>::template FacilitioidConnector<Req,Resp> const &toBeWrapped
+            , ConnectionLocator const &locator
+            , std::string const &wrapperItemsNamePrefix
+        )
+        {
+            if constexpr (
+                basic::bytedata_utils::ProtobufStyleSerializableChecker<Req>::IsProtobufStyleSerializable()
+                &&
+                basic::bytedata_utils::ProtobufStyleSerializableChecker<Resp>::IsProtobufStyleSerializable()
+            ) {
+                wrapFacilitioidConnector_internal<Req,Resp>(
+                    r, registeredNameForFacility, toBeWrapped, locator, wrapperItemsNamePrefix
+                );
+            } else {
+                throw GrpcInteropComponentException("grpc server facility wrapper only works when the data types are protobuf-encodable");
+            }
+        }
+        template <class Req, class Resp>
+        static void wrapOnOrderFacility(
+            R &r
+            , std::shared_ptr<typename M::template OnOrderFacility<Req,Resp>> const &toBeWrapped
+            , ConnectionLocator const &locator
+            , std::string const &wrapperItemsNamePrefix
+        ) {
+            wrapFacilitioidConnector<Req,Resp>(
+                r
+                , r.getRegisteredName(toBeWrapped)
+                , r.facilityConnector(toBeWrapped)
+                , locator
+                , wrapperItemsNamePrefix
+            );
+        }
+        template <class Req, class Resp, class C>
+        static void wrapLocalOnOrderFacility(
+            R &r
+            , std::shared_ptr<typename M::template LocalOnOrderFacility<Req,Resp,C>> const &toBeWrapped
+            , ConnectionLocator const &locator
+            , std::string const &wrapperItemsNamePrefix
+        ) {
+            wrapFacilitioidConnector<Req,Resp>(
+                r
+                , r.getRegisteredName(toBeWrapped)
+                , r.facilityConnector(toBeWrapped)
+                , locator
+                , wrapperItemsNamePrefix
+            );
+        }
+        template <class Req, class Resp, class C>
+        static void wrapOnOrderFacilityWithExternalEffects(
+            R &r
+            , std::shared_ptr<typename M::template OnOrderFacilityWithExternalEffects<Req,Resp,C>> const &toBeWrapped
+            , ConnectionLocator const &locator
+            , std::string const &wrapperItemsNamePrefix
+        ) {
+            wrapFacilitioidConnector<Req,Resp>(
+                r
+                , r.getRegisteredName(toBeWrapped)
+                , r.facilityConnector(toBeWrapped)
+                , locator
+                , wrapperItemsNamePrefix
+            );
+        }
+        template <class Req, class Resp, class C, class D>
+        static void wrapVIEOnOrderFacility(
+            R &r
+            , std::shared_ptr<typename M::template VIEOnOrderFacility<Req,Resp,C,D>> const &toBeWrapped
+            , ConnectionLocator const &locator
+            , std::string const &wrapperItemsNamePrefix
+        ) {
+            wrapFacilitioidConnector<Req,Resp>(
+                r
+                , r.getRegisteredName(toBeWrapped)
+                , r.facilityConnector(toBeWrapped)
+                , locator
+                , wrapperItemsNamePrefix
+            );
         }
     };
 

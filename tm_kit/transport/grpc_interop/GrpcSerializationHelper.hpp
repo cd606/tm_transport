@@ -49,6 +49,34 @@ namespace grpc {
             }
         }
     };
+
+    template <>
+    class SerializationTraits<
+        dev::cd606::tm::basic::ByteData, void
+    > {
+    public:
+        static Status Serialize(const dev::cd606::tm::basic::ByteData &x, ByteBuffer *buffer, bool *own_buffer) {
+            *own_buffer = 1;
+            Slice slice(x.content);
+            ByteBuffer tmp(&slice, 1);
+            buffer->Swap(&tmp);
+            return Status::OK;
+        }
+        static Status Deserialize(ByteBuffer *buffer, dev::cd606::tm::basic::ByteData *x) {
+            x->content.resize(buffer->Length());
+            ProtoBufferReader r(buffer);
+            char *copyPtr = x->content.data();
+            const void *p;
+            int sz;
+            while (r.Next(&p, &sz)) {
+                if (sz > 0) {
+                    std::memcpy(copyPtr, p, sz);
+                    copyPtr += sz;
+                }
+            }
+            return Status::OK;
+        }
+    };
 }
 
 #endif

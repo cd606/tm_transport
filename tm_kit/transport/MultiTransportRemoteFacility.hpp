@@ -13,6 +13,8 @@
 #include <tm_kit/transport/redis/RedisOnOrderFacility.hpp>
 #include <tm_kit/transport/socket_rpc/SocketRPCComponent.hpp>
 #include <tm_kit/transport/socket_rpc/SocketRPCOnOrderFacility.hpp>
+#include <tm_kit/transport/grpc_interop/GrpcInteropComponent.hpp>
+#include <tm_kit/transport/grpc_interop/GrpcClientFacility.hpp>
 #include <tm_kit/transport/AbstractIdentityCheckerComponent.hpp>
 #include <tm_kit/transport/MultiTransportBroadcastListenerManagingUtils.hpp>
 
@@ -34,11 +36,13 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
         RabbitMQ
         , Redis
         , SocketRPC
+        , GrpcInterop
     };
-    inline const std::array<std::string,3> MULTI_TRANSPORT_REMOTE_FACILITY_CONNECTION_TYPE_STR = {
+    inline const std::array<std::string,4> MULTI_TRANSPORT_REMOTE_FACILITY_CONNECTION_TYPE_STR = {
         "rabbitmq"
         , "redis"
         , "socket_rpc"
+        , "grpc_interop"
     };
 
     inline auto parseMultiTransportRemoteFacilityChannel(std::string const &s) 

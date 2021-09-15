@@ -24,12 +24,12 @@
 
 namespace dev { namespace cd606 { namespace tm { namespace transport {
 
-    struct AllChainComponents :
-        public virtual infra::HiddenTimeDependencyComponent
-        , public etcd_shared_chain::EtcdChainComponent
-        , public redis_shared_chain::RedisChainComponent
-        , public lock_free_in_memory_shared_chain::SharedMemoryChainComponent
-    {};
+    using AllChainComponents = infra::Environment<
+        infra::HiddenTimeDependencyComponent
+        , etcd_shared_chain::EtcdChainComponent
+        , redis_shared_chain::RedisChainComponent
+        , lock_free_in_memory_shared_chain::SharedMemoryChainComponent
+    >;
 
     enum class SharedChainProtocol {
         Etcd 

@@ -11,7 +11,8 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
     #define TM_KIT_TRANSPORT_GRPC_INTEROP_GRPC_SERVICE_INFO_FIELDS \
         ((std::string, namespaceName)) \
         ((std::string, serviceName)) \
-        ((std::string, methodName))
+        ((std::string, methodName)) \
+        ((bool, isSingleRpcCall))
 
     TM_BASIC_CBOR_CAPABLE_STRUCT(GrpcServiceInfo, TM_KIT_TRANSPORT_GRPC_INTEROP_GRPC_SERVICE_INFO_FIELDS);
 
