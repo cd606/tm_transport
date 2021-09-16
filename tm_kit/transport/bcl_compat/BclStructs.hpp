@@ -297,18 +297,29 @@ namespace dev { namespace cd606 { namespace tm { namespace basic {
         template <class Env>
         class ProtoEncoder<transport::bcl_compat::BclGuid<Env>, void> {
         public:
+            static constexpr uint64_t thisFieldNumber(uint64_t inputFieldNumber) {
+                return inputFieldNumber;
+            }
+            static constexpr uint64_t nextFieldNumber(uint64_t inputFieldNumber) {
+                return inputFieldNumber+1;
+            }
             static void write(std::optional<uint64_t> fieldNumber, transport::bcl_compat::BclGuid<Env> const &id, std::ostream &os) {
                 ProtoEncoder<transport::bcl_compat::BclGuidProto>::write(fieldNumber, id.toProto(), os);
             }
         };
         template <class Env>
         class ProtoDecoder<transport::bcl_compat::BclGuid<Env>, void> final : public IProtoDecoder<transport::bcl_compat::BclGuid<Env>> {
+        private:
+            uint64_t baseFieldNumber_;
         public:
-            ProtoDecoder(transport::bcl_compat::BclGuid<Env> *output) : IProtoDecoder<transport::bcl_compat::BclGuid<Env>>(output) {}
-            std::optional<std::size_t> read(transport::bcl_compat::BclGuid<Env> &output, internal::ProtoWireType wt, std::string_view const &input, std::size_t start) override final {
+            ProtoDecoder(transport::bcl_compat::BclGuid<Env> *output, uint64_t baseFieldNumber) : IProtoDecoder<transport::bcl_compat::BclGuid<Env>>(output), baseFieldNumber_(baseFieldNumber) {}
+            static std::vector<uint64_t> responsibleForFieldNumbers(uint64_t baseFieldNumber) {
+                return {baseFieldNumber};
+            }
+            std::optional<std::size_t> read(transport::bcl_compat::BclGuid<Env> &output, internal::FieldHeader const &fh, std::string_view const &input, std::size_t start) override final {
                 transport::bcl_compat::BclGuidProto p;
-                ProtoDecoder<transport::bcl_compat::BclGuidProto> subDec(&p);
-                auto res = subDec.handle(wt, input, start);
+                ProtoDecoder<transport::bcl_compat::BclGuidProto> subDec(&p, baseFieldNumber_);
+                auto res = subDec.handle(fh, input, start);
                 if (res) {
                     output.fromProto(p);
                 }
@@ -318,18 +329,29 @@ namespace dev { namespace cd606 { namespace tm { namespace basic {
         template <>
         class ProtoEncoder<transport::bcl_compat::BclDecimal, void> {
         public:
+            static constexpr uint64_t thisFieldNumber(uint64_t inputFieldNumber) {
+                return inputFieldNumber;
+            }
+            static constexpr uint64_t nextFieldNumber(uint64_t inputFieldNumber) {
+                return inputFieldNumber+1;
+            }
             static void write(std::optional<uint64_t> fieldNumber, transport::bcl_compat::BclDecimal const &id, std::ostream &os) {
                 ProtoEncoder<transport::bcl_compat::BclDecimalProto>::write(fieldNumber, id.toProto(), os);
             }
         };
         template <>
         class ProtoDecoder<transport::bcl_compat::BclDecimal, void> final : public IProtoDecoder<transport::bcl_compat::BclDecimal> {
+        private:
+            uint64_t baseFieldNumber_;
         public:
-            ProtoDecoder(transport::bcl_compat::BclDecimal *output) : IProtoDecoder<transport::bcl_compat::BclDecimal>(output) {}
-            std::optional<std::size_t> read(transport::bcl_compat::BclDecimal &output, internal::ProtoWireType wt, std::string_view const &input, std::size_t start) override final {
+            ProtoDecoder(transport::bcl_compat::BclDecimal *output, uint64_t baseFieldNumber) : IProtoDecoder<transport::bcl_compat::BclDecimal>(output), baseFieldNumber_(baseFieldNumber) {}
+            static std::vector<uint64_t> responsibleForFieldNumbers(uint64_t baseFieldNumber) {
+                return {baseFieldNumber};
+            }
+            std::optional<std::size_t> read(transport::bcl_compat::BclDecimal &output, internal::FieldHeader const &fh, std::string_view const &input, std::size_t start) override final {
                 transport::bcl_compat::BclDecimalProto p;
-                ProtoDecoder<transport::bcl_compat::BclDecimalProto> subDec(&p);
-                auto res = subDec.handle(wt, input, start);
+                ProtoDecoder<transport::bcl_compat::BclDecimalProto> subDec(&p, baseFieldNumber_);
+                auto res = subDec.handle(fh, input, start);
                 if (res) {
                     output.fromProto(p);
                 }
