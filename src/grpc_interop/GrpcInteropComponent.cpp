@@ -61,7 +61,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                         }
                     }
                 }
-                virtual void OnDone(grpc::Status const &) {
+                virtual void OnDone(grpc::Status const &) override final {
                     if (stopped_) {
                         return;
                     }
