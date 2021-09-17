@@ -26,6 +26,32 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 , (l.query("single_rpc", "false") == "true")
             };
         }
+
+        GrpcSSLInfo parseSSLInfo(ConnectionLocator const &l) {
+            GrpcSSLInfo sslInfo = std::monostate {};
+            if (l.query("ssl", "false") == "true") {
+                if (
+                    l.query("ca_cert", "") != ""
+                    && l.query("client_cert", "") != ""
+                    && l.query("client_key", "") != ""
+                ) {
+                    sslInfo = GrpcSSLClientInfo {
+                        l.query("ca_cert", "")
+                        , l.query("client_cert", "")
+                        , l.query("client_key", "")
+                    };
+                } else if (
+                    l.query("server_cert", "") != ""
+                    && l.query("server_key", "") != ""
+                ) {
+                    sslInfo = GrpcSSLServerInfo {
+                        l.query("server_cert", "")
+                        , l.query("server_key", "")
+                    };
+                }
+            }
+            return sslInfo;
+        }
     }
 
 } } } } }

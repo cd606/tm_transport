@@ -8,6 +8,8 @@
 #include <mutex>
 #include <iostream>
 #include <sstream>
+#include <fstream>
+#include <iterator>
 #include <thread>
 
 #include <grpcpp/channel.h>
@@ -171,9 +173,45 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             if (iter == channels_.end()) {
                 std::ostringstream oss;
                 oss << key.host() << ":" << key.port();
+                auto channelStr = oss.str();
+
+                auto sslInfo = connection_locator_utils::parseSSLInfo(locator);
+                
                 iter = channels_.insert({
                     key
-                    , grpc::CreateChannel(oss.str(), grpc::InsecureChannelCredentials())
+                    , std::visit([channelStr](auto const &s) -> std::shared_ptr<grpc::Channel> {
+                        using T = std::decay_t<decltype(s)>;
+                        if constexpr (std::is_same_v<T, GrpcSSLClientInfo>) {
+                            grpc::SslCredentialsOptions options;
+                            {
+                                std::ifstream ifs(s.caCertificateFile.c_str());
+                                options.pem_root_certs = std::string(
+                                    std::istreambuf_iterator<char>{ifs}, {}
+                                );
+                                ifs.close();
+                            }
+                            {
+                                std::ifstream ifs(s.clientCertificateFile.c_str());
+                                options.pem_cert_chain = std::string(
+                                    std::istreambuf_iterator<char>{ifs}, {}
+                                );
+                                ifs.close();
+                            }
+                            {
+                                std::ifstream ifs(s.clientKeyFile.c_str());
+                                options.pem_private_key = std::string(
+                                    std::istreambuf_iterator<char>{ifs}, {}
+                                );
+                                ifs.close();
+                            }
+                            
+                            return grpc::CreateChannel(channelStr, grpc::SslCredentials(
+                                options
+                            ));
+                        } else {
+                            return grpc::CreateChannel(channelStr, grpc::InsecureChannelCredentials());
+                        }
+                    }, sslInfo)
                 }).first;
             }
             return iter->second;
@@ -189,7 +227,36 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 }).first;
                 std::ostringstream oss;
                 oss << "[::]:" << key.port();
-                iter->second->AddListeningPort(oss.str(), grpc::InsecureServerCredentials());
+                std::string bindStr = oss.str();
+
+                auto sslInfo = connection_locator_utils::parseSSLInfo(locator);
+                auto *p = iter->second.get();
+                std::visit([bindStr,p](auto const &s) {
+                    using T = std::decay_t<decltype(s)>;
+                    if constexpr (std::is_same_v<T,GrpcSSLServerInfo>) {
+                        grpc::SslServerCredentialsOptions options;
+                        options.pem_key_cert_pairs.push_back(
+                            grpc::SslServerCredentialsOptions::PemKeyCertPair()
+                        );
+                        {
+                            std::ifstream ifs(s.serverCertificateFile.c_str());
+                            options.pem_key_cert_pairs.back().cert_chain = std::string(
+                                std::istreambuf_iterator<char>{ifs}, {}
+                            );
+                            ifs.close();
+                        }
+                        {
+                            std::ifstream ifs(s.serverKeyFile.c_str());
+                            options.pem_key_cert_pairs.back().private_key = std::string(
+                                std::istreambuf_iterator<char>{ifs}, {}
+                            );
+                            ifs.close();
+                        }
+                        p->AddListeningPort(bindStr, grpc::SslServerCredentials(options));
+                    } else {
+                        p->AddListeningPort(bindStr, grpc::InsecureServerCredentials());
+                    }
+                }, sslInfo);
             }
             iter->second->RegisterService(service);
         }
