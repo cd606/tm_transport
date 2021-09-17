@@ -270,9 +270,10 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                     std::thread th([env,rpcQueueLocator,request=std::move(request),ret]() mutable {
                         auto callRes = runSyncClient<Req,Resp>(env, rpcQueueLocator, std::move(request));
                         if (!callRes.empty()) {
-                            ret->set_value(callRes[0]);
+                            ret->set_value_at_thread_exit(callRes[0]);
                         }
                     });
+                    th.detach();
                     return ret->get_future();
                 }
             } else {

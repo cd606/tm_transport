@@ -303,8 +303,8 @@ namespace dev { namespace cd606 { namespace tm { namespace basic {
             static constexpr uint64_t nextFieldNumber(uint64_t inputFieldNumber) {
                 return inputFieldNumber+1;
             }
-            static void write(std::optional<uint64_t> fieldNumber, transport::bcl_compat::BclGuid<Env> const &id, std::ostream &os) {
-                ProtoEncoder<transport::bcl_compat::BclGuidProto>::write(fieldNumber, id.toProto(), os);
+            static void write(std::optional<uint64_t> fieldNumber, transport::bcl_compat::BclGuid<Env> const &id, std::ostream &os, bool writeDefaultValue) {
+                ProtoEncoder<transport::bcl_compat::BclGuidProto>::write(fieldNumber, id.toProto(), os, false);
             }
         };
         template <class Env>
@@ -335,8 +335,8 @@ namespace dev { namespace cd606 { namespace tm { namespace basic {
             static constexpr uint64_t nextFieldNumber(uint64_t inputFieldNumber) {
                 return inputFieldNumber+1;
             }
-            static void write(std::optional<uint64_t> fieldNumber, transport::bcl_compat::BclDecimal const &id, std::ostream &os) {
-                ProtoEncoder<transport::bcl_compat::BclDecimalProto>::write(fieldNumber, id.toProto(), os);
+            static void write(std::optional<uint64_t> fieldNumber, transport::bcl_compat::BclDecimal const &id, std::ostream &os, bool writeDefaultValue) {
+                ProtoEncoder<transport::bcl_compat::BclDecimalProto>::write(fieldNumber, id.toProto(), os, false);
             }
         };
         template <>
