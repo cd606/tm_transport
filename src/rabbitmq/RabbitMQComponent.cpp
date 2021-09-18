@@ -14,9 +14,22 @@
 #include <sys/time.h>
 #endif
 
+#if defined(__has_include)
+    #if __has_include(<rabbitmq-c/amqp.h>)
+        #include <rabbitmq-c/amqp.h>
+        #include <rabbitmq-c/tcp_socket.h>
+        #include <rabbitmq-c/ssl_socket.h>
+    #else
+        #include <amqp.h>
+        #include <amqp_tcp_socket.h>
+        #include <amqp_ssl_socket.h>
+    #endif
+#else
 #include <amqp.h>
 #include <amqp_tcp_socket.h>
 #include <amqp_ssl_socket.h>
+#endif
+
 #include <boost/algorithm/string.hpp>
 
 namespace dev { namespace cd606 { namespace tm { namespace transport { namespace rabbitmq {
