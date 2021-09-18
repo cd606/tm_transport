@@ -1,4 +1,5 @@
 #include <tm_kit/transport/rabbitmq/RabbitMQComponent.hpp>
+#include <tm_kit/transport/TLSConfigurationComponent.hpp>
 
 #include <thread>
 #include <mutex>
@@ -22,27 +23,29 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
     
     class RabbitMQComponentImpl {
     private:
-        static amqp_connection_state_t createConnection(ConnectionLocator const &l) {
+        static amqp_connection_state_t createConnection(ConnectionLocator const &l, TLSClientConfigurationComponent const *config) {
             auto conn = amqp_new_connection();
             amqp_socket_t *socket = nullptr;
             int port = 0;
 
-            std::string useSSL = boost::to_lower_copy(boost::trim_copy(l.query("ssl", "false")));
-            if (useSSL == "true" || useSSL == "yes") {
+            auto sslInfo = config?(config->getConfigurationItem(TLSClientInfoKey {
+                l.host(), l.port()
+            })):std::nullopt;
+            if (sslInfo) {
                 socket = amqp_ssl_socket_new(conn);
                 if (!socket) {
                     throw RabbitMQComponentException("Cannot open RabbitMQ socket to "+l.toPrintFormat());
                 }
                 amqp_ssl_socket_set_verify_peer(socket, 0);
                 amqp_ssl_socket_set_verify_hostname(socket, 0);
-                auto caCert = l.query("ca_cert", "");
+                auto caCert = sslInfo->caCertificateFile;
                 if (caCert != "") {
                     if (amqp_ssl_socket_set_cacert(socket, caCert.c_str()) != AMQP_STATUS_OK) {
                         throw RabbitMQComponentException("Cannot set RabbitMQ CA Cert for "+l.toPrintFormat());
                     }
                 }
-                auto clientCert = l.query("client_cert", "");
-                auto clientKey = l.query("client_key", "");
+                auto clientCert = sslInfo->clientCertificateFile;
+                auto clientKey = sslInfo->clientKeyFile;
                 if (amqp_ssl_socket_set_key(socket, clientCert.c_str(), clientKey.c_str()) != AMQP_STATUS_OK) {
                     throw RabbitMQComponentException("Cannot set RabbitMQ client key for "+l.toPrintFormat());
                 }
@@ -138,8 +141,8 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 }
             }
         public:
-            OneExchangeSubscriptionConnection(RabbitMQComponent::ExceptionPolicy exceptionPolicy, ConnectionLocator const &l, std::string const &topic, std::function<void(basic::ByteDataWithTopic &&)> callback, std::optional<WireToUserHook> wireToUserHook)
-                : connection_(createConnection(l))
+            OneExchangeSubscriptionConnection(RabbitMQComponent::ExceptionPolicy exceptionPolicy, ConnectionLocator const &l, std::string const &topic, std::function<void(basic::ByteDataWithTopic &&)> callback, std::optional<WireToUserHook> wireToUserHook, TLSClientConfigurationComponent const *config)
+                : connection_(createConnection(l, config))
                 , locator_(l)
                 , callback_(callback)
                 , wireToUserHook_(wireToUserHook)
@@ -226,8 +229,8 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             std::mutex mutex_;
             RabbitMQComponent::ExceptionPolicy exceptionPolicy_;
         public:
-            OnePublishingConnection(RabbitMQComponent::ExceptionPolicy exceptionPolicy, ConnectionLocator const &l) 
-                : connection_(createConnection(l))
+            OnePublishingConnection(RabbitMQComponent::ExceptionPolicy exceptionPolicy, ConnectionLocator const &l, TLSClientConfigurationComponent const *config) 
+                : connection_(createConnection(l, config))
                 , mutex_()
                 , exceptionPolicy_(exceptionPolicy)
             {
@@ -382,8 +385,8 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 }
             }
         public:
-            OneRPCQueueClientConnection(RabbitMQComponent::ExceptionPolicy exceptionPolicy, ConnectionLocator const &l, std::function<void(bool, basic::ByteDataWithID &&)> callback, std::optional<WireToUserHook> wireToUserHook, OnePublishingConnection *publishing)
-                : connection_(createConnection(l))
+            OneRPCQueueClientConnection(RabbitMQComponent::ExceptionPolicy exceptionPolicy, ConnectionLocator const &l, std::function<void(bool, basic::ByteDataWithID &&)> callback, std::optional<WireToUserHook> wireToUserHook, OnePublishingConnection *publishing, TLSClientConfigurationComponent const *config)
+                : connection_(createConnection(l, config))
                 , rpcQueue_(l.identifier())
                 , localQueue_("")
                 , callback_(callback)
@@ -511,8 +514,8 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 }
             }
         public:
-            OneRPCQueueServerConnection(RabbitMQComponent::ExceptionPolicy exceptionPolicy, ConnectionLocator const &l, std::function<void(basic::ByteDataWithID &&)> callback, std::optional<WireToUserHook> wireToUserHook, OnePublishingConnection *publishing)
-                : connection_(createConnection(l))
+            OneRPCQueueServerConnection(RabbitMQComponent::ExceptionPolicy exceptionPolicy, ConnectionLocator const &l, std::function<void(basic::ByteDataWithID &&)> callback, std::optional<WireToUserHook> wireToUserHook, OnePublishingConnection *publishing, TLSClientConfigurationComponent const *config)
+                : connection_(createConnection(l, config))
                 , rpcQueue_(l.identifier())
                 , callback_(callback)
                 , wireToUserHook_(wireToUserHook)
@@ -609,39 +612,39 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
 
         RabbitMQComponent::ExceptionPolicy exceptionPolicy_;
 
-        OnePublishingConnection *publishingConnection(ConnectionLocator const &l) {
+        OnePublishingConnection *publishingConnection(ConnectionLocator const &l, TLSClientConfigurationComponent const *config) {
             std::lock_guard<std::mutex> _(mutex_);
-            return publishingConnectionNoLock(l);
+            return publishingConnectionNoLock(l, config);
         }
-        OnePublishingConnection *publishingConnectionNoLock(ConnectionLocator const &l) {
+        OnePublishingConnection *publishingConnectionNoLock(ConnectionLocator const &l, TLSClientConfigurationComponent const *config) {
             auto basicPortion = l.copyOfBasicPortionWithProperties();
             auto iter = publishingConnections_.find(basicPortion);
             if (iter == publishingConnections_.end()) {
                 iter = publishingConnections_.insert(
-                    {basicPortion, std::make_unique<OnePublishingConnection>(exceptionPolicy_, basicPortion)}
+                    {basicPortion, std::make_unique<OnePublishingConnection>(exceptionPolicy_, basicPortion, config)}
                 ).first;
             }
             return iter->second.get();
         }
-        OneRPCQueueClientConnection *createRpcQueueClientConnection(ConnectionLocator const &l, std::function<void(bool, basic::ByteDataWithID &&)> client, std::optional<WireToUserHook> wireToUserHook) {
+        OneRPCQueueClientConnection *createRpcQueueClientConnection(ConnectionLocator const &l, std::function<void(bool, basic::ByteDataWithID &&)> client, std::optional<WireToUserHook> wireToUserHook, TLSClientConfigurationComponent const *config) {
             std::lock_guard<std::mutex> _(mutex_);
             auto iter = rpcQueueClientConnections_.find(l);
             if (iter != rpcQueueClientConnections_.end()) {
                 throw RabbitMQComponentException("Cannot create duplicate RPC Queue client connection for "+l.toSerializationFormat());
             }
             iter = rpcQueueClientConnections_.insert(
-                {l, std::make_unique<OneRPCQueueClientConnection>(exceptionPolicy_, l, client, wireToUserHook, publishingConnectionNoLock(l))}
+                {l, std::make_unique<OneRPCQueueClientConnection>(exceptionPolicy_, l, client, wireToUserHook, publishingConnectionNoLock(l, config), config)}
             ).first;
             return iter->second.get();
         }
-        OneRPCQueueServerConnection *createRpcQueueServerConnection(ConnectionLocator const &l, std::function<void(basic::ByteDataWithID &&)> handler, std::optional<WireToUserHook> wireToUserHook) {
+        OneRPCQueueServerConnection *createRpcQueueServerConnection(ConnectionLocator const &l, std::function<void(basic::ByteDataWithID &&)> handler, std::optional<WireToUserHook> wireToUserHook, TLSClientConfigurationComponent const *config) {
             std::lock_guard<std::mutex> _(mutex_);
             auto iter = rpcQueueServerConnections_.find(l);
             if (iter != rpcQueueServerConnections_.end()) {
                 throw RabbitMQComponentException("Cannot create duplicate RPC Queue server connection for "+l.toSerializationFormat());
             }
             iter = rpcQueueServerConnections_.insert(
-                {l, std::make_unique<OneRPCQueueServerConnection>(exceptionPolicy_, l, handler, wireToUserHook, publishingConnectionNoLock(l))}
+                {l, std::make_unique<OneRPCQueueServerConnection>(exceptionPolicy_, l, handler, wireToUserHook, publishingConnectionNoLock(l, config), config)}
             ).first;
             return iter->second.get();
         }
@@ -665,13 +668,14 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         uint32_t addExchangeSubscriptionClient(ConnectionLocator const &locator,
             std::string const &topic,
             std::function<void(basic::ByteDataWithTopic &&)> client,
-            std::optional<WireToUserHook> wireToUserHook) {
+            std::optional<WireToUserHook> wireToUserHook,
+            TLSClientConfigurationComponent const *config) {
             std::lock_guard<std::mutex> _(mutex_);
             exchangeSubscriptionConnections_.insert(
                 std::make_pair(
                     ++counter_
                     , std::make_unique<OneExchangeSubscriptionConnection>(
-                        exceptionPolicy_, locator, topic, client, wireToUserHook
+                        exceptionPolicy_, locator, topic, client, wireToUserHook, config
                     )
                 )
             );
@@ -681,8 +685,8 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             std::lock_guard<std::mutex> _(mutex_);
             exchangeSubscriptionConnections_.erase(id);
         }
-        std::function<void(basic::ByteDataWithTopic &&)> getExchangePublisher(ConnectionLocator const &locator, std::optional<UserToWireHook> userToWireHook) {
-            auto *conn = publishingConnection(locator);
+        std::function<void(basic::ByteDataWithTopic &&)> getExchangePublisher(ConnectionLocator const &locator, std::optional<UserToWireHook> userToWireHook, TLSClientConfigurationComponent const *config) {
+            auto *conn = publishingConnection(locator, config);
             auto id = locator.identifier();
             if (userToWireHook) {
                 auto hook = userToWireHook->hook;
@@ -699,14 +703,15 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         }
         std::function<void(basic::ByteDataWithID &&)> setRPCQueueClient(ConnectionLocator const &locator,
             std::function<void(bool, basic::ByteDataWithID &&)> client,
-            std::optional<ByteDataHookPair> hookPair) {
+            std::optional<ByteDataHookPair> hookPair,
+            TLSClientConfigurationComponent const *config) {
             std::optional<WireToUserHook> wireToUserHook;
             if (hookPair) {
                 wireToUserHook = hookPair->wireToUser;
             } else {
                 wireToUserHook = std::nullopt;
             }
-            auto *conn = createRpcQueueClientConnection(locator, client, wireToUserHook);
+            auto *conn = createRpcQueueClientConnection(locator, client, wireToUserHook, config);
             if (hookPair && hookPair->userToWire) {
                 auto hook = hookPair->userToWire->hook;
                 return [conn,hook](basic::ByteDataWithID &&data) {
@@ -725,14 +730,15 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         }
         std::function<void(bool, basic::ByteDataWithID &&)> setRPCQueueServer(ConnectionLocator const &locator,
             std::function<void(basic::ByteDataWithID &&)> server,
-            std::optional<ByteDataHookPair> hookPair) {
+            std::optional<ByteDataHookPair> hookPair,
+            TLSClientConfigurationComponent const *config) {
             std::optional<WireToUserHook> wireToUserHook;
             if (hookPair) {
                 wireToUserHook = hookPair->wireToUser;
             } else {
                 wireToUserHook = std::nullopt;
             }
-            auto *conn = createRpcQueueServerConnection(locator, server, wireToUserHook);
+            auto *conn = createRpcQueueServerConnection(locator, server, wireToUserHook, config);
             if (hookPair && hookPair->userToWire) {
                 auto hook = hookPair->userToWire->hook;
                 return [conn,hook](bool isFinal, basic::ByteDataWithID &&data) {
@@ -770,18 +776,18 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         std::string const &topic,
         std::function<void(basic::ByteDataWithTopic &&)> client,
         std::optional<WireToUserHook> wireToUserHook) {
-        return impl_->addExchangeSubscriptionClient(locator, topic, client, wireToUserHook);
+        return impl_->addExchangeSubscriptionClient(locator, topic, client, wireToUserHook, dynamic_cast<TLSClientConfigurationComponent const *>(this));
     }
     void RabbitMQComponent::rabbitmq_removeExchangeSubscriptionClient(uint32_t id) {
         impl_->removeExchangeSubscriptionClient(id);
     }
     std::function<void(basic::ByteDataWithTopic &&)> RabbitMQComponent::rabbitmq_getExchangePublisher(ConnectionLocator const &locator, std::optional<UserToWireHook> userToWireHook) {
-        return impl_->getExchangePublisher(locator, userToWireHook);
+        return impl_->getExchangePublisher(locator, userToWireHook, dynamic_cast<TLSClientConfigurationComponent const *>(this));
     }
     std::function<void(basic::ByteDataWithID &&)> RabbitMQComponent::rabbitmq_setRPCQueueClient(ConnectionLocator const &locator,
         std::function<void(bool, basic::ByteDataWithID &&)> client,
         std::optional<ByteDataHookPair> hookPair) {
-        return impl_->setRPCQueueClient(locator, client, hookPair);
+        return impl_->setRPCQueueClient(locator, client, hookPair, dynamic_cast<TLSClientConfigurationComponent const *>(this));
     }
     void RabbitMQComponent::rabbitmq_removeRPCQueueClient(ConnectionLocator const &locator) {
         impl_->removeRPCQueueClient(locator);
@@ -789,7 +795,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
     std::function<void(bool, basic::ByteDataWithID &&)> RabbitMQComponent::rabbitmq_setRPCQueueServer(ConnectionLocator const &locator,
         std::function<void(basic::ByteDataWithID &&)> server,
         std::optional<ByteDataHookPair> hookPair) {
-        return impl_->setRPCQueueServer(locator, server, hookPair);
+        return impl_->setRPCQueueServer(locator, server, hookPair, dynamic_cast<TLSClientConfigurationComponent const *>(this));
     }
     std::unordered_map<ConnectionLocator, std::thread::native_handle_type> RabbitMQComponent::rabbitmq_threadHandles() {
         return impl_->threadHandles();
