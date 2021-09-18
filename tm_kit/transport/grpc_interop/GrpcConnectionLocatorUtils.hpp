@@ -8,7 +8,6 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
 
     namespace connection_locator_utils {
         extern GrpcServiceInfo parseServiceInfo(ConnectionLocator const &l);
-        extern GrpcSSLInfo parseSSLInfo(ConnectionLocator const &l);
     }
 
 } } } } }

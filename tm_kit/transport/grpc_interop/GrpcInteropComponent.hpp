@@ -27,7 +27,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         GrpcInteropComponent &operator=(GrpcInteropComponent const &) = delete;
         GrpcInteropComponent(GrpcInteropComponent &&);
         GrpcInteropComponent &operator=(GrpcInteropComponent &&);
-        ~GrpcInteropComponent();
+        virtual ~GrpcInteropComponent();
         std::shared_ptr<grpc::Channel> grpc_interop_getChannel(ConnectionLocator const &locator);
         void grpc_interop_registerService(ConnectionLocator const &locator, grpc::Service *);
         //The setRPCClient calls are NOT the preferred way to create 

@@ -2,6 +2,7 @@
 #include <tm_kit/transport/grpc_interop/GrpcServiceInfo.hpp>
 #include <tm_kit/transport/grpc_interop/GrpcConnectionLocatorUtils.hpp>
 #include <tm_kit/transport/grpc_interop/GrpcSerializationHelper.hpp>
+#include <tm_kit/transport/TLSConfigurationComponent.hpp>
 
 #include <memory>
 #include <unordered_map>
@@ -90,10 +91,10 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             std::optional<WireToUserHook> wireToUserHook_;
             std::function<void(bool, std::string const &, std::optional<std::string> &&)> cb_;
         public:
-            RpcSender(GrpcInteropComponentImpl *parent, ConnectionLocator const &locator, std::optional<WireToUserHook> wireToUserHook, std::function<void(bool, std::string const &, std::optional<std::string> &&)> const &cb)
+            RpcSender(GrpcInteropComponentImpl *parent, ConnectionLocator const &locator, std::optional<WireToUserHook> wireToUserHook, std::function<void(bool, std::string const &, std::optional<std::string> &&)> const &cb, TLSClientConfigurationComponent const *config)
                 : serviceInfo_(connection_locator_utils::parseServiceInfo(locator))
                 , serviceInfoStr_(grpcServiceInfoAsEndPointString(serviceInfo_))
-                , channel_(parent->grpc_interop_getChannel(locator))
+                , channel_(parent->grpc_interop_getChannel(locator, config))
                 , reactorMap_(), mutex_()
                 , wireToUserHook_(wireToUserHook), cb_(cb)
             {
@@ -166,7 +167,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         std::mutex rpcClientsMutex_;
     public:
         GrpcInteropComponentImpl() : channels_(), channelsMutex_(), serverBuilders_(), serverBuildersMutex_(), rpcClients_(), rpcClientsMutex_() {}
-        std::shared_ptr<grpc::Channel> grpc_interop_getChannel(ConnectionLocator const &locator) {
+        std::shared_ptr<grpc::Channel> grpc_interop_getChannel(ConnectionLocator const &locator, TLSClientConfigurationComponent const *config) {
             auto key = simplifyLocatorForChannel(locator);
             std::lock_guard<std::mutex> _(channelsMutex_);
             auto iter = channels_.find(key);
@@ -175,48 +176,51 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 oss << key.host() << ":" << key.port();
                 auto channelStr = oss.str();
 
-                auto sslInfo = connection_locator_utils::parseSSLInfo(locator);
-                
+                auto sslInfo = config?(config->getConfigurationItem(
+                    TLSClientInfoKey {
+                        key.host(), key.port()
+                    }
+                )):std::nullopt;
+                std::shared_ptr<grpc::Channel> channel;
+                if (sslInfo) {
+                    grpc::SslCredentialsOptions options;
+                    {
+                        std::ifstream ifs(sslInfo->caCertificateFile.c_str());
+                        options.pem_root_certs = std::string(
+                            std::istreambuf_iterator<char>{ifs}, {}
+                        );
+                        ifs.close();
+                    }
+                    {
+                        std::ifstream ifs(sslInfo->clientCertificateFile.c_str());
+                        options.pem_cert_chain = std::string(
+                            std::istreambuf_iterator<char>{ifs}, {}
+                        );
+                        ifs.close();
+                    }
+                    {
+                        std::ifstream ifs(sslInfo->clientKeyFile.c_str());
+                        options.pem_private_key = std::string(
+                            std::istreambuf_iterator<char>{ifs}, {}
+                        );
+                        ifs.close();
+                    }
+                            
+                    channel = grpc::CreateChannel(channelStr, grpc::SslCredentials(
+                        options
+                    ));
+                } else {
+                    channel = grpc::CreateChannel(channelStr, grpc::InsecureChannelCredentials());
+                }
+
                 iter = channels_.insert({
                     key
-                    , std::visit([channelStr](auto const &s) -> std::shared_ptr<grpc::Channel> {
-                        using T = std::decay_t<decltype(s)>;
-                        if constexpr (std::is_same_v<T, GrpcSSLClientInfo>) {
-                            grpc::SslCredentialsOptions options;
-                            {
-                                std::ifstream ifs(s.caCertificateFile.c_str());
-                                options.pem_root_certs = std::string(
-                                    std::istreambuf_iterator<char>{ifs}, {}
-                                );
-                                ifs.close();
-                            }
-                            {
-                                std::ifstream ifs(s.clientCertificateFile.c_str());
-                                options.pem_cert_chain = std::string(
-                                    std::istreambuf_iterator<char>{ifs}, {}
-                                );
-                                ifs.close();
-                            }
-                            {
-                                std::ifstream ifs(s.clientKeyFile.c_str());
-                                options.pem_private_key = std::string(
-                                    std::istreambuf_iterator<char>{ifs}, {}
-                                );
-                                ifs.close();
-                            }
-                            
-                            return grpc::CreateChannel(channelStr, grpc::SslCredentials(
-                                options
-                            ));
-                        } else {
-                            return grpc::CreateChannel(channelStr, grpc::InsecureChannelCredentials());
-                        }
-                    }, sslInfo)
+                    , channel
                 }).first;
             }
             return iter->second;
         }
-        void grpc_interop_registerService(ConnectionLocator const &locator, grpc::Service *service) {
+        void grpc_interop_registerService(ConnectionLocator const &locator, grpc::Service *service, TLSServerConfigurationComponent const *config) {
             auto key = simplifyLocatorForServerBuilder(locator);
             std::lock_guard<std::mutex> _(serverBuildersMutex_);
             auto iter = serverBuilders_.find(key);
@@ -229,34 +233,34 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 oss << "[::]:" << key.port();
                 std::string bindStr = oss.str();
 
-                auto sslInfo = connection_locator_utils::parseSSLInfo(locator);
-                auto *p = iter->second.get();
-                std::visit([bindStr,p](auto const &s) {
-                    using T = std::decay_t<decltype(s)>;
-                    if constexpr (std::is_same_v<T,GrpcSSLServerInfo>) {
-                        grpc::SslServerCredentialsOptions options;
-                        options.pem_key_cert_pairs.push_back(
-                            grpc::SslServerCredentialsOptions::PemKeyCertPair()
-                        );
-                        {
-                            std::ifstream ifs(s.serverCertificateFile.c_str());
-                            options.pem_key_cert_pairs.back().cert_chain = std::string(
-                                std::istreambuf_iterator<char>{ifs}, {}
-                            );
-                            ifs.close();
-                        }
-                        {
-                            std::ifstream ifs(s.serverKeyFile.c_str());
-                            options.pem_key_cert_pairs.back().private_key = std::string(
-                                std::istreambuf_iterator<char>{ifs}, {}
-                            );
-                            ifs.close();
-                        }
-                        p->AddListeningPort(bindStr, grpc::SslServerCredentials(options));
-                    } else {
-                        p->AddListeningPort(bindStr, grpc::InsecureServerCredentials());
+                auto sslInfo = config?(config->getConfigurationItem(
+                    TLSServerInfoKey {
+                        key.port()
                     }
-                }, sslInfo);
+                )):std::nullopt;
+                if (sslInfo) {
+                    grpc::SslServerCredentialsOptions options;
+                    options.pem_key_cert_pairs.push_back(
+                        grpc::SslServerCredentialsOptions::PemKeyCertPair()
+                    );
+                    {
+                        std::ifstream ifs(sslInfo->serverCertificateFile.c_str());
+                        options.pem_key_cert_pairs.back().cert_chain = std::string(
+                            std::istreambuf_iterator<char>{ifs}, {}
+                        );
+                        ifs.close();
+                    }
+                    {
+                        std::ifstream ifs(sslInfo->serverKeyFile.c_str());
+                        options.pem_key_cert_pairs.back().private_key = std::string(
+                            std::istreambuf_iterator<char>{ifs}, {}
+                        );
+                        ifs.close();
+                    }
+                    iter->second->AddListeningPort(bindStr, grpc::SslServerCredentials(options));
+                } else {
+                    iter->second->AddListeningPort(bindStr, grpc::InsecureServerCredentials());;
+                }
             }
             iter->second->RegisterService(service);
         }
@@ -272,7 +276,8 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         }
         std::function<void(basic::ByteDataWithID &&)> grpc_interop_setRPCClient(ConnectionLocator const &locator,
                         std::function<void(bool, std::string const &, std::optional<std::string> &&)> client,
-                        std::optional<ByteDataHookPair> hookPair = std::nullopt)
+                        std::optional<ByteDataHookPair> hookPair,
+                        TLSClientConfigurationComponent const *config)
         {
             std::lock_guard<std::mutex> _(rpcClientsMutex_);
             auto iter = rpcClients_.find(locator);
@@ -284,7 +289,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                     wireToUserHook = std::nullopt;
                 }
                 iter = rpcClients_.insert({locator, new RpcSender(
-                    this, locator, wireToUserHook, client
+                    this, locator, wireToUserHook, client, config
                 )}).first;
             }
             auto *p = iter->second;
@@ -316,10 +321,10 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
     GrpcInteropComponent &GrpcInteropComponent::operator=(GrpcInteropComponent &&) = default;
     GrpcInteropComponent::~GrpcInteropComponent() = default;
     std::shared_ptr<grpc::Channel> GrpcInteropComponent::grpc_interop_getChannel(ConnectionLocator const &locator) {
-        return impl_->grpc_interop_getChannel(locator);
+        return impl_->grpc_interop_getChannel(locator, dynamic_cast<TLSClientConfigurationComponent const *>(this));
     }
     void GrpcInteropComponent::grpc_interop_registerService(ConnectionLocator const &locator, grpc::Service *service) {
-        impl_->grpc_interop_registerService(locator, service);
+        impl_->grpc_interop_registerService(locator, service, dynamic_cast<TLSServerConfigurationComponent const *>(this));
     }
     std::function<void(basic::ByteDataWithID &&)> GrpcInteropComponent::grpc_interop_setRPCClient(ConnectionLocator const &locator,
         std::function<void(bool, std::string const &, std::optional<std::string> &&)> client,
@@ -328,7 +333,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         if (hookPair) {
             throw GrpcInteropComponentException("GrpcInteropComponent::grpc_interop_setRPCClient: hook is not supported");
         }
-        return impl_->grpc_interop_setRPCClient(locator, client, hookPair);
+        return impl_->grpc_interop_setRPCClient(locator, client, hookPair, dynamic_cast<TLSClientConfigurationComponent const *>(this));
     }
     void GrpcInteropComponent::grpc_interop_removeRPCClient(ConnectionLocator const &locator) {
         impl_->grpc_interop_removeRPCClient(locator);

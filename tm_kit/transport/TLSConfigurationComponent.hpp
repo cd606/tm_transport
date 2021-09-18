@@ -1,0 +1,57 @@
+#ifndef TM_KIT_TRANSPORT_TLS_CONFIGURATION_COMPONENT_HPP_
+#define TM_KIT_TRANSPORT_TLS_CONFIGURATION_COMPONENT_HPP_
+
+#include <unordered_map>
+#include <string>
+
+#include <tm_kit/infra/Environments.hpp>
+
+#include <tm_kit/basic/SerializationHelperMacros.hpp>
+#include <tm_kit/basic/StructFieldInfoUtils.hpp>
+#include <tm_kit/basic/ConfigurationMapComponent.hpp>
+
+namespace dev { namespace cd606 {namespace tm {namespace transport {
+
+    #define TM_KIT_TRANSPORT_TLS_CLIENT_INFO_KEY_FIELDS \
+        ((std::string, host)) \
+        ((int, port)) 
+    #define TM_KIT_TRANSPORT_TLS_SERVER_INFO_KEY_FIELDS \
+        ((int, port)) 
+    #define TM_KIT_TRANSPORT_TLS_CLIENT_INFO_FIELDS \
+        ((std::string, caCertificateFile)) \
+        ((std::string, clientCertificateFile)) \
+        ((std::string, clientKeyFile))
+    #define TM_KIT_TRANSPORT_TLS_SERVER_INFO_FIELDS \
+        ((std::string, serverCertificateFile)) \
+        ((std::string, serverKeyFile))
+
+    TM_BASIC_CBOR_CAPABLE_STRUCT(TLSClientInfoKey, TM_KIT_TRANSPORT_TLS_CLIENT_INFO_KEY_FIELDS);
+    TM_BASIC_CBOR_CAPABLE_STRUCT(TLSServerInfoKey, TM_KIT_TRANSPORT_TLS_SERVER_INFO_KEY_FIELDS);
+    TM_BASIC_CBOR_CAPABLE_STRUCT(TLSClientInfo, TM_KIT_TRANSPORT_TLS_CLIENT_INFO_FIELDS);
+    TM_BASIC_CBOR_CAPABLE_STRUCT(TLSServerInfo, TM_KIT_TRANSPORT_TLS_SERVER_INFO_FIELDS);
+
+    using TLSClientConfigurationComponent = basic::ConfigurationMapComponent<
+        TLSClientInfoKey, TLSClientInfo, basic::struct_field_info_utils::StructFieldInfoBasedHash<TLSClientInfoKey>
+    >;
+    using TLSServerConfigurationComponent = basic::ConfigurationMapComponent<
+        TLSServerInfoKey, TLSServerInfo, basic::struct_field_info_utils::StructFieldInfoBasedHash<TLSServerInfoKey>
+    >;
+    using TLSConfigurationComponent = infra::Environment<
+        TLSClientConfigurationComponent
+        , TLSServerConfigurationComponent
+    >;
+
+}}}}
+
+TM_BASIC_CBOR_CAPABLE_STRUCT_SERIALIZE(dev::cd606::tm::transport::TLSClientInfoKey, TM_KIT_TRANSPORT_TLS_CLIENT_INFO_KEY_FIELDS);
+TM_BASIC_CBOR_CAPABLE_STRUCT_SERIALIZE(dev::cd606::tm::transport::TLSServerInfoKey, TM_KIT_TRANSPORT_TLS_SERVER_INFO_KEY_FIELDS);
+TM_BASIC_CBOR_CAPABLE_STRUCT_SERIALIZE(dev::cd606::tm::transport::TLSClientInfo, TM_KIT_TRANSPORT_TLS_CLIENT_INFO_FIELDS);
+TM_BASIC_CBOR_CAPABLE_STRUCT_SERIALIZE(dev::cd606::tm::transport::TLSServerInfo, TM_KIT_TRANSPORT_TLS_SERVER_INFO_FIELDS);
+
+#undef TM_KIT_TRANSPORT_TLS_CLIENT_INFO_KEY_FIELDS
+#undef TM_KIT_TRANSPORT_TLS_SERVER_INFO_KEY_FIELDS
+#undef TM_KIT_TRANSPORT_TLS_CLIENT_INFO_FIELDS
+#undef TM_KIT_TRANSPORT_TLS_SERVER_INFO_FIELDS
+
+
+#endif

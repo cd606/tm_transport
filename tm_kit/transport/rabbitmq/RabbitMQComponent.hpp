@@ -35,7 +35,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         RabbitMQComponent(ExceptionPolicy exceptionPolicy=ExceptionPolicy::Throw);
         RabbitMQComponent(RabbitMQComponent &&);
         RabbitMQComponent &operator=(RabbitMQComponent &&);
-        ~RabbitMQComponent();
+        virtual ~RabbitMQComponent();
 
         //The bool parameters in the std::function signatures are the
         //final flags

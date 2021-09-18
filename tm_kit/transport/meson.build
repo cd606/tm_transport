@@ -23,6 +23,7 @@ tm_transport_headers = [
       , 'ExitDataSource.hpp'
       , 'RemoteTransactionSubscriberManagingUtils.hpp'
       , 'MultiTransportTouchups.hpp'
+      , 'TLSConfigurationComponent.hpp'
     ]
   
 install_headers(tm_transport_headers, subdir : 'tm_kit/transport')
