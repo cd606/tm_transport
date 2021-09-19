@@ -21,10 +21,6 @@ if build_machine.system() == 'windows'
     common_deps += declare_dependency(link_args: 'bcrypt.lib')
 endif
 
-if get_option('grpc_interop').disabled()
-    add_global_arguments('-DTM_KIT_TRANSPORT_GRPC_INTEROP_DISABLED=1', language: 'cpp')
-endif
-
 pkg = import('pkgconfig')
 
 subdir('tm_kit/transport')
