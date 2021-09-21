@@ -5,6 +5,7 @@
 #include <tm_kit/infra/TraceNodesComponent.hpp>
 
 #include <tm_kit/basic/ByteData.hpp>
+#include <tm_kit/basic/ProtoInterop.hpp>
 
 #include <tm_kit/transport/multicast/MulticastComponent.hpp>
 #include <tm_kit/transport/rabbitmq/RabbitMQComponent.hpp>
@@ -154,7 +155,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                 , MultiTransportRemoteFacilityActionResult
             >
         >;
-        using RequestSender = std::function<void(basic::ByteDataWithID &&)>;
+        using RequestSender = std::function<void(std::string const &, A &&)>;
 
         using SenderMap = std::conditional_t<
             DispatchStrategy == MultiTransportRemoteFacilityDispatchStrategy::Designated
@@ -216,17 +217,20 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                         );
                         RequestSender req;
                         if constexpr (std::is_same_v<Identity,void>) {
-                            req = [rawReq](basic::ByteDataWithID &&data) {
-                                rawReq(std::move(data));
+                            req = [rawReq](std::string const &id, A &&data) {
+                                rawReq(basic::ByteDataWithID {
+                                    id 
+                                    , basic::SerializationActions<M>::template serializeFunc<A>(std::move(data))
+                                });
                             };
                         } else {
                             static_assert(std::is_convertible_v<Env *, ClientSideAbstractIdentityAttacherComponent<Identity,A> *>
                                         , "the client side identity attacher must be present");
                             auto *attacher = static_cast<ClientSideAbstractIdentityAttacherComponent<Identity,A> *>(env);
-                            req = [attacher,rawReq](basic::ByteDataWithID &&data) {
+                            req = [attacher,rawReq](std::string const &id, A &&data) {
                                 rawReq(basic::ByteDataWithID {
-                                    std::move(data.id)
-                                    , attacher->attach_identity(basic::ByteData {std::move(data.content)}).content
+                                    id
+                                    , attacher->attach_identity({basic::SerializationActions<M>::template serializeFunc<A>(std::move(data))}).content
                                 });
                             };
                         }
@@ -305,15 +309,20 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                         );
                         RequestSender req;
                         if constexpr (std::is_same_v<Identity,void>) {
-                            req = rawReq;
+                            req = [rawReq](std::string const &id, A &&data) {
+                                rawReq(basic::ByteDataWithID {
+                                    id 
+                                    , basic::SerializationActions<M>::template serializeFunc<A>(std::move(data))
+                                });
+                            };
                         } else {
                             static_assert(std::is_convertible_v<Env *, ClientSideAbstractIdentityAttacherComponent<Identity,A> *>
                                         , "the client side identity attacher must be present");
                             auto *attacher = static_cast<ClientSideAbstractIdentityAttacherComponent<Identity,A> *>(env);
-                            req = [attacher,rawReq](basic::ByteDataWithID &&data) {
+                            req = [attacher,rawReq](std::string const &id, A &&data) {
                                 rawReq(basic::ByteDataWithID {
-                                    std::move(data.id)
-                                    , attacher->attach_identity(basic::ByteData {std::move(data.content)}).content
+                                    id
+                                    , attacher->attach_identity({basic::SerializationActions<M>::template serializeFunc<A>(std::move(data))}).content
                                 });
                             };
                         }
@@ -389,15 +398,20 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                         );
                         RequestSender req;
                         if constexpr (std::is_same_v<Identity,void>) {
-                            req = rawReq;
+                            req = [rawReq](std::string const &id, A &&data) {
+                                rawReq(basic::ByteDataWithID {
+                                    id 
+                                    , basic::SerializationActions<M>::template serializeFunc<A>(std::move(data))
+                                });
+                            };
                         } else {
                             static_assert(std::is_convertible_v<Env *, ClientSideAbstractIdentityAttacherComponent<Identity,A> *>
                                         , "the client side identity attacher must be present");
                             auto *attacher = static_cast<ClientSideAbstractIdentityAttacherComponent<Identity,A> *>(env);
-                            req = [attacher,rawReq](basic::ByteDataWithID &&data) {
+                            req = [attacher,rawReq](std::string const &id, A &&data) {
                                 rawReq(basic::ByteDataWithID {
-                                    std::move(data.id)
-                                    , attacher->attach_identity(basic::ByteData {std::move(data.content)}).content
+                                    id
+                                    , attacher->attach_identity({basic::SerializationActions<M>::template serializeFunc<A>(std::move(data))}).content
                                 });
                             };
                         }
@@ -437,7 +451,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                         ) {
                             auto *component = static_cast<grpc_interop::GrpcInteropComponent *>(env);
                             try {
-                                auto req = component->grpc_interop_setRPCClient(
+                                auto rawReq = component->grpc_interop_setRPCClient(
                                     locator
                                     , [this,env](bool isFinal, std::string const &id, std::optional<std::string> &&data) {
                                         if (data) {
@@ -464,6 +478,67 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                                     }
                                     , DefaultHookFactory<Env>::template supplyFacilityHookPair_ClientSide<A,B>(env, hookPairFactory_(description, locator))
                                 );
+                                auto req = [rawReq](std::string const &id, A &&data) {
+                                    rawReq(basic::ByteDataWithID {
+                                        id 
+                                        , basic::SerializationActions<M>::template serializeFunc<A>(std::move(data))
+                                    });
+                                };
+                                {
+                                    std::lock_guard<std::mutex> _(mutex_);
+                                    underlyingSenders_.push_back({locator, std::make_unique<RequestSender>(std::move(req))});
+                                    if constexpr (DispatchStrategy == MultiTransportRemoteFacilityDispatchStrategy::Designated) {
+                                        senderMap_.insert({locator, std::get<1>(underlyingSenders_.back()).get()});
+                                    }
+                                    newSize = underlyingSenders_.size();
+                                }
+                                std::ostringstream oss;
+                                oss << "[MultiTransportRemoteFacility::registerFacility] Registered grpc interop facility for "
+                                    << locator;
+                                env->log(infra::LogLevel::Info, oss.str());
+                            } catch (grpc_interop::GrpcInteropComponentException const &ex) {
+                                std::ostringstream oss;
+                                oss << "[MultiTransportRemoteFacility::registerFacility] Error registering grpc interop facility for "
+                                    << locator
+                                    << ": " << ex.what();
+                                env->log(infra::LogLevel::Error, oss.str());
+                            }
+                        } else if constexpr(basic::proto_interop::ProtoWrappable<A>::value && basic::proto_interop::ProtoWrappable<B>::value) {
+                            auto *component = static_cast<grpc_interop::GrpcInteropComponent *>(env);
+                            try {
+                                auto rawReq = component->grpc_interop_setRPCClient(
+                                    locator
+                                    , [this,env](bool isFinal, std::string const &id, std::optional<std::string> &&data) {
+                                        if (data) {
+                                            Output o;
+                                            auto result = basic::proto_interop::Proto<Output>::runDeserialize(o, *data);
+                                            if (!result) {
+                                                return;
+                                            }
+                                            this->FacilityParent::publish(
+                                                env
+                                                , typename M::template Key<Output> {
+                                                    Env::id_from_string(id)
+                                                    , std::move(o)
+                                                }
+                                                , isFinal
+                                            );
+                                        } else {
+                                            if (isFinal) {
+                                                this->FacilityParent::markEndHandlingRequest(
+                                                    Env::id_from_string(id)
+                                                );
+                                            }
+                                        }
+                                    }
+                                    , DefaultHookFactory<Env>::template supplyFacilityHookPair_ClientSide<A,B>(env, hookPairFactory_(description, locator))
+                                );
+                                auto req = [rawReq](std::string const &id, A &&data) {
+                                    rawReq(basic::ByteDataWithID {
+                                        id 
+                                        , basic::proto_interop::Proto<A>::runSerializeIntoValue(data)
+                                    });
+                                };
                                 {
                                     std::lock_guard<std::mutex> _(mutex_);
                                     underlyingSenders_.push_back({locator, std::make_unique<RequestSender>(std::move(req))});
@@ -672,32 +747,18 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                 }
                 int sz = underlyingSenders_.size();
                 int idx = ((sz==1)?0:(std::rand()%sz));
-                basic::ByteData s = { 
-                    basic::SerializationActions<M>::template serializeFunc<A>(
-                        input.timedData.value.key()
-                    ) 
-                };
                 (*(std::get<1>(underlyingSenders_[idx])))(
-                    basic::ByteDataWithID {
-                        Env::id_to_string(input.timedData.value.id())
-                        , std::move(s.content)
-                    }
+                    Env::id_to_string(input.timedData.value.id())
+                    , input.timedData.value.key()
                 );
             } else if constexpr (DispatchStrategy == MultiTransportRemoteFacilityDispatchStrategy::Designated) {
                 auto iter = senderMap_.find(std::get<0>(input.timedData.value.key()));
                 if (iter == senderMap_.end()) {
                     return;
                 }
-                basic::ByteData s = { 
-                    basic::SerializationActions<M>::template serializeFunc<A>(
-                        std::get<1>(input.timedData.value.key())
-                    ) 
-                };
                 (*(iter->second))(
-                    basic::ByteDataWithID {
-                        Env::id_to_string(input.timedData.value.id())
-                        , std::move(s.content)
-                    }
+                    Env::id_to_string(input.timedData.value.id())
+                    , std::get<1>(input.timedData.value.key())
                 );
             }
         }
@@ -770,9 +831,31 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                     if (hooks) {
                         throw std::runtime_error("OneShotMultiTransportRemoteFacilityCall::call: connection type grpc interop does not support hooks");
                     }
-                    return grpc_interop::GrpcClientFacilityFactory<infra::RealTimeApp<Env>>::template typedOneShotRemoteCall<A,B>(
-                        env, locator, std::move(request)
-                    );
+                    if constexpr (
+                        basic::bytedata_utils::ProtobufStyleSerializableChecker<A>::IsProtobufStyleSerializable()
+                        &&
+                        basic::bytedata_utils::ProtobufStyleSerializableChecker<B>::IsProtobufStyleSerializable()
+                    ) {
+                        return grpc_interop::GrpcClientFacilityFactory<infra::RealTimeApp<Env>>::template typedOneShotRemoteCall<A,B>(
+                            env, locator, std::move(request)
+                        );
+                    } else if constexpr (
+                        basic::proto_interop::ProtoWrappable<A>::value
+                        &&
+                        basic::proto_interop::ProtoWrappable<B>::value
+                    ) {
+                        auto ret = std::make_shared<std::promise<B>>();
+                        std::thread th([env,locator,request=std::move(request),ret]() mutable {
+                            auto x = grpc_interop::GrpcClientFacilityFactory<infra::RealTimeApp<Env>>::template typedOneShotRemoteCall<basic::proto_interop::Proto<A>,basic::proto_interop::Proto<B>>(
+                                env, locator, basic::proto_interop::Proto<A> {std::move(request)}
+                            );
+                            ret->set_value_at_thread_exit(*(x.get()));
+                        });
+                        th.detach();
+                        return ret->get_future();
+                    } else {
+                        throw std::runtime_error("OneShotMultiTransportRemoteFacilityCall::call: connection type grpc interop used on non-grpc-compatible types");
+                    }
                 } else {
                     throw std::runtime_error("OneShotMultiTransportRemoteFacilityCall::call: connection type grpc interop not supported in environment");
                 }
@@ -833,9 +916,25 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                     if (hooks) {
                         throw std::runtime_error("OneShotMultiTransportRemoteFacilityCall::call: connection type grpc interop does not support hooks");
                     }
-                    grpc_interop::GrpcClientFacilityFactory<infra::RealTimeApp<Env>>::template typedOneShotRemoteCall<A,B>(
-                        env, locator, std::move(request)
-                    );
+                    if constexpr (
+                        basic::bytedata_utils::ProtobufStyleSerializableChecker<A>::IsProtobufStyleSerializable()
+                        &&
+                        basic::bytedata_utils::ProtobufStyleSerializableChecker<B>::IsProtobufStyleSerializable()
+                    ) {
+                        grpc_interop::GrpcClientFacilityFactory<infra::RealTimeApp<Env>>::template typedOneShotRemoteCall<A,B>(
+                            env, locator, std::move(request)
+                        );
+                    } else if constexpr (
+                        basic::proto_interop::ProtoWrappable<A>::value
+                        &&
+                        basic::proto_interop::ProtoWrappable<B>::value
+                    ) {
+                        grpc_interop::GrpcClientFacilityFactory<infra::RealTimeApp<Env>>::template typedOneShotRemoteCall<basic::proto_interop::Proto<A>,basic::proto_interop::Proto<B>>(
+                            env, locator, basic::proto_interop::Proto<A> {std::move(request)}
+                        );
+                    } else {
+                        throw std::runtime_error("OneShotMultiTransportRemoteFacilityCall::callNoReply: connection type grpc interop used on non-grpc-compatible types");
+                    }
                 } else {
                     throw std::runtime_error("OneShotMultiTransportRemoteFacilityCall::callNoReply: connection type grpc interop not supported in environment");
                 }

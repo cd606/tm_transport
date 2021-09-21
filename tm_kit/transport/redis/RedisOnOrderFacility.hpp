@@ -394,7 +394,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             template <class A, class B>
             static void wrapFacilitioidConnector(
                 infra::AppRunner<M> &runner
-                , std::string const &registeredNameForFacilitioid
+                , std::optional<std::string> const &registeredNameForFacilitioid
                 , typename infra::AppRunner<M>::template FacilitioidConnector<A,B> const &toBeWrapped
                 , ConnectionLocator const &rpcQueueLocator
                 , std::string const &wrapperItemsNamePrefix
@@ -412,12 +412,14 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 toBeWrapped(runner, runner.actionAsSource(deserializer), runner.actionAsSink(serializer));
                 runner.connect(runner.actionAsSource(serializer), runner.exporterAsSink(std::get<1>(importerExporterPair)));
 
-                addChannelRegistration(runner, registeredNameForFacilitioid, rpcQueueLocator);
+                if (registeredNameForFacilitioid) {
+                    addChannelRegistration(runner, *registeredNameForFacilitioid, rpcQueueLocator);
+                }
             }
             template <class A, class B>
             static void wrapFacilitioidConnectorWithoutReply(
                 infra::AppRunner<M> &runner
-                , std::string const &registeredNameForFacilitioid
+                , std::optional<std::string> const &registeredNameForFacilitioid
                 , typename infra::AppRunner<M>::template FacilitioidConnector<A,B> const &toBeWrapped
                 , ConnectionLocator const &rpcQueueLocator
                 , std::string const &wrapperItemsNamePrefix
@@ -431,7 +433,9 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 runner.execute(deserializer, runner.importItem(importer));
                 toBeWrapped(runner, runner.actionAsSource(deserializer), std::nullopt);
 
-                addChannelRegistration(runner, registeredNameForFacilitioid, rpcQueueLocator);
+                if (registeredNameForFacilitioid) {
+                    addChannelRegistration(runner, *registeredNameForFacilitioid, rpcQueueLocator);
+                }
             }
             
             template <class A, class B>
@@ -818,7 +822,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             template <class A, class B>
             static void wrapFacilitioidConnector(
                 infra::AppRunner<M> &runner
-                , std::string const &registeredNameForFacilitioid
+                , std::optional<std::string> const &registeredNameForFacilitioid
                 , typename infra::AppRunner<M>::template FacilitioidConnector<std::tuple<Identity,A>,B> const &toBeWrapped
                 , ConnectionLocator const &rpcQueueLocator
                 , std::string const &wrapperItemsNamePrefix
@@ -836,12 +840,14 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 toBeWrapped(runner, runner.actionAsSource(deserializer), runner.actionAsSink(serializer));
                 runner.connect(runner.actionAsSource(serializer), runner.exporterAsSink(std::get<1>(importerExporterPair)));
 
-                addChannelRegistration(runner, registeredNameForFacilitioid, rpcQueueLocator);
+                if (registeredNameForFacilitioid) {
+                    addChannelRegistration(runner, *registeredNameForFacilitioid, rpcQueueLocator);
+                }
             }
             template <class A, class B>
             static void wrapFacilitioidConnectorWithoutReply(
                 infra::AppRunner<M> &runner
-                , std::string const &registeredNameForFacilitioid
+                , std::optional<std::string> const &registeredNameForFacilitioid
                 , typename infra::AppRunner<M>::template FacilitioidConnector<std::tuple<Identity,A>,B> const &toBeWrapped
                 , ConnectionLocator const &rpcQueueLocator
                 , std::string const &wrapperItemsNamePrefix
@@ -855,7 +861,9 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 runner.execute(deserializer, runner.importItem(importer));
                 toBeWrapped(runner, runner.actionAsSource(deserializer), std::nullopt);
 
-                addChannelRegistration(runner, registeredNameForFacilitioid, rpcQueueLocator);
+                if (registeredNameForFacilitioid) {
+                    addChannelRegistration(runner, *registeredNameForFacilitioid, rpcQueueLocator);
+                }
             }
 
             template <class A, class B>
@@ -1192,7 +1200,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         template <class A, class B>
         static void wrapFacilitioidConnector(
             infra::AppRunner<M> &runner
-            , std::string const &registeredNameForFacilitioid
+            , std::optional<std::string> const &registeredNameForFacilitioid
             , typename infra::AppRunner<M>::template FacilitioidConnector<
                 typename DetermineServerSideIdentityForRequest<Env, A>::FullRequestType
                 , B
@@ -1212,7 +1220,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         template <class A, class B>
         static void wrapFacilitioidConnectorWithoutReply(
             infra::AppRunner<M> &runner
-            , std::string const &registeredNameForFacilitioid
+            , std::optional<std::string> const &registeredNameForFacilitioid
             , typename infra::AppRunner<M>::template FacilitioidConnector<
                 typename DetermineServerSideIdentityForRequest<Env, A>::FullRequestType
                 , B

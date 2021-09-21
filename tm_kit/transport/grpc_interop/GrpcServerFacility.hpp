@@ -39,7 +39,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         >>
         static void wrapFacilitioidConnector_internal(
             R &r
-            , std::string const &registeredNameForFacility
+            , std::optional<std::string> const &registeredNameForFacility
             , typename infra::AppRunner<M>::template FacilitioidConnector<Req,Resp> const &toBeWrapped
             , ConnectionLocator const &locator
             , std::string const &wrapperItemsNamePrefix
@@ -174,21 +174,23 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             toBeWrapped(r, r.importItem(importer), r.exporterAsSink(exporter));
             static_cast<GrpcInteropComponent *>(r.environment())->grpc_interop_registerService(locator, service.get());
 
-            if constexpr (std::is_convertible_v<
-                Env *
-                , HeartbeatAndAlertComponent *
-            >) {
-                static_cast<HeartbeatAndAlertComponent *>(r.environment())->addFacilityChannel(
-                    registeredNameForFacility
-                    , std::string("grpc_interop://")+locator.toSerializationFormat()
-                );
+            if (registeredNameForFacility) {
+                if constexpr (std::is_convertible_v<
+                    Env *
+                    , HeartbeatAndAlertComponent *
+                >) {
+                    static_cast<HeartbeatAndAlertComponent *>(r.environment())->addFacilityChannel(
+                        *registeredNameForFacility
+                        , std::string("grpc_interop://")+locator.toSerializationFormat()
+                    );
+                }
             }
         }
     public:
         template <class Req, class Resp>
         static void wrapFacilitioidConnector(
             R &r
-            , std::string const &registeredNameForFacility
+            , std::optional<std::string> const &registeredNameForFacility
             , typename infra::AppRunner<M>::template FacilitioidConnector<Req,Resp> const &toBeWrapped
             , ConnectionLocator const &locator
             , std::string const &wrapperItemsNamePrefix

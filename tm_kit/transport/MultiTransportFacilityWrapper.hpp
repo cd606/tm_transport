@@ -4,6 +4,7 @@
 #include <tm_kit/transport/MultiTransportRemoteFacility.hpp>
 #include <tm_kit/transport/grpc_interop/GrpcServerFacility.hpp>
 #include <tm_kit/basic/AppRunnerUtils.hpp>
+#include <tm_kit/basic/WrapFacilitioidConnectorForSerialization.hpp>
 
 namespace dev { namespace cd606 { namespace tm { namespace transport {
     enum class MultiTransportFacilityWrapperOption {
@@ -186,6 +187,29 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                 break;
             }
         }
+        template <template<class... Xs> class ProtocolWrapper, class A, class B, MultiTransportFacilityWrapperOption Option=MultiTransportFacilityWrapperOption::Default>
+        static void wrapWithProtocol(
+            R &runner
+            , std::shared_ptr<typename M::template OnOrderFacility<
+                typename DetermineServerSideIdentityForRequest<Env, A>::FullRequestType
+                , B
+            >> const &toBeWrapped
+            , MultiTransportRemoteFacilityConnectionType rpcConnType
+            , ConnectionLocator const &rpcQueueLocator
+            , std::string const &wrapperItemsNamePrefix
+            , std::optional<ByteDataHookPair> hooks = std::nullopt
+            , bool dontAddToHeartbeat = false
+        ) {
+            wrapWithProtocol<ProtocolWrapper,A,B,Option>(
+                runner 
+                , (dontAddToHeartbeat?std::nullopt:std::optional<std::string>(runner.getRegisteredName(toBeWrapped)))
+                , runner.facilityConnector(toBeWrapped)
+                , rpcConnType 
+                , rpcQueueLocator
+                , wrapperItemsNamePrefix
+                , hooks
+            );
+        }
         template <class A, class B, MultiTransportFacilityWrapperOption Option=MultiTransportFacilityWrapperOption::Default>
         static void wrap(
             R &runner
@@ -200,6 +224,25 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
             auto parsed = parseMultiTransportRemoteFacilityChannel(channelSpec);
             if (parsed) {
                 wrap<A,B,Option>(runner, toBeWrapped, std::get<0>(*parsed), std::get<1>(*parsed), wrapperItemsNamePrefix, hooks);
+            } else {
+                throw std::runtime_error("[MultiTransportFacilityWrapper::wrap(onOrderFacility)] unknown channel spec '"+channelSpec+"'");
+            }
+        }
+        template <template<class... Xs> class ProtocolWrapper, class A, class B, MultiTransportFacilityWrapperOption Option=MultiTransportFacilityWrapperOption::Default>
+        static void wrapWithProtocol(
+            R &runner
+            , std::shared_ptr<typename M::template OnOrderFacility<
+                typename DetermineServerSideIdentityForRequest<Env, A>::FullRequestType
+                , B
+            >> const &toBeWrapped
+            , std::string const &channelSpec
+            , std::string const &wrapperItemsNamePrefix
+            , std::optional<ByteDataHookPair> hooks = std::nullopt
+            , bool dontAddToHeartbeat = false
+        ) {
+            auto parsed = parseMultiTransportRemoteFacilityChannel(channelSpec);
+            if (parsed) {
+                wrapWithProtocol<ProtocolWrapper,A,B,Option>(runner, toBeWrapped, std::get<0>(*parsed), std::get<1>(*parsed), wrapperItemsNamePrefix, hooks, dontAddToHeartbeat);
             } else {
                 throw std::runtime_error("[MultiTransportFacilityWrapper::wrap(onOrderFacility)] unknown channel spec '"+channelSpec+"'");
             }
@@ -291,6 +334,30 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                 break;
             }
         }
+        template <template<class... Xs> class ProtocolWrapper, class A, class B, class C, MultiTransportFacilityWrapperOption Option=MultiTransportFacilityWrapperOption::Default>
+        static void wrapWithProtocol(
+            R &runner
+            , std::shared_ptr<typename M::template LocalOnOrderFacility<
+                typename DetermineServerSideIdentityForRequest<Env, A>::FullRequestType
+                , B
+                , C
+            >> const &toBeWrapped
+            , MultiTransportRemoteFacilityConnectionType rpcConnType
+            , ConnectionLocator const &rpcQueueLocator
+            , std::string const &wrapperItemsNamePrefix
+            , std::optional<ByteDataHookPair> hooks = std::nullopt
+            , bool dontAddToHeartbeat = false
+        ) {
+            wrapWithProtocol<ProtocolWrapper,A,B,Option>(
+                runner 
+                , (dontAddToHeartbeat?std::nullopt:std::optional<std::string>(runner.getRegisteredName(toBeWrapped)))
+                , runner.facilityConnector(toBeWrapped)
+                , rpcConnType 
+                , rpcQueueLocator
+                , wrapperItemsNamePrefix
+                , hooks
+            );
+        }
         template <class A, class B, class C, MultiTransportFacilityWrapperOption Option=MultiTransportFacilityWrapperOption::Default>
         static void wrap(
             R &runner
@@ -306,6 +373,26 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
             auto parsed = parseMultiTransportRemoteFacilityChannel(channelSpec);
             if (parsed) {
                 wrap<A,B,C,Option>(runner, toBeWrapped, std::get<0>(*parsed), std::get<1>(*parsed), wrapperItemsNamePrefix, hooks);
+            } else {
+                throw std::runtime_error("[MultiTransportFacilityWrapper::wrap(localOnOrderFacility)] unknown channel spec '"+channelSpec+"'");
+            }
+        }
+        template <template<class... Xs> class ProtocolWrapper, class A, class B, class C, MultiTransportFacilityWrapperOption Option=MultiTransportFacilityWrapperOption::Default>
+        static void wrapWithProtocol(
+            R &runner
+            , std::shared_ptr<typename M::template LocalOnOrderFacility<
+                typename DetermineServerSideIdentityForRequest<Env, A>::FullRequestType
+                , B
+                , C
+            >> const &toBeWrapped
+            , std::string const &channelSpec
+            , std::string const &wrapperItemsNamePrefix
+            , std::optional<ByteDataHookPair> hooks = std::nullopt
+            , bool dontAddToHeartbeat = false
+        ) {
+            auto parsed = parseMultiTransportRemoteFacilityChannel(channelSpec);
+            if (parsed) {
+                wrapWithProtocol<ProtocolWrapper,A,B,C,Option>(runner, toBeWrapped, std::get<0>(*parsed), std::get<1>(*parsed), wrapperItemsNamePrefix, hooks, dontAddToHeartbeat);
             } else {
                 throw std::runtime_error("[MultiTransportFacilityWrapper::wrap(localOnOrderFacility)] unknown channel spec '"+channelSpec+"'");
             }
@@ -397,6 +484,30 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                 break;
             }
         }
+        template <template<class... Xs> class ProtocolWrapper, class A, class B, class C, MultiTransportFacilityWrapperOption Option=MultiTransportFacilityWrapperOption::Default>
+        static void wrapWithProtocol(
+            R &runner
+            , std::shared_ptr<typename M::template OnOrderFacilityWithExternalEffects<
+                typename DetermineServerSideIdentityForRequest<Env, A>::FullRequestType
+                , B
+                , C
+            >> const &toBeWrapped
+            , MultiTransportRemoteFacilityConnectionType rpcConnType
+            , ConnectionLocator const &rpcQueueLocator
+            , std::string const &wrapperItemsNamePrefix
+            , std::optional<ByteDataHookPair> hooks = std::nullopt
+            , bool dontAddToHeartbeat = false
+        ) {
+            wrapWithProtocol<ProtocolWrapper,A,B,Option>(
+                runner 
+                , (dontAddToHeartbeat?std::nullopt:std::optional<std::string>(runner.getRegisteredName(toBeWrapped)))
+                , runner.facilityConnector(toBeWrapped)
+                , rpcConnType 
+                , rpcQueueLocator
+                , wrapperItemsNamePrefix
+                , hooks
+            );
+        }
         template <class A, class B, class C, MultiTransportFacilityWrapperOption Option=MultiTransportFacilityWrapperOption::Default>
         static void wrap(
             R &runner
@@ -412,6 +523,26 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
             auto parsed = parseMultiTransportRemoteFacilityChannel(channelSpec);
             if (parsed) {
                 wrap<A,B,C,Option>(runner, toBeWrapped, std::get<0>(*parsed), std::get<1>(*parsed), wrapperItemsNamePrefix, hooks);
+            } else {
+                throw std::runtime_error("[MultiTransportFacilityWrapper::wrap(onOrderFacilityWithExternalEffects)] unknown channel spec '"+channelSpec+"'");
+            }
+        }
+        template <template<class... Xs> class ProtocolWrapper, class A, class B, class C, MultiTransportFacilityWrapperOption Option=MultiTransportFacilityWrapperOption::Default>
+        static void wrapWithProtocol(
+            R &runner
+            , std::shared_ptr<typename M::template OnOrderFacilityWithExternalEffects<
+                typename DetermineServerSideIdentityForRequest<Env, A>::FullRequestType
+                , B
+                , C
+            >> const &toBeWrapped
+            , std::string const &channelSpec
+            , std::string const &wrapperItemsNamePrefix
+            , std::optional<ByteDataHookPair> hooks = std::nullopt
+            , bool dontAddToHeartbeat = false
+        ) {
+            auto parsed = parseMultiTransportRemoteFacilityChannel(channelSpec);
+            if (parsed) {
+                wrapWithProtocol<ProtocolWrapper,A,B,C,Option>(runner, toBeWrapped, std::get<0>(*parsed), std::get<1>(*parsed), wrapperItemsNamePrefix, hooks, dontAddToHeartbeat);
             } else {
                 throw std::runtime_error("[MultiTransportFacilityWrapper::wrap(onOrderFacilityWithExternalEffects)] unknown channel spec '"+channelSpec+"'");
             }
@@ -504,6 +635,31 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                 break;
             }
         }
+        template <template<class... Xs> class ProtocolWrapper, class A, class B, class C, class D, MultiTransportFacilityWrapperOption Option=MultiTransportFacilityWrapperOption::Default>
+        static void wrapWithProtocol(
+            R &runner
+            , std::shared_ptr<typename M::template VIEOnOrderFacility<
+                typename DetermineServerSideIdentityForRequest<Env, A>::FullRequestType
+                , B
+                , C
+                , D
+            >> const &toBeWrapped
+            , MultiTransportRemoteFacilityConnectionType rpcConnType
+            , ConnectionLocator const &rpcQueueLocator
+            , std::string const &wrapperItemsNamePrefix
+            , std::optional<ByteDataHookPair> hooks = std::nullopt
+            , bool dontAddToHeartbeat = false
+        ) {
+            wrapWithProtocol<ProtocolWrapper,A,B,Option>(
+                runner 
+                , (dontAddToHeartbeat?std::nullopt:std::optional<std::string>(runner.getRegisteredName(toBeWrapped)))
+                , runner.facilityConnector(toBeWrapped)
+                , rpcConnType 
+                , rpcQueueLocator
+                , wrapperItemsNamePrefix
+                , hooks
+            );
+        }
         template <class A, class B, class C, class D, MultiTransportFacilityWrapperOption Option=MultiTransportFacilityWrapperOption::Default>
         static void wrap(
             R &runner
@@ -524,10 +680,31 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                 throw std::runtime_error("[MultiTransportFacilityWrapper::wrap(vieOnOrderFacility)] unknown channel spec '"+channelSpec+"'");
             }
         }
+        template <template<class... Xs> class ProtocolWrapper, class A, class B, class C, class D, MultiTransportFacilityWrapperOption Option=MultiTransportFacilityWrapperOption::Default>
+        static void wrapWithProtocol(
+            R &runner
+            , std::shared_ptr<typename M::template VIEOnOrderFacility<
+                typename DetermineServerSideIdentityForRequest<Env, A>::FullRequestType
+                , B
+                , C
+                , D
+            >> const &toBeWrapped
+            , std::string const &channelSpec
+            , std::string const &wrapperItemsNamePrefix
+            , std::optional<ByteDataHookPair> hooks = std::nullopt
+            , bool dontAddToHeartbeat = false
+        ) {
+            auto parsed = parseMultiTransportRemoteFacilityChannel(channelSpec);
+            if (parsed) {
+                wrapWithProtocol<ProtocolWrapper,A,B,C,D,Option>(runner, toBeWrapped, std::get<0>(*parsed), std::get<1>(*parsed), wrapperItemsNamePrefix, hooks, dontAddToHeartbeat);
+            } else {
+                throw std::runtime_error("[MultiTransportFacilityWrapper::wrap(vieOnOrderFacility)] unknown channel spec '"+channelSpec+"'");
+            }
+        }
         template <class A, class B, MultiTransportFacilityWrapperOption Option=MultiTransportFacilityWrapperOption::Default>
         static void wrap(
             R &runner
-            , std::string const &registeredNameForFacilitioid
+            , std::optional<std::string> const &registeredNameForFacilitioid
             , typename R::template FacilitioidConnector<
                 typename DetermineServerSideIdentityForRequest<Env, A>::FullRequestType
                 , B
@@ -611,10 +788,39 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                 break;
             }
         }
+        template <template <class... Xs> class ProtocolWrapper, class A, class B, MultiTransportFacilityWrapperOption Option=MultiTransportFacilityWrapperOption::Default>
+        static void wrapWithProtocol(
+            R &runner
+            , std::optional<std::string> const &registeredNameForFacilitioid
+            , typename R::template FacilitioidConnector<
+                typename DetermineServerSideIdentityForRequest<Env, A>::FullRequestType
+                , B
+            > const &toBeWrapped
+            , MultiTransportRemoteFacilityConnectionType rpcConnType
+            , ConnectionLocator const &rpcQueueLocator
+            , std::string const &wrapperItemsNamePrefix
+            , std::optional<ByteDataHookPair> hooks = std::nullopt
+        ) {
+            wrap<
+                typename basic::WrapFacilitioidConnectorForSerialization<R>::template WrappedType<ProtocolWrapper,A>
+                ,typename basic::WrapFacilitioidConnectorForSerialization<R>::template WrappedType<ProtocolWrapper,B>
+            >(
+                runner 
+                , registeredNameForFacilitioid
+                , basic::WrapFacilitioidConnectorForSerialization<R>::template wrapServerSideWithProtocol<ProtocolWrapper,A,B>(
+                    toBeWrapped 
+                    , wrapperItemsNamePrefix+"/protocol"
+                )
+                , rpcConnType
+                , rpcQueueLocator
+                , wrapperItemsNamePrefix
+                , hooks
+            );
+        }    
         template <class A, class B, MultiTransportFacilityWrapperOption Option=MultiTransportFacilityWrapperOption::Default>
         static void wrapFacilitioidWithOptionalSerialization(
             R &runner
-            , std::string const &registeredNameForFacilitioid
+            , std::optional<std::string> const &registeredNameForFacilitioid
             , typename R::template FacilitioidConnector<
                 typename DetermineServerSideIdentityForRequest<Env, A>::FullRequestType
                 , B
@@ -644,7 +850,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
         template <class A, class B, MultiTransportFacilityWrapperOption Option=MultiTransportFacilityWrapperOption::Default>
         static void wrap(
             R &runner
-            , std::string const &registeredNameForFacilitioid
+            , std::optional<std::string> const &registeredNameForFacilitioid
             , typename R::template FacilitioidConnector<
                 typename DetermineServerSideIdentityForRequest<Env, A>::FullRequestType
                 , B
@@ -660,10 +866,29 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                 throw std::runtime_error("[MultiTransportFacilityWrapper::wrap(FacilitioidConnector)] unknown channel spec '"+channelSpec+"'");
             }
         }
+        template <template<class... Xs> class ProtocolWrapper, class A, class B, MultiTransportFacilityWrapperOption Option=MultiTransportFacilityWrapperOption::Default>
+        static void wrapWithProtocol(
+            R &runner
+            , std::optional<std::string> const &registeredNameForFacilitioid
+            , typename R::template FacilitioidConnector<
+                typename DetermineServerSideIdentityForRequest<Env, A>::FullRequestType
+                , B
+            > const &toBeWrapped
+            , std::string const &channelSpec
+            , std::string const &wrapperItemsNamePrefix
+            , std::optional<ByteDataHookPair> hooks = std::nullopt
+        ) {
+            auto parsed = parseMultiTransportRemoteFacilityChannel(channelSpec);
+            if (parsed) {
+                wrapWithProtocol<ProtocolWrapper,A,B,Option>(runner, registeredNameForFacilitioid, toBeWrapped, std::get<0>(*parsed), std::get<1>(*parsed), wrapperItemsNamePrefix, hooks);
+            } else {
+                throw std::runtime_error("[MultiTransportFacilityWrapper::wrap(FacilitioidConnector)] unknown channel spec '"+channelSpec+"'");
+            }
+        }
         template <class A, class B, MultiTransportFacilityWrapperOption Option=MultiTransportFacilityWrapperOption::Default>
         static void wrapFacilitioidWithOptionalSerialization(
             R &runner
-            , std::string const &registeredNameForFacilitioid
+            , std::optional<std::string> const &registeredNameForFacilitioid
             , typename R::template FacilitioidConnector<
                 typename DetermineServerSideIdentityForRequest<Env, A>::FullRequestType
                 , B
