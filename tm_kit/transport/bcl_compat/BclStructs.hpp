@@ -308,6 +308,10 @@ namespace dev { namespace cd606 { namespace tm { namespace basic {
             }
         };
         template <class Env>
+        struct ProtoWrappable<transport::bcl_compat::BclGuid<Env>, void> {
+            static constexpr bool value = true;
+        };
+        template <class Env>
         class ProtoDecoder<transport::bcl_compat::BclGuid<Env>, void> final : public IProtoDecoder<transport::bcl_compat::BclGuid<Env>> {
         private:
             uint64_t baseFieldNumber_;
@@ -338,6 +342,10 @@ namespace dev { namespace cd606 { namespace tm { namespace basic {
             static void write(std::optional<uint64_t> fieldNumber, transport::bcl_compat::BclDecimal const &id, std::ostream &os, bool writeDefaultValue) {
                 ProtoEncoder<transport::bcl_compat::BclDecimalProto>::write(fieldNumber, id.toProto(), os, false);
             }
+        };
+        template <>
+        struct ProtoWrappable<transport::bcl_compat::BclDecimal, void> {
+            static constexpr bool value = true;
         };
         template <>
         class ProtoDecoder<transport::bcl_compat::BclDecimal, void> final : public IProtoDecoder<transport::bcl_compat::BclDecimal> {
