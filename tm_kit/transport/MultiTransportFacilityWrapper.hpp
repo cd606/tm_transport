@@ -802,8 +802,8 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
             , std::optional<ByteDataHookPair> hooks = std::nullopt
         ) {
             wrap<
-                typename basic::WrapFacilitioidConnectorForSerialization<R>::template WrappedType<ProtocolWrapper,A>
-                ,typename basic::WrapFacilitioidConnectorForSerialization<R>::template WrappedType<ProtocolWrapper,B>
+                typename basic::WrapFacilitioidConnectorForSerializationHelpers::WrappedType<ProtocolWrapper,A>
+                ,typename basic::WrapFacilitioidConnectorForSerializationHelpers::WrappedType<ProtocolWrapper,B>
             >(
                 runner 
                 , registeredNameForFacilitioid
