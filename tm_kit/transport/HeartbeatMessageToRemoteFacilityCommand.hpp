@@ -105,6 +105,15 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                     } catch (ConnectionLocatorParseError const &) {
                         return std::nullopt;
                     }
+                } else if (boost::starts_with(s, "json_rest://")) {
+                    try {
+                        return std::tuple<MultiTransportRemoteFacilityConnectionType, ConnectionLocator> {
+                            MultiTransportRemoteFacilityConnectionType::JsonREST
+                            , ConnectionLocator::parse(s.substr(std::string("json_rest://").length()))
+                        };
+                    } catch (ConnectionLocatorParseError const &) {
+                        return std::nullopt;
+                    }
                 } else {
                     return std::nullopt;
                 }

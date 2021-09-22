@@ -16,6 +16,7 @@
 #include <tm_kit/transport/shared_memory_broadcast/SharedMemoryBroadcastComponent.hpp>
 #include <tm_kit/transport/AbstractHookFactoryComponent.hpp>
 #include <tm_kit/transport/grpc_interop/GrpcInteropComponent.hpp>
+#include <tm_kit/transport/json_rest/JsonRESTComponent.hpp>
 
 #include <type_traits>
 #include <regex>
@@ -33,6 +34,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
         , shared_memory_broadcast::SharedMemoryBroadcastComponent
         , socket_rpc::SocketRPCComponent
         , grpc_interop::GrpcInteropComponent
+        , json_rest::JsonRESTComponent
     >;
 
     template <class Env>

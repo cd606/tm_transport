@@ -38,12 +38,14 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
         , Redis
         , SocketRPC
         , GrpcInterop
+        , JsonREST
     };
-    inline const std::array<std::string,4> MULTI_TRANSPORT_REMOTE_FACILITY_CONNECTION_TYPE_STR = {
+    inline const std::array<std::string,5> MULTI_TRANSPORT_REMOTE_FACILITY_CONNECTION_TYPE_STR = {
         "rabbitmq"
         , "redis"
         , "socket_rpc"
         , "grpc_interop"
+        , "json_rest"
     };
 
     inline auto parseMultiTransportRemoteFacilityChannel(std::string const &s) 
@@ -575,6 +577,10 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                 }
                 return {newSize, true};
                 break;
+            case MultiTransportRemoteFacilityConnectionType::JsonREST:
+                env->log(infra::LogLevel::Warning, "[MultiTransportRemoteFacility::registerFacility] Json REST client facility is currently unsupported");
+                return {0, false};
+                break;
             default:
                 return {0, false};
                 break;
@@ -694,6 +700,10 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                     env->log(infra::LogLevel::Info, oss.str());
                 }
                 return {newSize, true};
+                break;
+            case MultiTransportRemoteFacilityConnectionType::JsonREST:
+                env->log(infra::LogLevel::Warning, "[MultiTransportRemoteFacility::registerFacility] Json REST client facility is currently unsupported");
+                return {0, false};
                 break;
             default:
                 return {0, false};
@@ -859,6 +869,8 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                 } else {
                     throw std::runtime_error("OneShotMultiTransportRemoteFacilityCall::call: connection type grpc interop not supported in environment");
                 }
+            } else if (connType == MultiTransportRemoteFacilityConnectionType::JsonREST) {
+                throw std::runtime_error("OneShotMultiTransportRemoteFacilityCall::call: Json REST client facility is currently unsupported");
             } else {
                 throw std::runtime_error("OneShotMultiTransportRemoteFacilityCall::call: unknown connection type");
             }
@@ -938,6 +950,8 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                 } else {
                     throw std::runtime_error("OneShotMultiTransportRemoteFacilityCall::callNoReply: connection type grpc interop not supported in environment");
                 }
+            } else if (connType == MultiTransportRemoteFacilityConnectionType::JsonREST) {
+                throw std::runtime_error("OneShotMultiTransportRemoteFacilityCall::callNoReply: Json REST client facility is currently unsupported");
             } else {
                 throw std::runtime_error("OneShotMultiTransportRemoteFacilityCall::callNoReply: unknown connection type");
             }
@@ -984,8 +998,10 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                 if constexpr (std::is_convertible_v<Env *, grpc_interop::GrpcInteropComponent *>) {
                     env->grpc_interop_removeRPCClient(locator);
                 } else {
-                    throw std::runtime_error("OneShotMultiTransportRemoteFacilityCall::callNoReply: connection type grpc interop not supported in environment");
+                    throw std::runtime_error("OneShotMultiTransportRemoteFacilityCall::removeClient: connection type grpc interop not supported in environment");
                 }
+            } else if (connType == MultiTransportRemoteFacilityConnectionType::JsonREST) {
+                throw std::runtime_error("OneShotMultiTransportRemoteFacilityCall::removeClient: Json REST client facility is currently unsupported");
             } else {
                 throw std::runtime_error("OneShotMultiTransportRemoteFacilityCall::removeClient: unknown connection type");
             }
