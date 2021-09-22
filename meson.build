@@ -19,6 +19,7 @@ common_deps = [thread_dep, boost_dep, rabbitmq_dep, zmq_dep, redis_dep, nng_dep,
 
 if build_machine.system() == 'windows'
     common_deps += declare_dependency(link_args: 'bcrypt.lib')
+    add_global_arguments('/bigobj', language: 'cpp')
 endif
 
 pkg = import('pkgconfig')
