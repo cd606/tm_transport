@@ -20,7 +20,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         virtual ~JsonRESTComponent();
 
         void registerHandler(ConnectionLocator const &locator, std::function<
-            void(std::string const &data, std::function<void(std::string const &)> const &callback)
+            bool(std::string const &data, std::function<void(std::string const &)> const &callback)
         > const &handler);
         void finalizeEnvironment();
     };

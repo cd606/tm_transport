@@ -56,20 +56,28 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             public:
                 LocalHandler(Env *env, std::function<void(typename M::template Key<Req> &&)> const &triggerFunc) 
                     : env_(env), triggerFunc_(triggerFunc), cbMap_(), mutex_() {}
-                void handleRequest(
+                bool handleRequest(
                     std::string const &requestBody
                     , std::function<void(std::string const &)> const &cb
                 ) {
-                    auto incomingJson = nlohmann::json::parse(requestBody);
-                    Req req;
-                    basic::nlohmann_json_interop::Json<Req *> j(&req);
-                    if (j.fromNlohmannJson(incomingJson["request"])) {
-                        typename Env::IDType id = env_->new_id();
-                        std::lock_guard<std::mutex> _(mutex_);
-                        cbMap_[id] = cb;
-                        triggerFunc_(typename M::template Key<Req> {
-                            id, std::move(req)
-                        });
+                    try {
+                        auto incomingJson = nlohmann::json::parse(requestBody);
+                        Req req;
+                        basic::nlohmann_json_interop::Json<Req *> j(&req);
+                        if (j.fromNlohmannJson(incomingJson["request"])) {
+                            typename Env::IDType id = env_->new_id();
+                            std::lock_guard<std::mutex> _(mutex_);
+                            cbMap_[id] = cb;
+                            triggerFunc_(typename M::template Key<Req> {
+                                id, std::move(req)
+                            });
+                            return true;
+                        } else {
+                            return false;
+                        }
+                    } catch (std::exception const &ex) {
+                        std::cerr << "Parsing error for '" << requestBody << "'\n";
+                        return false;
                     }
                 }
                 void handleResponse(
@@ -101,7 +109,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             toBeWrapped(r, r.importItem(importer), r.exporterAsSink(exporter));
             static_cast<JsonRESTComponent *>(r.environment())->registerHandler(
                 locator, [handler](std::string const &reqBody, std::function<void(std::string const &)> const &cb) {
-                    handler->handleRequest(reqBody, cb);
+                    return handler->handleRequest(reqBody, cb);
                 }
             );
 

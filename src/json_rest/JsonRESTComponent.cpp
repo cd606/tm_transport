@@ -25,7 +25,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
     class JsonRESTComponentImpl {
     private:
         using HandlerFunc = std::function<
-            void(std::string const &, std::function<void(std::string const &)> const &)
+            bool(std::string const &, std::function<void(std::string const &)> const &)
         >;
         std::unordered_map<int, std::unordered_map<std::string, HandlerFunc>> handlerMap_;
         std::mutex handlerMapMutex_;
@@ -81,14 +81,18 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                             )
                         );
                     } else {
-                        boost::asio::dispatch(
-                            std::get<2>(stream_).get_executor()
+                        std::get<2>(stream_).async_handshake(
+                            boost::asio::ssl::stream_base::server
                             , boost::beast::bind_front_handler(
-                                &OneHandler::doRead
+                                &OneHandler::onHandshake 
                                 , shared_from_this()
                             )
                         );
+                        
                     }
+                }
+                void onHandshake(boost::beast::error_code) {
+                    doRead();
                 }
                 void doRead() {
                     req_ = {};
@@ -151,12 +155,34 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                         res->set(boost::beast::http::field::server, BOOST_BEAST_VERSION_STRING);
                         res->set(boost::beast::http::field::content_type, "application/json");
                         res->keep_alive(req_.keep_alive());
-                        handler(
+                        if (!handler(
                             req_.body()
                             , [res,x=shared_from_this()](std::string const &resp) {
                                 x->writeResp(res, resp);
                             }
-                        );
+                        )) {
+                            res->result(boost::beast::http::status::not_implemented);
+                            res->prepare_payload();
+                            if (stream_.index() == 1) {
+                                boost::beast::http::async_write(
+                                    std::get<1>(stream_)
+                                    , *res
+                                    , [x=shared_from_this(),res](boost::system::error_code const &write_ec, std::size_t bytes_written) {
+                                        delete res;
+                                        x->doClose(boost::beast::error_code());
+                                    }
+                                );
+                            } else {
+                                boost::beast::http::async_write(
+                                    std::get<2>(stream_)
+                                    , *res
+                                    , [x=shared_from_this(),res](boost::system::error_code const &write_ec, std::size_t bytes_written) {
+                                        delete res;
+                                        x->doClose(boost::beast::error_code());
+                                    }
+                                );
+                            }
+                        }
                     }
                 }
                 void writeResp(boost::beast::http::response<boost::beast::http::string_body> *res, std::string const &resp) {
@@ -329,7 +355,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
     JsonRESTComponent &JsonRESTComponent::operator=(JsonRESTComponent &&) = default;
     JsonRESTComponent::~JsonRESTComponent() = default;
     void JsonRESTComponent::registerHandler(ConnectionLocator const &locator, std::function<
-        void(std::string const &, std::function<void(std::string const &)> const &)
+        bool(std::string const &, std::function<void(std::string const &)> const &)
     > const &handler) {
         impl_->registerHandler(locator, handler);
     }
