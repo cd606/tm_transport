@@ -76,7 +76,9 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                             return false;
                         }
                     } catch (std::exception const &ex) {
-                        std::cerr << "Parsing error for '" << requestBody << "'\n";
+                        std::ostringstream oss;
+                        oss << "[JsonRESTFacilityWrapper::LocalHandler::handleRequest] Parsing error for '" << requestBody << "'";
+                        env_->log(infra::LogLevel::Warning, oss.str());
                         return false;
                     }
                 }

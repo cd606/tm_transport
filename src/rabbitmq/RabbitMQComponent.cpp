@@ -59,8 +59,10 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 }
                 auto clientCert = sslInfo->clientCertificateFile;
                 auto clientKey = sslInfo->clientKeyFile;
-                if (amqp_ssl_socket_set_key(socket, clientCert.c_str(), clientKey.c_str()) != AMQP_STATUS_OK) {
-                    throw RabbitMQComponentException("Cannot set RabbitMQ client key for "+l.toPrintFormat());
+                if (clientCert != "" && clientKey != "") {
+                    if (amqp_ssl_socket_set_key(socket, clientCert.c_str(), clientKey.c_str()) != AMQP_STATUS_OK) {
+                        throw RabbitMQComponentException("Cannot set RabbitMQ client key for "+l.toPrintFormat());
+                    }
                 }
                 port = (l.port()==0?5671:l.port());
             } else {

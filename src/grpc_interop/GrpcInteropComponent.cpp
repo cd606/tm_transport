@@ -184,21 +184,22 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 std::shared_ptr<grpc::Channel> channel;
                 if (sslInfo) {
                     grpc::SslCredentialsOptions options;
-                    {
+                    if (sslInfo->caCertificateFile != "") {
+                        
                         std::ifstream ifs(sslInfo->caCertificateFile.c_str());
                         options.pem_root_certs = std::string(
                             std::istreambuf_iterator<char>{ifs}, {}
                         );
                         ifs.close();
                     }
-                    {
+                    if (sslInfo->clientCertificateFile != "") {
                         std::ifstream ifs(sslInfo->clientCertificateFile.c_str());
                         options.pem_cert_chain = std::string(
                             std::istreambuf_iterator<char>{ifs}, {}
                         );
                         ifs.close();
                     }
-                    {
+                    if (sslInfo->clientKeyFile != "") {
                         std::ifstream ifs(sslInfo->clientKeyFile.c_str());
                         options.pem_private_key = std::string(
                             std::istreambuf_iterator<char>{ifs}, {}
