@@ -186,9 +186,15 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
             case MultiTransportRemoteFacilityConnectionType::JsonREST:
                 if constexpr (std::is_convertible_v<Env *, json_rest::JsonRESTComponent *>) {
                     if constexpr (DetermineServerSideIdentityForRequest<Env, A>::HasIdentity) {
-                        std::ostringstream errOss;
-                        errOss << "[MultiTransportFacilityWrapper::wrap(onOrderFacility)] trying to wrap a facility with Json REST channel '" << rpcQueueLocator << "', but Json REST does not support facilities with identity on input";
-                        throw std::runtime_error(errOss.str());
+                        if constexpr (std::is_same_v<typename DetermineServerSideIdentityForRequest<Env, A>::IdentityType, std::string>) {
+                            json_rest::JsonRESTFacilityWrapper<M>::template wrapOnOrderFacilityWithStringIdentity<A,B>(
+                                runner, toBeWrapped, rpcQueueLocator, wrapperItemsNamePrefix
+                            );
+                        } else {
+                            std::ostringstream errOss;
+                            errOss << "[MultiTransportFacilityWrapper::wrap(onOrderFacility)] trying to wrap a facility with Json REST channel '" << rpcQueueLocator << "', but Json REST does not support facilities with non-string identity on input";
+                            throw std::runtime_error(errOss.str());
+                        }
                     } else {
                         json_rest::JsonRESTFacilityWrapper<M>::template wrapOnOrderFacility<A,B>(
                             runner, toBeWrapped, rpcQueueLocator, wrapperItemsNamePrefix
@@ -350,9 +356,15 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
             case MultiTransportRemoteFacilityConnectionType::JsonREST:
                 if constexpr (std::is_convertible_v<Env *, json_rest::JsonRESTComponent *>) {
                     if constexpr (DetermineServerSideIdentityForRequest<Env, A>::HasIdentity) {
-                        std::ostringstream errOss;
-                        errOss << "[MultiTransportFacilityWrapper::wrap(localOnOrderFacility)] trying to wrap a facility with Json REST channel '" << rpcQueueLocator << "', but Json REST does not support facilities with identity on input";
-                        throw std::runtime_error(errOss.str());
+                        if constexpr (std::is_same_v<typename DetermineServerSideIdentityForRequest<Env, A>::IdentityType, std::string>) {
+                            json_rest::JsonRESTFacilityWrapper<M>::template wrapLocalOnOrderFacilityWithStringIdentity<A,B,C>(
+                                runner, toBeWrapped, rpcQueueLocator, wrapperItemsNamePrefix
+                            );
+                        } else {
+                            std::ostringstream errOss;
+                            errOss << "[MultiTransportFacilityWrapper::wrap(localOnOrderFacility)] trying to wrap a facility with Json REST channel '" << rpcQueueLocator << "', but Json REST does not support facilities with non-string identity on input";
+                            throw std::runtime_error(errOss.str());
+                        }
                     } else {
                         json_rest::JsonRESTFacilityWrapper<M>::template wrapLocalOnOrderFacility<A,B,C>(
                             runner, toBeWrapped, rpcQueueLocator, wrapperItemsNamePrefix
@@ -517,9 +529,15 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
             case MultiTransportRemoteFacilityConnectionType::JsonREST:
                 if constexpr (std::is_convertible_v<Env *, json_rest::JsonRESTComponent *>) {
                     if constexpr (DetermineServerSideIdentityForRequest<Env, A>::HasIdentity) {
-                        std::ostringstream errOss;
-                        errOss << "[MultiTransportFacilityWrapper::wrap(onOrderFacilityWithExternalEffects)] trying to wrap a facility with Json REST channel '" << rpcQueueLocator << "', but Json REST does not support facilities with identity on input";
-                        throw std::runtime_error(errOss.str());
+                        if constexpr (std::is_same_v<typename DetermineServerSideIdentityForRequest<Env, A>::IdentityType, std::string>) {
+                            json_rest::JsonRESTFacilityWrapper<M>::template wrapOnOrderFacilityWithExternalEffectsWithStringIdentity<A,B,C>(
+                                runner, toBeWrapped, rpcQueueLocator, wrapperItemsNamePrefix
+                            );
+                        } else {
+                            std::ostringstream errOss;
+                            errOss << "[MultiTransportFacilityWrapper::wrap(onOrderFacilityWithExternalEffects)] trying to wrap a facility with Json REST channel '" << rpcQueueLocator << "', but Json REST does not support facilities with non-string identity on input";
+                            throw std::runtime_error(errOss.str());
+                        }
                     } else {
                         json_rest::JsonRESTFacilityWrapper<M>::template wrapOnOrderFacilityWithExternalEffects<A,B,C>(
                             runner, toBeWrapped, rpcQueueLocator, wrapperItemsNamePrefix
@@ -685,9 +703,15 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
             case MultiTransportRemoteFacilityConnectionType::JsonREST:
                 if constexpr (std::is_convertible_v<Env *, json_rest::JsonRESTComponent *>) {
                     if constexpr (DetermineServerSideIdentityForRequest<Env, A>::HasIdentity) {
-                        std::ostringstream errOss;
-                        errOss << "[MultiTransportFacilityWrapper::wrap(vieOrderFacility)] trying to wrap a facility with Json REST channel '" << rpcQueueLocator << "', but Json REST does not support facilities with identity on input";
-                        throw std::runtime_error(errOss.str());
+                        if constexpr (std::is_same_v<typename DetermineServerSideIdentityForRequest<Env, A>::IdentityType, std::string>) {
+                            json_rest::JsonRESTFacilityWrapper<M>::template wrapVIEOnOrderFacilityWithStringIdentity<A,B,C,D>(
+                                runner, toBeWrapped, rpcQueueLocator, wrapperItemsNamePrefix
+                            );
+                        } else {
+                            std::ostringstream errOss;
+                            errOss << "[MultiTransportFacilityWrapper::wrap(vieOrderFacility)] trying to wrap a facility with Json REST channel '" << rpcQueueLocator << "', but Json REST does not support facilities with non-string identity on input";
+                            throw std::runtime_error(errOss.str());
+                        }
                     } else {
                         json_rest::JsonRESTFacilityWrapper<M>::template wrapVIEOnOrderFacility<A,B,C,D>(
                             runner, toBeWrapped, rpcQueueLocator, wrapperItemsNamePrefix
@@ -855,9 +879,15 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
             case MultiTransportRemoteFacilityConnectionType::JsonREST:
                 if constexpr (std::is_convertible_v<Env *, json_rest::JsonRESTComponent *>) {
                     if constexpr (DetermineServerSideIdentityForRequest<Env, A>::HasIdentity) {
-                        std::ostringstream errOss;
-                        errOss << "[MultiTransportFacilityWrapper::wrap(FacilitioidConnector)] trying to wrap a facility with Json REST channel '" << rpcQueueLocator << "', but Json REST does not support facilities with identity on input";
-                        throw std::runtime_error(errOss.str());
+                        if constexpr (std::is_same_v<typename DetermineServerSideIdentityForRequest<Env, A>::IdentityType, std::string>) {
+                            json_rest::JsonRESTFacilityWrapper<M>::template wrapFacilitioidConnectorWithStringIdentity<A,B>(
+                                runner, registeredNameForFacilitioid, toBeWrapped, rpcQueueLocator, wrapperItemsNamePrefix
+                            );
+                        } else {
+                            std::ostringstream errOss;
+                            errOss << "[MultiTransportFacilityWrapper::wrap(FacilitioidConnector)] trying to wrap a facility with Json REST channel '" << rpcQueueLocator << "', but Json REST does not support facilities with non-string identity on input";
+                            throw std::runtime_error(errOss.str());
+                        }
                     } else {
                         json_rest::JsonRESTFacilityWrapper<M>::template wrapFacilitioidConnector<A,B>(
                             runner, registeredNameForFacilitioid, toBeWrapped, rpcQueueLocator, wrapperItemsNamePrefix
@@ -887,21 +917,40 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
             , std::string const &wrapperItemsNamePrefix
             , std::optional<ByteDataHookPair> hooks = std::nullopt
         ) {
-            wrap<
-                typename basic::WrapFacilitioidConnectorForSerializationHelpers::WrappedType<ProtocolWrapper,A>
-                ,typename basic::WrapFacilitioidConnectorForSerializationHelpers::WrappedType<ProtocolWrapper,B>
-            >(
-                runner 
-                , registeredNameForFacilitioid
-                , basic::WrapFacilitioidConnectorForSerialization<R>::template wrapServerSideWithProtocol<ProtocolWrapper,A,B>(
-                    toBeWrapped 
-                    , wrapperItemsNamePrefix+"/protocol"
-                )
-                , rpcConnType
-                , rpcQueueLocator
-                , wrapperItemsNamePrefix
-                , hooks
-            );
+            if constexpr (DetermineServerSideIdentityForRequest<Env, A>::HasIdentity) {
+                using Identity = typename DetermineServerSideIdentityForRequest<Env, A>::IdentityType;
+                wrap<
+                    typename basic::WrapFacilitioidConnectorForSerializationHelpers::WrappedType<ProtocolWrapper,A>
+                    ,typename basic::WrapFacilitioidConnectorForSerializationHelpers::WrappedType<ProtocolWrapper,B>
+                >(
+                    runner 
+                    , registeredNameForFacilitioid
+                    , basic::WrapFacilitioidConnectorForSerialization<R>::template wrapServerSideWithProtocol<ProtocolWrapper,Identity,A,B>(
+                        toBeWrapped 
+                        , wrapperItemsNamePrefix+"/protocol"
+                    )
+                    , rpcConnType
+                    , rpcQueueLocator
+                    , wrapperItemsNamePrefix
+                    , hooks
+                );
+            } else {
+                wrap<
+                    typename basic::WrapFacilitioidConnectorForSerializationHelpers::WrappedType<ProtocolWrapper,A>
+                    ,typename basic::WrapFacilitioidConnectorForSerializationHelpers::WrappedType<ProtocolWrapper,B>
+                >(
+                    runner 
+                    , registeredNameForFacilitioid
+                    , basic::WrapFacilitioidConnectorForSerialization<R>::template wrapServerSideWithProtocol<ProtocolWrapper,A,B>(
+                        toBeWrapped 
+                        , wrapperItemsNamePrefix+"/protocol"
+                    )
+                    , rpcConnType
+                    , rpcQueueLocator
+                    , wrapperItemsNamePrefix
+                    , hooks
+                );
+            }
         }    
         template <class A, class B, MultiTransportFacilityWrapperOption Option=MultiTransportFacilityWrapperOption::Default>
         static void wrapFacilitioidWithOptionalSerialization(
