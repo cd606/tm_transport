@@ -20,15 +20,17 @@
 #include <fstream>
 #include <sstream>
 
+#include <sodium/crypto_pwhash.h>
+
 namespace dev { namespace cd606 { namespace tm { namespace transport { namespace json_rest {
 
     class JsonRESTComponentImpl {
     private:
         using HandlerFunc = std::function<
-            bool(std::string const &, std::function<void(std::string const &)> const &)
+            bool(std::string const &, std::string const &, std::function<void(std::string const &)> const &)
         >;
         std::unordered_map<int, std::unordered_map<std::string, HandlerFunc>> handlerMap_;
-        std::mutex handlerMapMutex_;
+        mutable std::mutex handlerMapMutex_;
 
         class Acceptor : public std::enable_shared_from_this<Acceptor> {
         private:
@@ -36,7 +38,6 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             boost::asio::io_context svc_;
             std::optional<boost::asio::ssl::context> sslCtx_;
             int port_;
-            std::unordered_map<std::string, HandlerFunc> const *handlers_;
             std::thread th_;
             std::atomic<bool> running_;
 
@@ -44,7 +45,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
 
             class OneHandler : public std::enable_shared_from_this<OneHandler> {
             private:
-                std::unordered_map<std::string, HandlerFunc> const *handlers_;
+                Acceptor *parent_;
                 std::variant<
                     std::monostate
                     , boost::beast::tcp_stream
@@ -54,11 +55,11 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 boost::beast::http::request<boost::beast::http::string_body> req_;
             public:
                 OneHandler(
-                    boost::asio::ip::tcp::socket &&socket
-                    , std::unordered_map<std::string, HandlerFunc> const *handlers
+                    Acceptor *parent
+                    , boost::asio::ip::tcp::socket &&socket
                     , std::optional<boost::asio::ssl::context> &sslCtx
                 )
-                    : handlers_(handlers)
+                    : parent_(parent)
                     , stream_()
                     , buffer_()
                     , req_()
@@ -123,10 +124,56 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                         doClose(ec);
                         return;
                     }
+
+                    auto auth = req_[boost::beast::http::field::authorization];
+                    std::string authStr {auth.data(), auth.size()};
+                    
+                    std::string login, password;
+                    if (boost::starts_with(authStr, "Basic ")) {
+                        std::string inputAuthStr = boost::trim_copy(authStr.substr(std::string_view("Basic ").length()));
+                        std::string basicAuthStr;
+                        basicAuthStr.resize(boost::beast::detail::base64::decoded_size(inputAuthStr.length()));
+                        auto decodeRes = boost::beast::detail::base64::decode(
+                            basicAuthStr.data(), inputAuthStr.data(), inputAuthStr.length()
+                        );
+                        basicAuthStr.resize(decodeRes.first);
+                        auto colonPos = basicAuthStr.find(':');
+                        login = basicAuthStr.substr(0, colonPos);
+                        if (colonPos != std::string::npos) {
+                            password = basicAuthStr.substr(colonPos+1);
+                        }
+                    }
+                    if (!parent_->parent()->checkBasicAuthentication(parent_->port(), login, password)) {
+                        auto *res = new boost::beast::http::response<boost::beast::http::string_body> {boost::beast::http::status::unauthorized, req_.version()};
+                        res->set(boost::beast::http::field::server, BOOST_BEAST_VERSION_STRING);
+                        res->set(boost::beast::http::field::www_authenticate, "Basic realm=\"json_rest\"");
+                        res->prepare_payload();
+                        if (stream_.index() == 1) {
+                            boost::beast::http::async_write(
+                                std::get<1>(stream_)
+                                , *res
+                                , [x=shared_from_this(),res](boost::system::error_code const &write_ec, std::size_t bytes_written) {
+                                    delete res;
+                                    x->doClose(boost::beast::error_code());
+                                }
+                            );
+                        } else {
+                            boost::beast::http::async_write(
+                                std::get<2>(stream_)
+                                , *res
+                                , [x=shared_from_this(),res](boost::system::error_code const &write_ec, std::size_t bytes_written) {
+                                    delete res;
+                                    x->doClose(boost::beast::error_code());
+                                }
+                            );
+                        }
+                        return;
+                    }
+
                     auto path = req_.target();
                     std::string pathStr {path.data(), path.size()};
-                    auto iter = handlers_->find(pathStr);
-                    if (iter == handlers_->end()) {
+                    auto handler = parent_->parent()->getHandler(parent_->port(), pathStr);
+                    if (!handler) {
                         auto *res = new boost::beast::http::response<boost::beast::http::string_body> {boost::beast::http::status::not_found, req_.version()};
                         res->set(boost::beast::http::field::server, BOOST_BEAST_VERSION_STRING);
                         res->prepare_payload();
@@ -150,13 +197,13 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                             );
                         }
                     } else {
-                        auto handler = iter->second;
                         auto *res = new boost::beast::http::response<boost::beast::http::string_body> {boost::beast::http::status::ok, req_.version()};
                         res->set(boost::beast::http::field::server, BOOST_BEAST_VERSION_STRING);
                         res->set(boost::beast::http::field::content_type, "application/json");
                         res->keep_alive(req_.keep_alive());
                         if (!handler(
-                            req_.body()
+                            login
+                            , req_.body()
                             , [res,x=shared_from_this()](std::string const &resp) {
                                 x->writeResp(res, resp);
                             }
@@ -226,7 +273,6 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             Acceptor(
                 JsonRESTComponentImpl *parent
                 , int port
-                , std::unordered_map<std::string, HandlerFunc> const *handlers
                 , std::optional<TLSServerInfo> const &sslInfo
             )
                 : parent_(parent)
@@ -237,7 +283,6 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                     : std::nullopt
                 )
                 , port_(port)
-                , handlers_(handlers)
                 , th_()
                 , running_(true)
                 , acceptor_(svc_)
@@ -292,7 +337,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                     return;
                 }
                 if (!ec) {
-                    std::make_shared<OneHandler>(std::move(socket), handlers_, sslCtx_)->run();
+                    std::make_shared<OneHandler>(this, std::move(socket), sslCtx_)->run();
                     acceptor_.async_accept(
                         boost::asio::make_strand(svc_)
                         , boost::beast::bind_front_handler(
@@ -304,12 +349,22 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                     parent_->removeAcceptor(port_);
                 }
             }
+            int port() const {
+                return port_;
+            }
+            JsonRESTComponentImpl *parent() const {
+                return parent_;
+            }
         };
 
         std::unordered_map<int, std::shared_ptr<Acceptor>> acceptorMap_;
-        std::mutex acceptorMapMutex_;
+        mutable std::mutex acceptorMapMutex_;
+
+        using PasswordMap = std::unordered_map<std::string, std::optional<std::string>>;
+        std::unordered_map<int, PasswordMap> allPasswords_;
+        mutable std::mutex allPasswordsMutex_;
     public:
-        JsonRESTComponentImpl() : handlerMap_(), handlerMapMutex_(), acceptorMap_(), acceptorMapMutex_() {
+        JsonRESTComponentImpl() : handlerMap_(), handlerMapMutex_(), acceptorMap_(), acceptorMapMutex_(), allPasswords_(), allPasswordsMutex_() {
         }
         ~JsonRESTComponentImpl() {
         }
@@ -328,6 +383,27 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 iter->second.insert({path, handler});
             }
         }
+        void addBasicAuthentication(int port, std::string const &login, std::optional<std::string> const &password) {
+            std::lock_guard<std::mutex> _(allPasswordsMutex_);
+            auto iter = allPasswords_.find(port);
+            if (iter == allPasswords_.end()) {
+                iter = allPasswords_.insert({port, PasswordMap{}}).first;
+            }
+            if (!password) {
+                iter->second.insert({login, password});
+                return;
+            }
+            std::string hashed;
+            hashed.resize(crypto_pwhash_STRBYTES);
+            if (crypto_pwhash_str(
+                hashed.data(), password->data(), password->length()
+                , crypto_pwhash_OPSLIMIT_MIN, crypto_pwhash_MEMLIMIT_MIN
+            ) != 0) {
+                throw JsonRESTComponentException("Error hashing password for login '"+login+"' on port "+std::to_string(port));
+            }
+            iter->second.insert({login, {hashed}});
+        }
+
         void finalizeEnvironment(TLSServerConfigurationComponent const *tlsConfig) {
             std::lock_guard<std::mutex> _(handlerMapMutex_);
             for (auto const &item : handlerMap_) {
@@ -338,7 +414,6 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 auto iter = acceptorMap_.insert({item.first, std::make_shared<Acceptor>(
                     this
                     , item.first 
-                    , &(item.second) 
                     , sslInfo
                 )}).first;
                 iter->second->run();
@@ -348,6 +423,35 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             std::lock_guard<std::mutex> _(acceptorMapMutex_);
             acceptorMap_.erase(port);
         }
+        HandlerFunc getHandler(int port, std::string const &path) const {
+            std::lock_guard<std::mutex> _(handlerMapMutex_);
+            auto iter = handlerMap_.find(port);
+            if (iter == handlerMap_.end()) {
+                return HandlerFunc {};
+            }
+            auto innerIter = iter->second.find(path);
+            if (innerIter == iter->second.end()) {
+                return HandlerFunc {};
+            }
+            return innerIter->second;
+        }
+        bool checkBasicAuthentication(int port, std::string const &login, std::string const &password) const {
+            std::lock_guard<std::mutex> _(allPasswordsMutex_);
+            auto iter = allPasswords_.find(port);
+            if (iter == allPasswords_.end()) {
+                return true;
+            }
+            auto innerIter = iter->second.find(login);
+            if (innerIter == iter->second.end()) {
+                return false;
+            }
+            if (!innerIter->second) {
+                return true;
+            }
+            return (crypto_pwhash_str_verify(
+                innerIter->second->c_str(), password.c_str(), password.length()
+            ) == 0);
+        }
     };
 
     JsonRESTComponent::JsonRESTComponent() : impl_(std::make_unique<JsonRESTComponentImpl>()) {}
@@ -355,9 +459,12 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
     JsonRESTComponent &JsonRESTComponent::operator=(JsonRESTComponent &&) = default;
     JsonRESTComponent::~JsonRESTComponent() = default;
     void JsonRESTComponent::registerHandler(ConnectionLocator const &locator, std::function<
-        bool(std::string const &, std::function<void(std::string const &)> const &)
+        bool(std::string const &, std::string const &, std::function<void(std::string const &)> const &)
     > const &handler) {
         impl_->registerHandler(locator, handler);
+    }
+    void JsonRESTComponent::addBasicAuthentication(int port, std::string const &login, std::optional<std::string> const &password) {
+        impl_->addBasicAuthentication(port, login, password);
     }
     void JsonRESTComponent::finalizeEnvironment() {
         impl_->finalizeEnvironment(dynamic_cast<TLSServerConfigurationComponent const *>(this));

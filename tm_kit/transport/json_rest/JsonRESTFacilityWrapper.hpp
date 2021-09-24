@@ -57,7 +57,8 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 LocalHandler(Env *env, std::function<void(typename M::template Key<Req> &&)> const &triggerFunc) 
                     : env_(env), triggerFunc_(triggerFunc), cbMap_(), mutex_() {}
                 bool handleRequest(
-                    std::string const &requestBody
+                    std::string const &login
+                    , std::string const &requestBody
                     , std::function<void(std::string const &)> const &cb
                 ) {
                     try {
@@ -110,8 +111,8 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             r.registerExporter(wrapperItemsNamePrefix+"/exporter", exporter);
             toBeWrapped(r, r.importItem(importer), r.exporterAsSink(exporter));
             static_cast<JsonRESTComponent *>(r.environment())->registerHandler(
-                locator, [handler](std::string const &reqBody, std::function<void(std::string const &)> const &cb) {
-                    return handler->handleRequest(reqBody, cb);
+                locator, [handler](std::string const &login, std::string const &reqBody, std::function<void(std::string const &)> const &cb) {
+                    return handler->handleRequest(login, reqBody, cb);
                 }
             );
 
