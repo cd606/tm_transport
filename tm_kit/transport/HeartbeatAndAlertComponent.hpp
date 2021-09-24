@@ -21,6 +21,7 @@
 #include <tm_kit/transport/redis/RedisComponent.hpp>
 #include <tm_kit/transport/nng/NNGComponent.hpp>
 #include <tm_kit/transport/shared_memory_broadcast/SharedMemoryBroadcastComponent.hpp>
+#include <tm_kit/transport/websocket/WebSocketComponent.hpp>
 #include <tm_kit/transport/AbstractHookFactoryComponent.hpp>
 #include <tm_kit/transport/MultiTransportBroadcastListener.hpp>
 
