@@ -20,7 +20,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         WebSocketComponent &operator=(WebSocketComponent &&);
         virtual ~WebSocketComponent();
 
-        std::function<void(basic::ByteDataWithTopic &&, int)> websocket_getPublisher(ConnectionLocator const &locator, std::optional<UserToWireHook> userToWireHook = std::nullopt);
+        std::function<void(basic::ByteDataWithTopic &&)> websocket_getPublisher(ConnectionLocator const &locator, std::optional<UserToWireHook> userToWireHook = std::nullopt);
         void finalizeEnvironment();
     };
 

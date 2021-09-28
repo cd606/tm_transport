@@ -28,6 +28,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         std::mutex channelsMutex_;
         std::unordered_map<ConnectionLocator, std::unique_ptr<grpc::ServerBuilder>> serverBuilders_;
         std::mutex serverBuildersMutex_;
+        std::atomic<bool> started_;
         ConnectionLocator simplifyLocatorForChannel(ConnectionLocator const &l) {
             return ConnectionLocator(l.host(), l.port());
         }
@@ -166,7 +167,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         std::unordered_map<ConnectionLocator, RpcSender *> rpcClients_;
         std::mutex rpcClientsMutex_;
     public:
-        GrpcInteropComponentImpl() : channels_(), channelsMutex_(), serverBuilders_(), serverBuildersMutex_(), rpcClients_(), rpcClientsMutex_() {}
+        GrpcInteropComponentImpl() : channels_(), channelsMutex_(), serverBuilders_(), serverBuildersMutex_(), started_(false), rpcClients_(), rpcClientsMutex_() {}
         std::shared_ptr<grpc::Channel> grpc_interop_getChannel(ConnectionLocator const &locator, TLSClientConfigurationComponent const *config) {
             auto key = simplifyLocatorForChannel(locator);
             std::lock_guard<std::mutex> _(channelsMutex_);
@@ -225,7 +226,9 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             auto key = simplifyLocatorForServerBuilder(locator);
             std::lock_guard<std::mutex> _(serverBuildersMutex_);
             auto iter = serverBuilders_.find(key);
+            bool newServerBuilder = false;
             if (iter == serverBuilders_.end()) {
+                newServerBuilder = true;
                 iter = serverBuilders_.insert({
                     key
                     , std::make_unique<grpc::ServerBuilder>()
@@ -264,6 +267,13 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 }
             }
             iter->second->RegisterService(service);
+            if (newServerBuilder && started_) {
+                auto *p = iter->second.get();
+                std::thread th([p]() {
+                    p->BuildAndStart()->Wait();
+                });
+                th.detach();
+            }
         }
         void finalizeEnvironment() {
             std::lock_guard<std::mutex> _(serverBuildersMutex_);
@@ -274,6 +284,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 });
                 th.detach();
             }
+            started_ = true;
         }
         std::function<void(basic::ByteDataWithID &&)> grpc_interop_setRPCClient(ConnectionLocator const &locator,
                         std::function<void(bool, std::string const &, std::optional<std::string> &&)> client,

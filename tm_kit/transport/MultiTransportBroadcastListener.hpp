@@ -17,6 +17,7 @@
 #include <tm_kit/transport/AbstractHookFactoryComponent.hpp>
 #include <tm_kit/transport/grpc_interop/GrpcInteropComponent.hpp>
 #include <tm_kit/transport/json_rest/JsonRESTComponent.hpp>
+#include <tm_kit/transport/websocket/WebSocketComponent.hpp>
 
 #include <type_traits>
 #include <regex>
@@ -35,6 +36,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
         , socket_rpc::SocketRPCComponent
         , grpc_interop::GrpcInteropComponent
         , json_rest::JsonRESTComponent
+        , web_socket::WebSocketComponent
     >;
 
     template <class Env>
@@ -75,14 +77,16 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
         , ZeroMQ 
         , NNG
         , SharedMemoryBroadcast
+        , WebSocket
     };
-    inline const std::array<std::string,6> MULTI_TRANSPORT_SUBSCRIBER_CONNECTION_TYPE_STR = {
+    inline const std::array<std::string,7> MULTI_TRANSPORT_SUBSCRIBER_CONNECTION_TYPE_STR = {
         "multicast"
         , "rabbitmq"
         , "redis"
         , "zeromq"
         , "nng"
         , "shared_memory_broadcast"
+        , "websocket"
     };
     inline auto parseMultiTransportBroadcastChannel(std::string const &s) 
         -> std::optional<std::tuple<MultiTransportBroadcastListenerConnectionType, ConnectionLocator>>
@@ -574,6 +578,23 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                             );
                         }
                         break;
+                    case MultiTransportBroadcastListenerConnectionType::WebSocket:
+                        {
+                            std::ostringstream errOss;
+                            errOss << "[MultiTransportBroadcastListner::actuallyHandle] trying to set up web socket channel " << x.connectionLocator << " but web socket listener is currently unsupported";
+                            env->log(infra::LogLevel::Warning, errOss.str());
+                            this->FacilityParent::publish(
+                                env
+                                , typename M::template Key<MultiTransportBroadcastListenerOutput> {
+                                    id
+                                    , MultiTransportBroadcastListenerOutput { {
+                                        MultiTransportBroadcastListenerAddSubscriptionResponse {0}
+                                    } }
+                                }
+                                , true
+                            );
+                        }
+                        break;
                     default:
                         this->FacilityParent::publish(
                             env
@@ -660,6 +681,8 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                             }
                         }
                         break;
+                    case MultiTransportBroadcastListenerConnectionType::WebSocket:
+                        break;
                     default:
                         break;
                     }
@@ -712,6 +735,8 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                                 static_cast<shared_memory_broadcast::SharedMemoryBroadcastComponent *>(env)
                                     ->shared_memory_broadcast_removeSubscriptionClient(std::get<1>(x.first));
                             }
+                            break;
+                        case MultiTransportBroadcastListenerConnectionType::WebSocket:
                             break;
                         default:
                             break;

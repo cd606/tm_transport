@@ -8,6 +8,7 @@
 #include <tm_kit/transport/zeromq/ZeroMQImporterExporter.hpp>
 #include <tm_kit/transport/nng/NNGImporterExporter.hpp>
 #include <tm_kit/transport/shared_memory_broadcast/SharedMemoryBroadcastImporterExporter.hpp>
+#include <tm_kit/transport/websocket/WebSocketImporterExporter.hpp>
 
 #include <tm_kit/basic/CommonFlowUtils.hpp>
 #include <tm_kit/basic/AppRunnerUtils.hpp>
@@ -127,6 +128,17 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                         throw std::runtime_error("[MultiTransportBroadcastPublisherManagingUtils::oneBroadcastPublisher] Trying to create shared memory broadcast publisher with channel spec '"+channelSpec+"', but shared memory broadcast is unsupported in the environment");
                     }
                     break;
+                case MultiTransportBroadcastListenerConnectionType::WebSocket:
+                    if constexpr (std::is_convertible_v<Env *, web_socket::WebSocketComponent *>) {
+                        auto pub = web_socket::WebSocketImporterExporter<Env>::template createTypedExporter<OutputType>(
+                            std::get<1>(*parsed), hook, name
+                        );
+                        r.registerExporter(name, pub);
+                        return r.exporterAsSink(pub);
+                    } else {
+                        throw std::runtime_error("[MultiTransportBroadcastPublisherManagingUtils::oneBroadcastPublisher] Trying to create web socket publisher with channel spec '"+channelSpec+"', but web socket is unsupported in the environment");
+                    }
+                    break;
                 default:
                     throw std::runtime_error("[MultiTransportBroadcastPublisherManagingUtils::oneBroadcastPublisher] Trying to create unknown-protocol publisher with channel spec '"+channelSpec+"'");
                     break;
@@ -221,6 +233,17 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                     return r.exporterAsSink(pub);
                 } else {
                     throw std::runtime_error("[MultiTransportBroadcastPublisherManagingUtils::oneByteDataBroadcastPublisher] Trying to create shared memory broadcast publisher with channel spec '"+channelSpec+"', but shared memory broadcast is unsupported in the environment");
+                }
+                break;
+            case MultiTransportBroadcastListenerConnectionType::WebSocket:
+                if constexpr (std::is_convertible_v<Env *, web_socket::WebSocketComponent *>) {
+                    auto pub = web_socket::WebSocketImporterExporter<Env>::createExporter(
+                        std::get<1>(*parsed), hook, name
+                    );
+                    r.registerExporter(name, pub);
+                    return r.exporterAsSink(pub);
+                } else {
+                    throw std::runtime_error("[MultiTransportBroadcastPublisherManagingUtils::oneByteDataBroadcastPublisher] Trying to create web socket publisher with channel spec '"+channelSpec+"', but web socket is unsupported in the environment");
                 }
                 break;
             default:

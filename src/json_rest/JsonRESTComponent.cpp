@@ -31,6 +31,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         >;
         std::unordered_map<int, std::unordered_map<std::string, HandlerFunc>> handlerMap_;
         mutable std::mutex handlerMapMutex_;
+        std::atomic<bool> started_;
 
         class Acceptor : public std::enable_shared_from_this<Acceptor> {
         private:
@@ -363,16 +364,31 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         using PasswordMap = std::unordered_map<std::string, std::optional<std::string>>;
         std::unordered_map<int, PasswordMap> allPasswords_;
         mutable std::mutex allPasswordsMutex_;
+
+        void startAcceptor(int port, TLSServerConfigurationComponent const *tlsConfig) {
+            auto sslInfo = (tlsConfig?(tlsConfig->getConfigurationItem(
+                TLSServerInfoKey {port}
+            )):std::nullopt);
+            std::lock_guard<std::mutex> _(acceptorMapMutex_);
+            auto iter = acceptorMap_.insert({port, std::make_shared<Acceptor>(
+                this
+                , port
+                , sslInfo
+            )}).first;
+            iter->second->run();
+        }
     public:
-        JsonRESTComponentImpl() : handlerMap_(), handlerMapMutex_(), acceptorMap_(), acceptorMapMutex_(), allPasswords_(), allPasswordsMutex_() {
+        JsonRESTComponentImpl() : handlerMap_(), handlerMapMutex_(), started_(false), acceptorMap_(), acceptorMapMutex_(), allPasswords_(), allPasswordsMutex_() {
         }
         ~JsonRESTComponentImpl() {
         }
-        void registerHandler(ConnectionLocator const &locator, HandlerFunc const &handler) {
+        void registerHandler(ConnectionLocator const &locator, HandlerFunc const &handler, TLSServerConfigurationComponent const *tlsConfig) {
             std::lock_guard<std::mutex> _(handlerMapMutex_);
+            bool newPort = false;
             auto iter = handlerMap_.find(locator.port());
             if (iter == handlerMap_.end()) {
                 iter = handlerMap_.insert({locator.port(), {}}).first;
+                newPort = true;
             }
             std::string path = locator.identifier();
             if (!boost::starts_with(path, "/")) {
@@ -381,6 +397,9 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             auto innerIter = iter->second.find(path);
             if (innerIter == iter->second.end()) {
                 iter->second.insert({path, handler});
+            }
+            if (newPort && started_) {
+                startAcceptor(iter->first, tlsConfig);
             }
         }
         void addBasicAuthentication(int port, std::string const &login, std::optional<std::string> const &password) {
@@ -407,17 +426,9 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         void finalizeEnvironment(TLSServerConfigurationComponent const *tlsConfig) {
             std::lock_guard<std::mutex> _(handlerMapMutex_);
             for (auto const &item : handlerMap_) {
-                auto sslInfo = (tlsConfig?(tlsConfig->getConfigurationItem(
-                    TLSServerInfoKey {item.first}
-                )):std::nullopt);
-                std::lock_guard<std::mutex> _(acceptorMapMutex_);
-                auto iter = acceptorMap_.insert({item.first, std::make_shared<Acceptor>(
-                    this
-                    , item.first 
-                    , sslInfo
-                )}).first;
-                iter->second->run();
+                startAcceptor(item.first, tlsConfig);
             }
+            started_ = true;
         }
         void removeAcceptor(int port) {
             std::lock_guard<std::mutex> _(acceptorMapMutex_);
@@ -461,7 +472,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
     void JsonRESTComponent::registerHandler(ConnectionLocator const &locator, std::function<
         bool(std::string const &, std::string const &, std::function<void(std::string const &)> const &)
     > const &handler) {
-        impl_->registerHandler(locator, handler);
+        impl_->registerHandler(locator, handler, dynamic_cast<TLSServerConfigurationComponent const *>(this));
     }
     void JsonRESTComponent::addBasicAuthentication(int port, std::string const &login, std::optional<std::string> const &password) {
         impl_->addBasicAuthentication(port, login, password);

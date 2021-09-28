@@ -12,7 +12,7 @@
 #include <tm_kit/transport/HeartbeatAndAlertComponent.hpp>
 #include <tm_kit/transport/AbstractHookFactoryComponent.hpp>
 
-namespace dev { namespace cd606 { namespace tm { namespace transport { namespace websocket {
+namespace dev { namespace cd606 { namespace tm { namespace transport { namespace web_socket {
 
     template <class Env, std::enable_if_t<std::is_base_of_v<WebSocketComponent, Env>, int> = 0>
     class WebSocketImporterExporter {
@@ -23,19 +23,13 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             private:
                 ConnectionLocator locator_;
                 Env *env_;
-                int ttl_;
-                std::function<void(basic::ByteDataWithTopic &&, int)> publisher_;
+                std::function<void(basic::ByteDataWithTopic &&)> publisher_;
                 std::optional<UserToWireHook> userToWireHook_;
                 std::string heartbeatName_;
             public:
                 LocalE(ConnectionLocator const &locator, std::optional<UserToWireHook> userToWireHook, std::string const &heartbeatName)
                     : locator_(locator), env_(nullptr), publisher_(), userToWireHook_(userToWireHook), heartbeatName_(heartbeatName)
                 {
-                    try {
-                        ttl_ = boost::lexical_cast<int>(locator.query("ttl", "0"));
-                    } catch (boost::bad_lexical_cast const &) {
-                        ttl_ = 0;
-                    }   
                 }
                 virtual void start(Env *env) override final {
                     env_ = env;
@@ -53,7 +47,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 virtual void handle(typename M::template InnerData<basic::ByteDataWithTopic> &&data) override final {
                     if (env_) {
                         TM_INFRA_EXPORTER_TRACER(env_);
-                        publisher_(std::move(data.timedData.value), ttl_);
+                        publisher_(std::move(data.timedData.value));
                     }
                 }
             };
@@ -65,19 +59,13 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             private:
                 ConnectionLocator locator_;
                 Env *env_;
-                int ttl_;
-                std::function<void(basic::ByteDataWithTopic &&, int)> publisher_;
+                std::function<void(basic::ByteDataWithTopic &&)> publisher_;
                 std::optional<UserToWireHook> userToWireHook_;
                 std::string heartbeatName_;
             public:
                 LocalE(ConnectionLocator const &locator, std::optional<UserToWireHook> userToWireHook, std::string const &heartbeatName)
                     : locator_(locator), env_(nullptr), publisher_(), userToWireHook_(userToWireHook), heartbeatName_(heartbeatName)
                 {
-                    try {
-                        ttl_ = boost::lexical_cast<int>(locator.query("ttl", "0"));
-                    } catch (boost::bad_lexical_cast const &) {
-                        ttl_ = 0;
-                    } 
                 }
                 virtual void start(Env *env) override final {
                     env_ = env;
@@ -99,7 +87,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                     if (env_) {
                         TM_INFRA_EXPORTER_TRACER(env_);
                         std::string s = basic::bytedata_utils::RunSerializer<T>::apply(data.timedData.value.content);
-                        publisher_({std::move(data.timedData.value.topic), std::move(s)}, ttl_);
+                        publisher_({std::move(data.timedData.value.topic), std::move(s)});
                     }
                 }
             };

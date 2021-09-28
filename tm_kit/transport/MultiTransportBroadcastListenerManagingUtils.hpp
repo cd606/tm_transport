@@ -195,6 +195,9 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                             r.environment()->log(infra::LogLevel::Warning, "[MultiTransportBroadcastListenerManagingUtils::setupBroadcastListeners_internal] Trying to create shared memory broadcast publisher with channel spec '"+spec.channel+"', but shared memory broadcast is unsupported in the environment");
                         }
                         break;
+                    case MultiTransportBroadcastListenerConnectionType::WebSocket:
+                        r.environment()->log(infra::LogLevel::Warning, "[MultiTransportBroadcastListenerManagingUtils::setupBroadcastListeners_internal] Trying to create web socket listener with channel spec '"+spec.channel+"', but web socket listener is unsupported");
+                        break;
                     default:
                         r.environment()->log(infra::LogLevel::Warning, "[MultiTransportBroadcastListenerManagingUtils::setupBroadcastListeners_internal] Trying to create unknown-protocol publisher with channel spec '"+spec.channel+"'");
                         break;
@@ -439,6 +442,9 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                     throw std::runtime_error("[MultiTransportBroadcastListenerManagingUtils::oneByteDataBroadcastListener] Trying to create shared memory broadcast publisher with channel spec '"+channelSpec+"', but shared memory broadcast is unsupported in the environment");
                 }
                 break;
+            case MultiTransportBroadcastListenerConnectionType::WebSocket:
+                throw std::runtime_error("[MultiTransportBroadcastListenerManagingUtils::oneByteDataBroadcastListener] Trying to create web socket listener with channel spec '"+channelSpec+"', but web socket listener is unsupported");
+                break;
             default:
                 throw std::runtime_error("[MultiTransportBroadcastListenerManagingUtils::oneByteDataBroadcastListener] Trying to create unknown-protocol publisher with channel spec '"+channelSpec+"'");
                 break;
@@ -667,6 +673,9 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                     throw std::runtime_error("[MultiTransportBroadcastListenerManagingUtils::fetchFirstUpdateAndDisconnect] Trying to create shared memory broadcast publisher with channel spec '"+channelSpec+"', but shared memory broadcast is unsupported in the environment");
                 }
                 break;
+            case MultiTransportBroadcastListenerConnectionType::WebSocket:
+                throw std::runtime_error("[MultiTransportBroadcastListenerManagingUtils::fetchFirstUpdateAndDisconnect] Trying to create web socket listener with channel spec '"+channelSpec+"', but web socket listener is unsupported");
+                break;
             default:
                 throw std::runtime_error("[MultiTransportBroadcastListenerManagingUtils::fetchFirstUpdateAndDisconnect] Trying to create unknown-protocol publisher with channel spec '"+channelSpec+"'");
                 break;
@@ -764,6 +773,9 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                 } else {
                     throw std::runtime_error("[MultiTransportBroadcastListenerManagingUtils::fetchTypedFirstUpdateAndDisconnect] Trying to create shared memory broadcast publisher with channel spec '"+channelSpec+"', but shared memory broadcast is unsupported in the environment");
                 }
+                break;
+            case MultiTransportBroadcastListenerConnectionType::WebSocket:
+                throw std::runtime_error("[MultiTransportBroadcastListenerManagingUtils::fetchTypedFirstUpdateAndDisconnect] Trying to create web socket listener with channel spec '"+channelSpec+"', but web socket listener is unsupported");
                 break;
             default:
                 throw std::runtime_error("[MultiTransportBroadcastListenerManagingUtils::fetchTypedFirstUpdateAndDisconnect] Trying to create unknown-protocol publisher with channel spec '"+channelSpec+"'");

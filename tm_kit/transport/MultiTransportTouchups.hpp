@@ -3,6 +3,7 @@
 
 #include <tm_kit/transport/MultiTransportBroadcastListenerManagingUtils.hpp>
 #include <tm_kit/transport/MultiTransportBroadcastPublisherManagingUtils.hpp>
+#include <tm_kit/basic/WrapFacilitioidConnectorForSerialization.hpp>
 
 namespace dev { namespace cd606 { namespace tm { namespace transport { namespace multi_transport_touchups {
 
@@ -43,6 +44,45 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                     , spec.threaded
                 );
             r.template connectTypedSinkToAllNodes<basic::ByteDataWithTopic>(pub);
+        }
+    };
+
+    template <class R, template<class... Ts> class ProtocolWrapper, class T>
+    struct PublisherTouchupWithProtocol {
+        PublisherTouchupWithProtocol(R &r, PublisherTouchupSpec const &spec) {
+            auto publisherName = ((spec.publisherName=="")?(std::string("__publisher_touchup_")+typeid(T).name()):spec.publisherName);
+            using W = basic::WrapFacilitioidConnectorForSerializationHelpers::WrappedType<ProtocolWrapper,T>;
+            if constexpr(std::is_same_v<W,T>) {
+                auto pub = MultiTransportBroadcastPublisherManagingUtils<R>
+                    ::template oneBroadcastPublisher<T>
+                    (
+                        r
+                        , publisherName 
+                        , spec.channelSpec
+                        , spec.hook 
+                        , spec.threaded
+                    );
+                r.template connectTypedSinkToAllNodes<basic::TypedDataWithTopic<T>>(pub);
+            } else {
+                auto pub = MultiTransportBroadcastPublisherManagingUtils<R>
+                    ::template oneBroadcastPublisher<W>
+                    (
+                        r
+                        , publisherName 
+                        , spec.channelSpec
+                        , spec.hook 
+                        , spec.threaded
+                    );
+                auto converter = R::AppType::template liftPure<basic::TypedDataWithTopic<T>>(
+                    [](basic::TypedDataWithTopic<T> &&t) -> basic::TypedDataWithTopic<W> {
+                        return {std::move(t.topic), W {std::move(t.content)}};
+                    }
+                );
+                auto converterName = publisherName+"__converter";
+                r.registerAction(converterName, converter);
+                r.connect(r.actionAsSource(converter), pub);
+                r.template connectTypedSinkToAllNodes<basic::TypedDataWithTopic<T>>(r.actionAsSink(converter));
+            }
         }
     };
 
