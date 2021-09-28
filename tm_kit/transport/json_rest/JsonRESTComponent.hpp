@@ -24,6 +24,8 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         > const &handler);
         //if password is std::nullopt, this login will be accepted with any password
         void addBasicAuthentication(int port, std::string const &login, std::optional<std::string> const &password);
+        //for this API, the password is already salted and hashed
+        void addBasicAuthentication_salted(int port, std::string const &login, std::string const &saltedPassword);
         void finalizeEnvironment();
     };
 

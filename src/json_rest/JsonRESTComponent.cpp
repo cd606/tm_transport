@@ -422,6 +422,14 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             }
             iter->second.insert({login, {hashed}});
         }
+        void addBasicAuthentication_salted(int port, std::string const &login, std::string const &saltedPassword) {
+            std::lock_guard<std::mutex> _(allPasswordsMutex_);
+            auto iter = allPasswords_.find(port);
+            if (iter == allPasswords_.end()) {
+                iter = allPasswords_.insert({port, PasswordMap{}}).first;
+            }
+            iter->second.insert({login, {saltedPassword}});
+        }
 
         void finalizeEnvironment(TLSServerConfigurationComponent const *tlsConfig) {
             std::lock_guard<std::mutex> _(handlerMapMutex_);
@@ -476,6 +484,9 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
     }
     void JsonRESTComponent::addBasicAuthentication(int port, std::string const &login, std::optional<std::string> const &password) {
         impl_->addBasicAuthentication(port, login, password);
+    }
+    void JsonRESTComponent::addBasicAuthentication_salted(int port, std::string const &login, std::string const &saltedPassword) {
+        impl_->addBasicAuthentication_salted(port, login, saltedPassword);
     }
     void JsonRESTComponent::finalizeEnvironment() {
         impl_->finalizeEnvironment(dynamic_cast<TLSServerConfigurationComponent const *>(this));
