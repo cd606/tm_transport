@@ -52,8 +52,10 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 {
                     if (sslCtx) {
                         stream_.emplace<2>(std::move(socket), *sslCtx);
+                        std::get<2>(stream_).text(false);
                     } else {
                         stream_.emplace<1>(std::move(socket));
+                        std::get<1>(stream_).text(false);
                     }
                 }
                 ~OneClientHandler() {
