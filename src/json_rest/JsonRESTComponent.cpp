@@ -19,6 +19,9 @@
 #include <iostream>
 #include <fstream>
 #include <sstream>
+#ifdef _MSC_VER
+#include <locale>
+#endif
 
 #include <sodium/crypto_pwhash.h>
 
@@ -187,7 +190,14 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                         if (fileMappingRes) {
                             boost::beast::http::file_body::value_type body;
                             boost::beast::error_code fileEc;
+#ifdef _MSC_VER
+                            std::wstring fileName_w = std::get<0>(*fileMappingRes).wstring();
+                            std::wstring_convert<std::codecvt_utf8<wchar_t>, wchar_t> converter;
+                            std::string fileName_mbs = converter.to_bytes(fileName_w);
+                            body.open(fileName_mbs.c_str(), boost::beast::file_mode::scan, fileEc);
+#else
                             body.open(std::get<0>(*fileMappingRes).c_str(), boost::beast::file_mode::scan, fileEc);
+#endif
                             if (fileEc) {
                                 auto *res = new boost::beast::http::response<boost::beast::http::string_body> {boost::beast::http::status::not_found, req_.version()};
                                 res->set(boost::beast::http::field::server, BOOST_BEAST_VERSION_STRING);
