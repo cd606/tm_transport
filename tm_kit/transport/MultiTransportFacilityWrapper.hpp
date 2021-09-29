@@ -1104,6 +1104,74 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                 wrap<A,B,C,D,Option>(r, toBeWrapped, channelSpec, wrapperItemsNamePrefix, hooks);
             };
         }
+        template <template<class... Xs> class ProtocolWrapper, class A, class B, MultiTransportFacilityWrapperOption Option=MultiTransportFacilityWrapperOption::Default>
+        static auto facilityWrapperWithProtocol(
+            std::string const &channelSpec
+            , std::string const &wrapperItemsNamePrefix
+            , std::optional<ByteDataHookPair> hooks = std::nullopt
+            , bool dontAddToHeartbeat = false
+        ) -> typename infra::AppRunner<M>::template FacilityWrapper<typename DetermineServerSideIdentityForRequest<Env, A>::FullRequestType,B> {
+            return [channelSpec,wrapperItemsNamePrefix,hooks,dontAddToHeartbeat](
+                R &r
+                , std::shared_ptr<typename M::template OnOrderFacility<
+                    typename DetermineServerSideIdentityForRequest<Env, A>::FullRequestType
+                    , B
+                >> const &toBeWrapped
+            ) {
+                wrapWithProtocol<ProtocolWrapper,A,B,Option>(r, toBeWrapped, channelSpec, wrapperItemsNamePrefix, hooks, dontAddToHeartbeat);
+            };
+        }
+        template <template<class... Xs> class ProtocolWrapper, class A, class B, class C, MultiTransportFacilityWrapperOption Option=MultiTransportFacilityWrapperOption::Default>
+        static auto localFacilityWrapperWithProtocol(
+            std::string const &channelSpec
+            , std::string const &wrapperItemsNamePrefix
+            , std::optional<ByteDataHookPair> hooks = std::nullopt
+            , bool dontAddToHeartbeat = false
+        ) -> typename infra::AppRunner<M>::template LocalFacilityWrapper<typename DetermineServerSideIdentityForRequest<Env, A>::FullRequestType,B,C> {
+            return [channelSpec,wrapperItemsNamePrefix,hooks,dontAddToHeartbeat](
+                R &r
+                , std::shared_ptr<typename M::template LocalOnOrderFacility<
+                    typename DetermineServerSideIdentityForRequest<Env, A>::FullRequestType
+                    , B, C
+                >> const &toBeWrapped
+            ) {
+                wrapWithProtocol<ProtocolWrapper,A,B,C,Option>(r, toBeWrapped, channelSpec, wrapperItemsNamePrefix, hooks, dontAddToHeartbeat);
+            };
+        }
+        template <template<class... Xs> class ProtocolWrapper, class A, class B, class C, MultiTransportFacilityWrapperOption Option=MultiTransportFacilityWrapperOption::Default>
+        static auto facilityWithExternalEffectsWrapperWithProtocol(
+            std::string const &channelSpec
+            , std::string const &wrapperItemsNamePrefix
+            , std::optional<ByteDataHookPair> hooks = std::nullopt
+            , bool dontAddToHeartbeat = false
+        ) -> typename infra::AppRunner<M>::template FacilityWithExternalEffectsWrapper<typename DetermineServerSideIdentityForRequest<Env, A>::FullRequestType,B,C> {
+            return [channelSpec,wrapperItemsNamePrefix,hooks,dontAddToHeartbeat](
+                R &r
+                , std::shared_ptr<typename M::template OnOrderFacilityWithExternalEffects<
+                    typename DetermineServerSideIdentityForRequest<Env, A>::FullRequestType
+                    , B, C
+                >> const &toBeWrapped
+            ) {
+                wrapWithProtocol<ProtocolWrapper,A,B,C,Option>(r, toBeWrapped, channelSpec, wrapperItemsNamePrefix, hooks, dontAddToHeartbeat);
+            };
+        }
+        template <template<class... Xs> class ProtocolWrapper, class A, class B, class C, class D, MultiTransportFacilityWrapperOption Option=MultiTransportFacilityWrapperOption::Default>
+        static auto vieFacilityWrapperWithProtocol(
+            std::string const &channelSpec
+            , std::string const &wrapperItemsNamePrefix
+            , std::optional<ByteDataHookPair> hooks = std::nullopt
+            , bool dontAddToHeartbeat = false
+        ) -> typename infra::AppRunner<M>::template VIEFacilityWrapper<typename DetermineServerSideIdentityForRequest<Env, A>::FullRequestType,B,C,D> {
+            return [channelSpec,wrapperItemsNamePrefix,hooks,dontAddToHeartbeat](
+                R &r
+                , std::shared_ptr<typename M::template VIEOnOrderFacility<
+                    typename DetermineServerSideIdentityForRequest<Env, A>::FullRequestType
+                    , B, C, D
+                >> const &toBeWrapped
+            ) {
+                wrapWithProtocol<ProtocolWrapper,A,B,C,D,Option>(r, toBeWrapped, channelSpec, wrapperItemsNamePrefix, hooks, dontAddToHeartbeat);
+            };
+        }
     };
                 
 } } } }

@@ -10,6 +10,7 @@
 #include <tm_kit/infra/TraceNodesComponent.hpp>
 #include <tm_kit/infra/ControllableNode.hpp>
 #include <tm_kit/basic/ByteData.hpp>
+#include <tm_kit/basic/WrapFacilitioidConnectorForSerialization.hpp>
 #include <tm_kit/transport/rabbitmq/RabbitMQComponent.hpp>
 #include <tm_kit/transport/AbstractIdentityCheckerComponent.hpp>
 #include <tm_kit/transport/HeartbeatAndAlertComponent.hpp>
@@ -29,7 +30,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         static void sendRequestWithIdentity(Env *env, std::function<void(basic::ByteDataWithID &&)>requester, basic::ByteDataWithID &&req) {
             requester({
                 std::move(req.id)
-                , static_cast<ClientSideAbstractIdentityAttacherComponent<Identity,Request> *>(env)->attach_identity(basic::ByteData {std::move(req.content)}).content
+                , static_cast<typename DetermineClientSideIdentityForRequest<Env,Request>::ComponentType *>(env)->attach_identity(basic::ByteData {std::move(req.content)}).content
             });
         }
 
@@ -121,7 +122,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         {
             return M::template kleisli<basic::ByteDataWithID>(
                 [](typename M::template InnerData<basic::ByteDataWithID> &&input) -> typename M::template Data<typename M::template Key<std::tuple<Identity,A>>> {
-                    auto checkIdentityRes = static_cast<ServerSideAbstractIdentityCheckerComponent<Identity,A> *>(input.environment)->check_identity(basic::ByteData {std::move(input.timedData.value.content)});
+                    auto checkIdentityRes = static_cast<typename DetermineServerSideIdentityForRequest<Env,A>::ComponentType *>(input.environment)->check_identity(basic::ByteData {std::move(input.timedData.value.content)});
                     if (!checkIdentityRes) {
                         return std::nullopt;
                     }
@@ -155,7 +156,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                         input.environment
                         , basic::ByteDataWithID {
                             Env::id_to_string(input.timedData.value.key.id())
-                            , std::move(static_cast<ServerSideAbstractIdentityCheckerComponent<Identity,A> *>(input.environment)->process_outgoing_data(
+                            , std::move(static_cast<typename DetermineServerSideIdentityForRequest<Env,A>::ComponentType *>(input.environment)->process_outgoing_data(
                                 std::get<0>(input.timedData.value.key.key())
                                 , basic::ByteData { basic::bytedata_utils::RunSerializer<B>::apply(input.timedData.value.data) }
                             ).content)
@@ -597,7 +598,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                     virtual void start(Env *env) override final {
                         env_ = env;
                         requester_ = env->rabbitmq_setRPCQueueClient(locator_, [this](bool isFinal, basic::ByteDataWithID &&data) {
-                            auto processRes = static_cast<ClientSideAbstractIdentityAttacherComponent<Identity,A> *>(env_)->process_incoming_data(
+                            auto processRes = static_cast<typename DetermineClientSideIdentityForRequest<Env,A>::ComponentType *>(env_)->process_incoming_data(
                                 basic::ByteData {std::move(data.content)}
                             );
                             if (processRes) {
@@ -913,7 +914,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 auto requester = env->rabbitmq_setRPCQueueClient(rpcQueueLocator, [autoDisconnect,ret,env,rpcQueueLocator,done](bool isFinal, basic::ByteDataWithID &&data) mutable {    
                     if (!done) {
                         try {
-                            auto processRes = static_cast<ClientSideAbstractIdentityAttacherComponent<Identity,A> *>(env)->process_incoming_data(
+                            auto processRes = static_cast<typename DetermineClientSideIdentityForRequest<Env,A>::ComponentType *>(env)->process_incoming_data(
                                 basic::ByteData {std::move(data.content)}
                             );
                             if (processRes) {

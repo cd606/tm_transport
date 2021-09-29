@@ -31,6 +31,8 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         >;
         std::unordered_map<int, std::unordered_map<std::string, HandlerFunc>> handlerMap_;
         mutable std::mutex handlerMapMutex_;
+        std::unordered_map<int, std::filesystem::path> docRootMap_;
+        mutable std::mutex docRootMapMutex_;
         std::atomic<bool> started_;
 
         class Acceptor : public std::enable_shared_from_this<Acceptor> {
@@ -173,29 +175,125 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
 
                     auto path = req_.target();
                     std::string pathStr {path.data(), path.size()};
-                    auto handler = parent_->parent()->getHandler(parent_->port(), pathStr);
+                    HandlerFunc handler;
+                    if (req_.method() == boost::beast::http::verb::post) {
+                        handler = parent_->parent()->getHandler(parent_->port(), pathStr);
+                    }
                     if (!handler) {
-                        auto *res = new boost::beast::http::response<boost::beast::http::string_body> {boost::beast::http::status::not_found, req_.version()};
-                        res->set(boost::beast::http::field::server, BOOST_BEAST_VERSION_STRING);
-                        res->prepare_payload();
-                        if (stream_.index() == 1) {
-                            boost::beast::http::async_write(
-                                std::get<1>(stream_)
-                                , *res
-                                , [x=shared_from_this(),res](boost::system::error_code const &write_ec, std::size_t bytes_written) {
-                                    delete res;
-                                    x->doClose(boost::beast::error_code());
+                        std::optional<std::tuple<std::filesystem::path,std::string>> fileMappingRes = std::nullopt;
+                        if (req_.method() == boost::beast::http::verb::get || req_.method() == boost::beast::http::verb::head) {
+                            fileMappingRes = parent_->parent()->getDoc(parent_->port(), pathStr);
+                        }
+                        if (fileMappingRes) {
+                            boost::beast::http::file_body::value_type body;
+                            boost::beast::error_code fileEc;
+                            body.open(std::get<0>(*fileMappingRes).c_str(), boost::beast::file_mode::scan, fileEc);
+                            if (fileEc) {
+                                auto *res = new boost::beast::http::response<boost::beast::http::string_body> {boost::beast::http::status::not_found, req_.version()};
+                                res->set(boost::beast::http::field::server, BOOST_BEAST_VERSION_STRING);
+                                res->prepare_payload();
+                                if (stream_.index() == 1) {
+                                    boost::beast::http::async_write(
+                                        std::get<1>(stream_)
+                                        , *res
+                                        , [x=shared_from_this(),res](boost::system::error_code const &write_ec, std::size_t bytes_written) {
+                                            delete res;
+                                            x->doClose(boost::beast::error_code());
+                                        }
+                                    );
+                                } else {
+                                    boost::beast::http::async_write(
+                                        std::get<2>(stream_)
+                                        , *res
+                                        , [x=shared_from_this(),res](boost::system::error_code const &write_ec, std::size_t bytes_written) {
+                                            delete res;
+                                            x->doClose(boost::beast::error_code());
+                                        }
+                                    );
                                 }
-                            );
+                            } else {
+                                auto const size = body.size();
+                                if(req_.method() == boost::beast::http::verb::head) {
+                                    auto *res = new boost::beast::http::response<boost::beast::http::empty_body> {boost::beast::http::status::ok, req_.version()};
+                                    res->set(boost::beast::http::field::server, BOOST_BEAST_VERSION_STRING);
+                                    res->set(boost::beast::http::field::content_type, std::get<1>(*fileMappingRes));
+                                    res->content_length(size);
+                                    res->keep_alive(req_.keep_alive());
+                                    res->prepare_payload();
+                                    if (stream_.index() == 1) {
+                                        boost::beast::http::async_write(
+                                            std::get<1>(stream_)
+                                            , *res
+                                            , [x=shared_from_this(),res](boost::system::error_code const &write_ec, std::size_t bytes_written) {
+                                                delete res;
+                                                x->doClose(boost::beast::error_code());
+                                            }
+                                        );
+                                    } else {
+                                        boost::beast::http::async_write(
+                                            std::get<2>(stream_)
+                                            , *res
+                                            , [x=shared_from_this(),res](boost::system::error_code const &write_ec, std::size_t bytes_written) {
+                                                delete res;
+                                                x->doClose(boost::beast::error_code());
+                                            }
+                                        );
+                                    }
+                                } else {
+                                    auto *res = new boost::beast::http::response<boost::beast::http::file_body> {
+                                        std::piecewise_construct
+                                        , std::make_tuple(std::move(body))
+                                        , std::make_tuple(boost::beast::http::status::ok, req_.version())
+                                    };
+                                    res->set(boost::beast::http::field::server, BOOST_BEAST_VERSION_STRING);
+                                    res->set(boost::beast::http::field::content_type, std::get<1>(*fileMappingRes));
+                                    res->content_length(size);
+                                    res->keep_alive(req_.keep_alive());
+                                    res->prepare_payload();
+                                    if (stream_.index() == 1) {
+                                        boost::beast::http::async_write(
+                                            std::get<1>(stream_)
+                                            , *res
+                                            , [x=shared_from_this(),res](boost::system::error_code const &write_ec, std::size_t bytes_written) {
+                                                delete res;
+                                                x->doClose(boost::beast::error_code());
+                                            }
+                                        );
+                                    } else {
+                                        boost::beast::http::async_write(
+                                            std::get<2>(stream_)
+                                            , *res
+                                            , [x=shared_from_this(),res](boost::system::error_code const &write_ec, std::size_t bytes_written) {
+                                                delete res;
+                                                x->doClose(boost::beast::error_code());
+                                            }
+                                        );
+                                    }
+                                }
+                            }
                         } else {
-                            boost::beast::http::async_write(
-                                std::get<2>(stream_)
-                                , *res
-                                , [x=shared_from_this(),res](boost::system::error_code const &write_ec, std::size_t bytes_written) {
-                                    delete res;
-                                    x->doClose(boost::beast::error_code());
-                                }
-                            );
+                            auto *res = new boost::beast::http::response<boost::beast::http::string_body> {boost::beast::http::status::not_found, req_.version()};
+                            res->set(boost::beast::http::field::server, BOOST_BEAST_VERSION_STRING);
+                            res->prepare_payload();
+                            if (stream_.index() == 1) {
+                                boost::beast::http::async_write(
+                                    std::get<1>(stream_)
+                                    , *res
+                                    , [x=shared_from_this(),res](boost::system::error_code const &write_ec, std::size_t bytes_written) {
+                                        delete res;
+                                        x->doClose(boost::beast::error_code());
+                                    }
+                                );
+                            } else {
+                                boost::beast::http::async_write(
+                                    std::get<2>(stream_)
+                                    , *res
+                                    , [x=shared_from_this(),res](boost::system::error_code const &write_ec, std::size_t bytes_written) {
+                                        delete res;
+                                        x->doClose(boost::beast::error_code());
+                                    }
+                                );
+                            }
                         }
                     } else {
                         auto *res = new boost::beast::http::response<boost::beast::http::string_body> {boost::beast::http::status::ok, req_.version()};
@@ -378,7 +476,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             iter->second->run();
         }
     public:
-        JsonRESTComponentImpl() : handlerMap_(), handlerMapMutex_(), started_(false), acceptorMap_(), acceptorMapMutex_(), allPasswords_(), allPasswordsMutex_() {
+        JsonRESTComponentImpl() : handlerMap_(), handlerMapMutex_(), docRootMap_(), docRootMapMutex_(), started_(false), acceptorMap_(), acceptorMapMutex_(), allPasswords_(), allPasswordsMutex_() {
         }
         ~JsonRESTComponentImpl() {
         }
@@ -430,6 +528,10 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             }
             iter->second.insert({login, {saltedPassword}});
         }
+        void setDocRoot(int port, std::filesystem::path const &docRoot) {
+            std::lock_guard<std::mutex> _(docRootMapMutex_);
+            docRootMap_[port] = docRoot;
+        }
 
         void finalizeEnvironment(TLSServerConfigurationComponent const *tlsConfig) {
             std::lock_guard<std::mutex> _(handlerMapMutex_);
@@ -471,6 +573,59 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 innerIter->second->c_str(), password.c_str(), password.length()
             ) == 0);
         }
+        std::optional<std::tuple<std::filesystem::path, std::string>> getDoc(int port, std::string const &path) const {
+            static const std::unordered_map<std::string, std::string> mimeMap {
+                {".html", "text/html"}
+                , {".htm", "text/html"}
+                , {".css", "text/css"}
+                , {".txt", "text/plain"}
+                , {".js", "application/javascript"}
+                , {".json", "application/json"}
+                , {".xml", "application/xml"}
+                , {".png", "image/png"}
+                , {".jpe", "image/jpeg"}
+                , {".jpeg", "image/jpeg"}
+                , {".jpg", "image/jpeg"}
+                , {".gif", "image/gif"}
+                , {".bmp", "image/bmp"}
+                , {".ico", "image/vnd.microsoft.icon"}
+                , {".tiff", "image/tiff"}
+                , {".tif", "image/tiff"}
+                , {".svg", "image/svg+xml"}
+                , {".svgz", "image/svg+xml"}
+                , {".pdf", "application/pdf"}
+                , {".wav", "audio/wav"}
+                , {".mp3", "audio/mpeg"}
+                , {".mp4", "video/mp4"}
+                , {".mpeg", "video/mpeg"}
+                , {".mpg", "video/mpeg"}
+                , {".dat", "application/octet-stream"}
+                , {".bin", "application/octet-stream"}
+            };
+            static const std::string DEFAULT_MIME = "application/text";
+            if (!boost::starts_with(path, "/") || path.find("..") != std::string::npos) {
+                return std::nullopt;
+            }
+            std::lock_guard<std::mutex> _(docRootMapMutex_);
+            auto iter = docRootMap_.find(port);
+            if (iter == docRootMap_.end()) {
+                return std::nullopt;
+            }
+            auto fullPath = iter->second / path.substr(1);
+            if (fullPath.filename() == "") {
+                fullPath = fullPath / "index.html";
+            }
+            if (!std::filesystem::exists(fullPath)) {
+                return std::nullopt;
+            }
+            auto suffix = fullPath.extension();
+            auto mimeIter = mimeMap.find(suffix);
+            std::string mime = DEFAULT_MIME;
+            if (mimeIter != mimeMap.end()) {
+                mime = mimeIter->second;
+            }
+            return std::tuple<std::filesystem::path,std::string> {fullPath, mime};
+        }
     };
 
     JsonRESTComponent::JsonRESTComponent() : impl_(std::make_unique<JsonRESTComponentImpl>()) {}
@@ -487,6 +642,9 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
     }
     void JsonRESTComponent::addBasicAuthentication_salted(int port, std::string const &login, std::string const &saltedPassword) {
         impl_->addBasicAuthentication_salted(port, login, saltedPassword);
+    }
+    void JsonRESTComponent::setDocRoot(int port, std::filesystem::path const &docRoot) {
+        impl_->setDocRoot(port, docRoot);
     }
     void JsonRESTComponent::finalizeEnvironment() {
         impl_->finalizeEnvironment(dynamic_cast<TLSServerConfigurationComponent const *>(this));

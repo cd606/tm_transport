@@ -4,6 +4,8 @@
 #include <tm_kit/transport/json_rest/JsonRESTComponentException.hpp>
 #include <tm_kit/transport/ConnectionLocator.hpp>
 
+#include <filesystem>
+
 namespace dev { namespace cd606 { namespace tm { namespace transport { namespace json_rest {
 
     class JsonRESTComponentImpl;
@@ -26,6 +28,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         void addBasicAuthentication(int port, std::string const &login, std::optional<std::string> const &password);
         //for this API, the password is already salted and hashed
         void addBasicAuthentication_salted(int port, std::string const &login, std::string const &saltedPassword);
+        void setDocRoot(int port, std::filesystem::path const &docRoot);
         void finalizeEnvironment();
     };
 

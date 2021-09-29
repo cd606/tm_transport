@@ -45,6 +45,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
         void setStatus(std::string const &itemDescription, HeartbeatMessage::Status status, std::string const &info="");
         void sendAlert(std::string const &alertTopic, infra::LogLevel level, std::string const &message);
         void publishHeartbeat(std::string const &heartbeatTopic);
+        void addExtraHeartbeatHandler(std::function<void(HeartbeatMessage &&)> handler);
     };
 
     //Please note that the hook passed to the initializer will be used for
@@ -349,6 +350,20 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
             }
         }
     };
+
+    template <class R, std::enable_if_t<
+            std::is_base_of_v<HeartbeatAndAlertComponent, typename R::EnvironmentType>
+            , int> = 0
+    >
+    typename R::template Source<HeartbeatMessage> addHeartbeatSource(R &r, std::string const &registerName="__heartbeat_source")
+    {
+        auto *env = static_cast<HeartbeatAndAlertComponent *>(r.environment());
+        auto importer = R::AppType::template triggerImporter<HeartbeatMessage>();
+        env->addExtraHeartbeatHandler(std::get<1>(importer));
+        r.registerImporter(registerName, std::get<0>(importer));
+        return r.importItem(std::get<0>(importer));
+    }
+
 
 } } } }
 

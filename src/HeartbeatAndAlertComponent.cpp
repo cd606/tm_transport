@@ -25,6 +25,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
         std::unordered_map<std::string, std::vector<std::string>> broadcastChannels_;
         std::unordered_map<std::string, std::string> facilityChannels_;
         std::map<std::string, HeartbeatMessage::OneItemStatus> status_;
+        std::vector<std::function<void(HeartbeatMessage &&)>> extraHandlers_;
         static std::string getHost() {
             char buf[1024];
             if (gethostname(buf, 1024) == 0) {
@@ -41,15 +42,16 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
             #endif
         }
     public:
-        HeartbeatAndAlertComponentImpl() : uuidStr_(BoostUUIDComponent::id_to_string(BoostUUIDComponent::new_id())), clock_(nullptr), host_(), pid_(0), identity_(), publisher_(std::nullopt), mutex_(), broadcastChannels_(), facilityChannels_(), status_() {}
-        HeartbeatAndAlertComponentImpl(basic::real_time_clock::ClockComponent *clock, std::string const &identity) : uuidStr_(BoostUUIDComponent::id_to_string(BoostUUIDComponent::new_id())), clock_(clock), host_(getHost()), pid_(getPid()), identity_(identity), publisher_(std::nullopt), mutex_(), broadcastChannels_(), facilityChannels_(), status_() {}
-        HeartbeatAndAlertComponentImpl(basic::real_time_clock::ClockComponent *clock, std::string const &identity, std::function<void(basic::ByteDataWithTopic &&)> pub) : uuidStr_(BoostUUIDComponent::id_to_string(BoostUUIDComponent::new_id())), clock_(clock), host_(getHost()), pid_(getPid()), identity_(identity), publisher_(pub), mutex_(), broadcastChannels_(), facilityChannels_(), status_() {}
+        HeartbeatAndAlertComponentImpl() : uuidStr_(BoostUUIDComponent::id_to_string(BoostUUIDComponent::new_id())), clock_(nullptr), host_(), pid_(0), identity_(), publisher_(std::nullopt), mutex_(), broadcastChannels_(), facilityChannels_(), status_(), extraHandlers_() {}
+        HeartbeatAndAlertComponentImpl(basic::real_time_clock::ClockComponent *clock, std::string const &identity) : uuidStr_(BoostUUIDComponent::id_to_string(BoostUUIDComponent::new_id())), clock_(clock), host_(getHost()), pid_(getPid()), identity_(identity), publisher_(std::nullopt), mutex_(), broadcastChannels_(), facilityChannels_(), status_(), extraHandlers_() {}
+        HeartbeatAndAlertComponentImpl(basic::real_time_clock::ClockComponent *clock, std::string const &identity, std::function<void(basic::ByteDataWithTopic &&)> pub) : uuidStr_(BoostUUIDComponent::id_to_string(BoostUUIDComponent::new_id())), clock_(clock), host_(getHost()), pid_(getPid()), identity_(identity), publisher_(pub), mutex_(), broadcastChannels_(), facilityChannels_(), status_(), extraHandlers_() {}
         void assignIdentity(HeartbeatAndAlertComponentImpl &&another) {
             clock_ = std::move(another.clock_);
             host_ = std::move(another.host_);
             pid_ = std::move(another.pid_);
             identity_ = std::move(another.identity_);
             publisher_ = std::move(another.publisher_);
+            extraHandlers_ = std::move(another.extraHandlers_);
         }
         void setStatus(std::string const &itemDescription, HeartbeatMessage::Status status, std::string const &info="") {
             std::lock_guard<std::mutex> _(mutex_);
@@ -95,7 +97,19 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                 std::string buf;
                 msg.SerializeToString(&buf);
                 (*publisher_)({heartbeatTopic, std::move(buf)});
+                auto sz = extraHandlers_.size();
+                for (int ii=0; ii<sz; ++ii) {
+                    if (ii == sz-1) {
+                        (extraHandlers_[ii])(std::move(msg));
+                    } else {
+                        (extraHandlers_[ii])(HeartbeatMessage {msg});
+                    }
+                }
             }
+        }
+        void addExtraHeartbeatHandler(std::function<void(HeartbeatMessage &&)> handler) {
+            std::lock_guard<std::mutex> _(mutex_);
+            extraHandlers_.push_back(handler);
         }
     };
 
@@ -127,6 +141,9 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
     }
     void HeartbeatAndAlertComponent::publishHeartbeat(std::string const &heartbeatTopic) {
         impl_->publishHeartbeat(heartbeatTopic);
+    }
+    void HeartbeatAndAlertComponent::addExtraHeartbeatHandler(std::function<void(HeartbeatMessage &&)> handler) {
+        impl_->addExtraHeartbeatHandler(handler);
     }
 
 } } } }
