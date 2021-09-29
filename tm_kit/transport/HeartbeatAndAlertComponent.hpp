@@ -355,7 +355,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
             std::is_base_of_v<HeartbeatAndAlertComponent, typename R::EnvironmentType>
             , int> = 0
     >
-    typename R::template Source<HeartbeatMessage> addHeartbeatSource(R &r, std::string const &registerName="__heartbeat_source")
+    typename R::template Source<HeartbeatMessage> addHeartbeatPublishingSource(R &r, std::string const &registerName="__heartbeat_source")
     {
         auto *env = static_cast<HeartbeatAndAlertComponent *>(r.environment());
         auto importer = R::AppType::template triggerImporter<HeartbeatMessage>();

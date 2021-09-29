@@ -12,6 +12,7 @@
 
 #include <tm_kit/basic/CommonFlowUtils.hpp>
 #include <tm_kit/basic/AppRunnerUtils.hpp>
+#include <tm_kit/basic/WrapFacilitioidConnectorForSerialization.hpp>
 
 namespace dev { namespace cd606 { namespace tm { namespace transport {
 
@@ -249,6 +250,41 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
             default:
                 throw std::runtime_error("[MultiTransportBroadcastPublisherManagingUtils::oneByteDataBroadcastPublisher] Trying to create unknown-protocol publisher with channel spec '"+channelSpec+"'");
                 break;
+            }
+        }
+        template <template<class... Xs> class ProtocolWrapper, class OutputType>
+        static auto oneBroadcastPublisherWithProtocol(
+            R &r
+            , std::string const &name
+            , std::string const &channelSpec
+            , std::optional<UserToWireHook> hook = std::nullopt
+            , bool threaded = false
+        ) -> typename R::template Sink<basic::TypedDataWithTopic<OutputType>>
+        {
+            if constexpr (std::is_same_v<basic::WrapFacilitioidConnectorForSerializationHelpers::WrappedType<
+                ProtocolWrapper, OutputType
+            >, OutputType>) {
+                return oneBroadcastPublisher<OutputType>(r, name, channelSpec, hook, threaded);
+            } else {
+                auto s = oneBroadcastPublisher<basic::WrapFacilitioidConnectorForSerializationHelpers::WrappedType<
+                    ProtocolWrapper, OutputType
+                >>(
+                    r, name, channelSpec, hook, false
+                );
+                auto transform = M::template liftPure<basic::TypedDataWithTopic<OutputType>>(
+                    [](basic::TypedDataWithTopic<OutputType> &&x) -> basic::TypedDataWithTopic<basic::WrapFacilitioidConnectorForSerializationHelpers::WrappedType<
+                        ProtocolWrapper, OutputType
+                    >> {
+                        return {
+                            std::move(x.topic)
+                            , {std::move(x.content)}
+                        };
+                    }
+                    , typename infra::LiftParameters<typename M::TimePoint>().SuggestThreaded(threaded)
+                );
+                r.registerAction(name+":transform", transform);
+                r.connect(r.actionAsSource(transform), s);
+                return r.actionAsSink(transform);
             }
         }
     };
