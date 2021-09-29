@@ -629,7 +629,13 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             if (!std::filesystem::exists(fullPath)) {
                 return std::nullopt;
             }
+#ifdef _MSC_VER
+            auto suffix_w = fullPath.extension();
+            std::wstring_convert<std::codecvt_utf8<wchar_t>, wchar_t> converter;
+            std::string suffix = converter.to_bytes(suffix_w);
+#else
             auto suffix = fullPath.extension();
+#endif
             auto mimeIter = mimeMap.find(suffix);
             std::string mime = DEFAULT_MIME;
             if (mimeIter != mimeMap.end()) {
