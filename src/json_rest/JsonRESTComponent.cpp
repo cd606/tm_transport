@@ -21,6 +21,7 @@
 #include <sstream>
 #ifdef _MSC_VER
 #include <locale>
+#include <codecvt>
 #endif
 
 #include <sodium/crypto_pwhash.h>
