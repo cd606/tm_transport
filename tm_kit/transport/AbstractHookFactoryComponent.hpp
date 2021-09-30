@@ -3,6 +3,7 @@
 
 #include <tm_kit/basic/ByteData.hpp>
 #include <tm_kit/transport/ByteDataHook.hpp>
+#include <tm_kit/basic/WrapFacilitioidConnectorForSerialization.hpp>
 #include <type_traits>
 
 namespace dev { namespace cd606 { namespace tm { namespace transport {
@@ -42,16 +43,26 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
     public:
         template <class DataT>
         static constexpr bool HasOutgoingHookFactory() {
-            return std::is_convertible_v<Env *, AbstractOutgoingHookFactoryComponent<DataT> *>;
+            return (
+                std::is_convertible_v<Env *, AbstractOutgoingHookFactoryComponent<DataT> *>
+                ||
+                std::is_convertible_v<Env *, AbstractOutgoingHookFactoryComponent<typename basic::WrapFacilitioidConnectorForSerializationHelpers::UnwrappedType<DataT>> *>
+            );
         }
         template <class DataT>
         static constexpr bool HasIncomingHookFactory() {
-            return std::is_convertible_v<Env *, AbstractIncomingHookFactoryComponent<DataT> *>;
+            return (
+                std::is_convertible_v<Env *, AbstractIncomingHookFactoryComponent<DataT> *>
+                ||
+                std::is_convertible_v<Env *, AbstractIncomingHookFactoryComponent<typename basic::WrapFacilitioidConnectorForSerializationHelpers::UnwrappedType<DataT>> *>
+            );
         }
         template <class DataT>
         static std::optional<UserToWireHook> outgoingHook(Env *env) {
             if constexpr (std::is_convertible_v<Env *, AbstractOutgoingHookFactoryComponent<DataT> *>) {
                 return static_cast<AbstractOutgoingHookFactoryComponent<DataT> *>(env)->defaultHook();
+            } else if constexpr (std::is_convertible_v<Env *, AbstractOutgoingHookFactoryComponent<typename basic::WrapFacilitioidConnectorForSerializationHelpers::UnwrappedType<DataT>> *>) {
+                return static_cast<AbstractOutgoingHookFactoryComponent<typename basic::WrapFacilitioidConnectorForSerializationHelpers::UnwrappedType<DataT>> *>(env)->defaultHook();
             } else {
                 return std::nullopt;
             }
@@ -60,6 +71,8 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
         static std::optional<WireToUserHook> incomingHook(Env *env) {
             if constexpr (std::is_convertible_v<Env *, AbstractIncomingHookFactoryComponent<DataT> *>) {
                 return static_cast<AbstractIncomingHookFactoryComponent<DataT> *>(env)->defaultHook();
+            } else if constexpr (std::is_convertible_v<Env *, AbstractIncomingHookFactoryComponent<typename basic::WrapFacilitioidConnectorForSerializationHelpers::UnwrappedType<DataT>> *>) {
+                return static_cast<AbstractIncomingHookFactoryComponent<typename basic::WrapFacilitioidConnectorForSerializationHelpers::UnwrappedType<DataT>> *>(env)->defaultHook();
             } else {
                 return std::nullopt;
             }

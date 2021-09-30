@@ -555,6 +555,12 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             for (auto const &item : handlerMap_) {
                 startAcceptor(item.first, tlsConfig);
             }
+            std::lock_guard<std::mutex> _m2(docRootMapMutex_);
+            for (auto const &item : docRootMap_) {
+                if (handlerMap_.find(item.first) == handlerMap_.end()) {
+                    startAcceptor(item.first, tlsConfig);
+                }
+            }
             started_ = true;
         }
         void removeAcceptor(int port) {
