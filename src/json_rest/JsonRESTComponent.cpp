@@ -1,5 +1,6 @@
 #include <tm_kit/transport/json_rest/JsonRESTComponent.hpp>
 #include <tm_kit/transport/TLSConfigurationComponent.hpp>
+#include <tm_kit/transport/HostNameUtil.hpp>
 
 #include <boost/beast/core.hpp>
 #include <boost/beast/http.hpp>
@@ -49,6 +50,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             std::atomic<bool> running_;
 
             boost::asio::ip::tcp::acceptor acceptor_;
+            std::string realm_;
 
             class OneHandler : public std::enable_shared_from_this<OneHandler> {
             private:
@@ -153,7 +155,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                     if (!parent_->parent()->checkBasicAuthentication(parent_->port(), login, password)) {
                         auto *res = new boost::beast::http::response<boost::beast::http::string_body> {boost::beast::http::status::unauthorized, req_.version()};
                         res->set(boost::beast::http::field::server, BOOST_BEAST_VERSION_STRING);
-                        res->set(boost::beast::http::field::www_authenticate, "Basic realm=\"json_rest\"");
+                        res->set(boost::beast::http::field::www_authenticate, "Basic realm=\""+parent_->realm()+"\"");
                         res->prepare_payload();
                         if (stream_.index() == 1) {
                             boost::beast::http::async_write(
@@ -161,7 +163,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                                 , *res
                                 , [x=shared_from_this(),res](boost::system::error_code const &write_ec, std::size_t bytes_written) {
                                     delete res;
-                                    x->doClose(boost::beast::error_code());
+                                    x->doRead();
                                 }
                             );
                         } else {
@@ -170,7 +172,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                                 , *res
                                 , [x=shared_from_this(),res](boost::system::error_code const &write_ec, std::size_t bytes_written) {
                                     delete res;
-                                    x->doClose(boost::beast::error_code());
+                                    x->doRead();
                                 }
                             );
                         }
@@ -396,6 +398,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 , th_()
                 , running_(true)
                 , acceptor_(svc_)
+                , realm_(std::string("tm_kit_json_rest_")+std::to_string(port)+"@"+hostname_util::hostname())
             {
                 auto addr = boost::asio::ip::make_address("0.0.0.0");
                 if (sslCtx_) {
@@ -464,6 +467,9 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             }
             JsonRESTComponentImpl *parent() const {
                 return parent_;
+            }
+            std::string const &realm() const {
+                return realm_;
             }
         };
 

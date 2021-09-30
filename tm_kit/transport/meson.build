@@ -24,6 +24,7 @@ tm_transport_headers = [
       , 'RemoteTransactionSubscriberManagingUtils.hpp'
       , 'MultiTransportTouchups.hpp'
       , 'TLSConfigurationComponent.hpp'
+      , 'HostNameUtil.hpp'
     ]
   
 install_headers(tm_transport_headers, subdir : 'tm_kit/transport')

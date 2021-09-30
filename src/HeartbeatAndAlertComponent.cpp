@@ -1,16 +1,9 @@
 #include <tm_kit/transport/HeartbeatAndAlertComponent.hpp>
 #include <tm_kit/transport/BoostUUIDComponent.hpp>
+#include <tm_kit/transport/HostNameUtil.hpp>
+#include <tm_kit/infra/PidUtil.hpp>
 
 #include <unordered_set>
-
-#ifdef _MSC_VER
-#include <windows.h>
-#include <processthreadsapi.h>
-#include <winsock.h>
-#else
-#include <sys/types.h>
-#include <unistd.h>
-#endif
 
 namespace dev { namespace cd606 { namespace tm { namespace transport {
     class HeartbeatAndAlertComponentImpl {
@@ -26,25 +19,10 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
         std::unordered_map<std::string, std::string> facilityChannels_;
         std::map<std::string, HeartbeatMessage::OneItemStatus> status_;
         std::vector<std::function<void(HeartbeatMessage &&)>> extraHandlers_;
-        static std::string getHost() {
-            char buf[1024];
-            if (gethostname(buf, 1024) == 0) {
-                return buf;
-            } else {
-                return "";
-            }
-        }
-        static int64_t getPid() {
-            #ifdef _MSC_VER
-                return (int64_t) GetCurrentProcessId();
-            #else
-                return (int64_t) getpid();
-            #endif
-        }
     public:
         HeartbeatAndAlertComponentImpl() : uuidStr_(BoostUUIDComponent::id_to_string(BoostUUIDComponent::new_id())), clock_(nullptr), host_(), pid_(0), identity_(), publisher_(std::nullopt), mutex_(), broadcastChannels_(), facilityChannels_(), status_(), extraHandlers_() {}
-        HeartbeatAndAlertComponentImpl(basic::real_time_clock::ClockComponent *clock, std::string const &identity) : uuidStr_(BoostUUIDComponent::id_to_string(BoostUUIDComponent::new_id())), clock_(clock), host_(getHost()), pid_(getPid()), identity_(identity), publisher_(std::nullopt), mutex_(), broadcastChannels_(), facilityChannels_(), status_(), extraHandlers_() {}
-        HeartbeatAndAlertComponentImpl(basic::real_time_clock::ClockComponent *clock, std::string const &identity, std::function<void(basic::ByteDataWithTopic &&)> pub) : uuidStr_(BoostUUIDComponent::id_to_string(BoostUUIDComponent::new_id())), clock_(clock), host_(getHost()), pid_(getPid()), identity_(identity), publisher_(pub), mutex_(), broadcastChannels_(), facilityChannels_(), status_(), extraHandlers_() {}
+        HeartbeatAndAlertComponentImpl(basic::real_time_clock::ClockComponent *clock, std::string const &identity) : uuidStr_(BoostUUIDComponent::id_to_string(BoostUUIDComponent::new_id())), clock_(clock), host_(hostname_util::hostname()), pid_(infra::pid_util::getpid()), identity_(identity), publisher_(std::nullopt), mutex_(), broadcastChannels_(), facilityChannels_(), status_(), extraHandlers_() {}
+        HeartbeatAndAlertComponentImpl(basic::real_time_clock::ClockComponent *clock, std::string const &identity, std::function<void(basic::ByteDataWithTopic &&)> pub) : uuidStr_(BoostUUIDComponent::id_to_string(BoostUUIDComponent::new_id())), clock_(clock), host_(hostname_util::hostname()), pid_(infra::pid_util::getpid()), identity_(identity), publisher_(pub), mutex_(), broadcastChannels_(), facilityChannels_(), status_(), extraHandlers_() {}
         void assignIdentity(HeartbeatAndAlertComponentImpl &&another) {
             clock_ = std::move(another.clock_);
             host_ = std::move(another.host_);
