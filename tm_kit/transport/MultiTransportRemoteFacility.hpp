@@ -875,6 +875,36 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                 throw std::runtime_error("OneShotMultiTransportRemoteFacilityCall::call: unknown connection type");
             }
         }
+        template <template<class...> class ProtocolWrapper, class A, class B>
+        static std::future<B> callWithProtocol(
+            Env *env
+            , MultiTransportRemoteFacilityConnectionType connType
+            , ConnectionLocator const &locator
+            , A &&request
+            , std::optional<ByteDataHookPair> hooks = std::nullopt
+            , bool autoDisconnect = true
+        ) {
+            if constexpr (std::is_same_v<
+                basic::WrapFacilitioidConnectorForSerializationHelpers::WrappedType<ProtocolWrapper,A>
+                , A
+            >) {
+                return call<A,B>(env, connType, locator, std::move(request), hooks, autoDisconnect);
+            } else {
+                auto wrappedB = call<
+                    basic::WrapFacilitioidConnectorForSerializationHelpers::WrappedType<ProtocolWrapper,A>
+                    , basic::WrapFacilitioidConnectorForSerializationHelpers::WrappedType<ProtocolWrapper,B>
+                >(
+                    env, connType, locator
+                    , basic::WrapFacilitioidConnectorForSerializationHelpers::WrapperUtils<ProtocolWrapper>
+                        ::enclose(std::move(request))
+                    , hooks, autoDisconnect
+                );
+                return std::async(std::launch::deferred, [wrappedB=std::move(wrappedB)]() mutable -> B {
+                    return basic::WrapFacilitioidConnectorForSerializationHelpers::WrapperUtils<ProtocolWrapper>
+                        ::extract(wrappedB.get());
+                });
+            }
+        }
         template <class A, class B>
         static std::future<B> call(
             Env *env
@@ -886,6 +916,21 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
             auto parseRes = parseMultiTransportRemoteFacilityChannel(facilityDescriptor);
             if (parseRes) {
                 return call<A,B>(env, std::get<0>(*parseRes), std::get<1>(*parseRes), std::move(request), hooks, autoDisconnect);
+            } else {
+                throw std::runtime_error("OneShotMultiTransportRemoteFacilityCall::call: bad facility descriptor '"+facilityDescriptor+"'");
+            }
+        }
+        template <template<class...> class ProtocolWrapper, class A, class B>
+        static std::future<B> callWithProtocol(
+            Env *env
+            , std::string const &facilityDescriptor
+            , A &&request
+            , std::optional<ByteDataHookPair> hooks = std::nullopt
+            , bool autoDisconnect = true
+        ) {
+            auto parseRes = parseMultiTransportRemoteFacilityChannel(facilityDescriptor);
+            if (parseRes) {
+                return callWithProtocol<ProtocolWrapper,A,B>(env, std::get<0>(*parseRes), std::get<1>(*parseRes), std::move(request), hooks, autoDisconnect);
             } else {
                 throw std::runtime_error("OneShotMultiTransportRemoteFacilityCall::call: bad facility descriptor '"+facilityDescriptor+"'");
             }
@@ -956,6 +1001,25 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                 throw std::runtime_error("OneShotMultiTransportRemoteFacilityCall::callNoReply: unknown connection type");
             }
         }
+        template <template <class...> class ProtocolWrapper, class A, class B>
+        static void callNoReplyWithProtocol(
+            Env *env
+            , MultiTransportRemoteFacilityConnectionType connType
+            , ConnectionLocator const &locator
+            , A &&request
+            , std::optional<ByteDataHookPair> hooks = std::nullopt
+            , bool autoDisconnect = true
+        ) {
+            callNoReply<
+                basic::WrapFacilitioidConnectorForSerializationHelpers::WrappedType<ProtocolWrapper,A>
+                , basic::WrapFacilitioidConnectorForSerializationHelpers::WrappedType<ProtocolWrapper,B>
+            >(
+                env, connType, locator 
+                , basic::WrapFacilitioidConnectorForSerializationHelpers::WrapperUtils<ProtocolWrapper>
+                    ::enclose(std::move(request))
+                , hooks, autoDisconnect
+            );
+        }
         template <class A, class B>
         static void callNoReply(
             Env *env
@@ -967,6 +1031,21 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
             auto parseRes = parseMultiTransportRemoteFacilityChannel(facilityDescriptor);
             if (parseRes) {
                 callNoReply<A,B>(env, std::get<0>(*parseRes), std::get<1>(*parseRes), std::move(request), hooks, autoDisconnect);
+            } else {
+                throw std::runtime_error("OneShotMultiTransportRemoteFacilityCall::callNoReply: bad facility descriptor '"+facilityDescriptor+"'");
+            }
+        }
+        template <template<class...> class ProtocolWrapper, class A, class B>
+        static void callNoReplyWithProtocol(
+            Env *env
+            , std::string const &facilityDescriptor
+            , A &&request
+            , std::optional<ByteDataHookPair> hooks = std::nullopt
+            , bool autoDisconnect = true
+        ) {
+            auto parseRes = parseMultiTransportRemoteFacilityChannel(facilityDescriptor);
+            if (parseRes) {
+                callNoReplyWithProtocol<ProtocolWrapper,A,B>(env, std::get<0>(*parseRes), std::get<1>(*parseRes), std::move(request), hooks, autoDisconnect);
             } else {
                 throw std::runtime_error("OneShotMultiTransportRemoteFacilityCall::callNoReply: bad facility descriptor '"+facilityDescriptor+"'");
             }
@@ -1034,6 +1113,23 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                 return std::nullopt;
             }
         }
+        template <template<class...> class ProtocolWrapper, class A, class B>
+        static std::optional<B> callWithProtocolWithTimeout(
+            Env *env
+            , MultiTransportRemoteFacilityConnectionType connType
+            , ConnectionLocator const &locator
+            , A &&request
+            , std::chrono::system_clock::duration const &timeOut
+            , std::optional<ByteDataHookPair> hooks = std::nullopt
+        ) {
+            auto ret = callWithProtocol<ProtocolWrapper,A,B>(env, connType, locator, std::move(request), hooks, true);
+            if (ret.wait_for(timeOut) == std::future_status::ready) {
+                return {std::move(ret.get())};
+            } else {
+                removeClient(env, connType, locator);
+                return std::nullopt;
+            }
+        }
         template <class A, class B>
         static std::optional<B> callWithTimeout(
             Env *env
@@ -1045,6 +1141,21 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
             auto parseRes = parseMultiTransportRemoteFacilityChannel(facilityDescriptor);
             if (parseRes) {
                 return callWithTimeout<A,B>(env, std::get<0>(*parseRes), std::get<1>(*parseRes), std::move(request), timeOut, hooks);
+            } else {
+                throw std::runtime_error("OneShotMultiTransportRemoteFacilityCall::callWithTimeout: bad facility descriptor '"+facilityDescriptor+"'");
+            }
+        }
+        template <template<class...> class ProtocolWrapper, class A, class B>
+        static std::optional<B> callWithProtocolWithTimeout(
+            Env *env
+            , std::string const &facilityDescriptor
+            , A &&request
+            , std::chrono::system_clock::duration const &timeOut
+            , std::optional<ByteDataHookPair> hooks = std::nullopt
+        ) {
+            auto parseRes = parseMultiTransportRemoteFacilityChannel(facilityDescriptor);
+            if (parseRes) {
+                return callWithProtocolWithTimeout<ProtocolWrapper,A,B>(env, std::get<0>(*parseRes), std::get<1>(*parseRes), std::move(request), timeOut, hooks);
             } else {
                 throw std::runtime_error("OneShotMultiTransportRemoteFacilityCall::callWithTimeout: bad facility descriptor '"+facilityDescriptor+"'");
             }
@@ -1088,6 +1199,43 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                 );
             }
         }
+        template <template<class...> class ProtocolWrapper, class A, class B>
+        static std::future<B> callWithProtocolByHeartbeat(
+            Env *env
+            , std::string const &heartbeatChannelSpec
+            , std::string const &heartbeatTopicDescription
+            , std::regex const &heartbeatSenderNameRE
+            , std::string const &facilityNameInServer
+            , A &&request
+            , std::optional<WireToUserHook> heartbeatHook = std::nullopt
+            , std::optional<ByteDataHookPair> hooks = std::nullopt
+            , bool autoDisconnect = true
+        ) {
+            if constexpr (std::is_same_v<
+                basic::WrapFacilitioidConnectorForSerializationHelpers::WrappedType<ProtocolWrapper,A>
+                , A
+            >) {
+                return callByHeartbeat<A,B>(
+                    env, heartbeatChannelSpec, heartbeatTopicDescription, heartbeatSenderNameRE, facilityNameInServer
+                    , std::move(request)
+                    , heartbeatHook, hooks, autoDisconnect 
+                );
+            } else {
+                auto wrappedB = callByHeartbeat<
+                    basic::WrapFacilitioidConnectorForSerializationHelpers::WrappedType<ProtocolWrapper,A>
+                    , basic::WrapFacilitioidConnectorForSerializationHelpers::WrappedType<ProtocolWrapper,B>
+                >(
+                    env, heartbeatChannelSpec, heartbeatTopicDescription, heartbeatSenderNameRE, facilityNameInServer
+                    , basic::WrapFacilitioidConnectorForSerializationHelpers::WrapperUtils<ProtocolWrapper>
+                        ::enclose(std::move(request))
+                    , heartbeatHook, hooks, autoDisconnect
+                );
+                return std::async(std::launch::deferred, [wrappedB=std::move(wrappedB)]() mutable -> B {
+                    return basic::WrapFacilitioidConnectorForSerializationHelpers::WrapperUtils<ProtocolWrapper>
+                        ::extract(wrappedB.get());
+                });
+            }
+        }
         template <class A, class B>
         static void callNoReplyByHeartbeat(
             Env *env
@@ -1127,6 +1275,28 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                 );
             }
         }
+        template <template<class...> class ProtocolWrapper, class A, class B>
+        static void callNoReplyWithProtocolByHeartbeat(
+            Env *env
+            , std::string const &heartbeatChannelSpec
+            , std::string const &heartbeatTopicDescription
+            , std::regex const &heartbeatSenderNameRE
+            , std::string const &facilityNameInServer
+            , A &&request
+            , std::optional<WireToUserHook> heartbeatHook = std::nullopt
+            , std::optional<ByteDataHookPair> hooks = std::nullopt
+            , bool autoDisconnect = true
+        ) {
+            callNoReplyByHeartbeat<
+                basic::WrapFacilitioidConnectorForSerializationHelpers::WrappedType<ProtocolWrapper,A>
+                , basic::WrapFacilitioidConnectorForSerializationHelpers::WrappedType<ProtocolWrapper,B>
+            >(
+                env, heartbeatChannelSpec, heartbeatTopicDescription, heartbeatSenderNameRE, facilityNameInServer
+                , basic::WrapFacilitioidConnectorForSerializationHelpers::WrapperUtils<ProtocolWrapper>
+                    ::enclose(std::move(request))
+                , heartbeatHook, hooks, autoDisconnect
+            );
+        }
         template <class A, class B>
         static std::optional<B> callWithTimeoutByHeartbeat(
             Env *env
@@ -1158,6 +1328,45 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                 throw std::runtime_error("OneShotMultiTransportRemoteFacilityCall::callByHeartbeat: no facility name "+facilityNameInServer+" in heartbeat message");
             } else {
                 return callWithTimeout<A,B>(
+                    env 
+                    , iter->second
+                    , std::move(request)
+                    , timeOut
+                    , hooks 
+                );
+            }
+        }
+        template <template<class...> class ProtocolWrapper, class A, class B>
+        static std::optional<B> callWithProtocolWithTimeoutByHeartbeat(
+            Env *env
+            , std::string const &heartbeatChannelSpec
+            , std::string const &heartbeatTopicDescription
+            , std::regex const &heartbeatSenderNameRE
+            , std::string const &facilityNameInServer
+            , A &&request
+            , std::chrono::system_clock::duration const &timeOut
+            , std::optional<WireToUserHook> heartbeatHook = std::nullopt
+            , std::optional<ByteDataHookPair> hooks = std::nullopt
+        ) {
+            auto heartbeatResult = MultiTransportBroadcastFirstUpdateQueryManagingUtils<Env>
+                ::template fetchTypedFirstUpdateAndDisconnect<HeartbeatMessage>
+                (
+                    env
+                    , heartbeatChannelSpec
+                    , heartbeatTopicDescription
+                    , [heartbeatSenderNameRE](HeartbeatMessage const &m) {
+                        return std::regex_match(
+                            m.senderDescription()
+                            , heartbeatSenderNameRE
+                        );
+                    }
+                    , heartbeatHook
+                ).get().content;
+            auto iter = heartbeatResult.facilityChannels().find(facilityNameInServer);
+            if (iter == heartbeatResult.facilityChannels().end()) {
+                throw std::runtime_error("OneShotMultiTransportRemoteFacilityCall::callByHeartbeat: no facility name "+facilityNameInServer+" in heartbeat message");
+            } else {
+                return callWithProtocolWithTimeout<ProtocolWrapper,A,B>(
                     env 
                     , iter->second
                     , std::move(request)
