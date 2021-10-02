@@ -195,7 +195,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                                         , isFinal
                                     );
                                 } else {
-                                    auto processRes = static_cast<ClientSideAbstractIdentityAttacherComponent<Identity,A> *>(env)->process_incoming_data(
+                                    auto processRes = static_cast<typename DetermineClientSideIdentityForRequest<Env, A>::ComponentType *>(env)->process_incoming_data(
                                         basic::ByteData {std::move(data.content)}
                                     );
                                     if (processRes) {
@@ -226,9 +226,9 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                                 });
                             };
                         } else {
-                            static_assert(std::is_convertible_v<Env *, ClientSideAbstractIdentityAttacherComponent<Identity,A> *>
+                            static_assert(std::is_convertible_v<Env *, typename DetermineClientSideIdentityForRequest<Env, A>::ComponentType *>
                                         , "the client side identity attacher must be present");
-                            auto *attacher = static_cast<ClientSideAbstractIdentityAttacherComponent<Identity,A> *>(env);
+                            auto *attacher = static_cast<typename DetermineClientSideIdentityForRequest<Env, A>::ComponentType *>(env);
                             req = [attacher,rawReq](std::string const &id, A &&data) {
                                 rawReq(basic::ByteDataWithID {
                                     id
@@ -287,7 +287,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                                         , isFinal
                                     );
                                 } else {
-                                    auto processRes = static_cast<ClientSideAbstractIdentityAttacherComponent<Identity,A> *>(env)->process_incoming_data(
+                                    auto processRes = static_cast<typename DetermineClientSideIdentityForRequest<Env, A>::ComponentType *>(env)->process_incoming_data(
                                         basic::ByteData {std::move(data.content)}
                                     );
                                     if (processRes) {
@@ -318,9 +318,9 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                                 });
                             };
                         } else {
-                            static_assert(std::is_convertible_v<Env *, ClientSideAbstractIdentityAttacherComponent<Identity,A> *>
+                            static_assert(std::is_convertible_v<Env *, typename DetermineClientSideIdentityForRequest<Env, A>::ComponentType *>
                                         , "the client side identity attacher must be present");
-                            auto *attacher = static_cast<ClientSideAbstractIdentityAttacherComponent<Identity,A> *>(env);
+                            auto *attacher = static_cast<typename DetermineClientSideIdentityForRequest<Env, A>::ComponentType *>(env);
                             req = [attacher,rawReq](std::string const &id, A &&data) {
                                 rawReq(basic::ByteDataWithID {
                                     id
@@ -376,7 +376,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                                         , isFinal
                                     );
                                 } else {
-                                    auto processRes = static_cast<ClientSideAbstractIdentityAttacherComponent<Identity,A> *>(env)->process_incoming_data(
+                                    auto processRes = static_cast<typename DetermineClientSideIdentityForRequest<Env, A>::ComponentType *>(env)->process_incoming_data(
                                         basic::ByteData {std::move(data.content)}
                                     );
                                     if (processRes) {
@@ -407,9 +407,9 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                                 });
                             };
                         } else {
-                            static_assert(std::is_convertible_v<Env *, ClientSideAbstractIdentityAttacherComponent<Identity,A> *>
+                            static_assert(std::is_convertible_v<Env *, typename DetermineClientSideIdentityForRequest<Env, A>::ComponentType *>
                                         , "the client side identity attacher must be present");
-                            auto *attacher = static_cast<ClientSideAbstractIdentityAttacherComponent<Identity,A> *>(env);
+                            auto *attacher = static_cast<typename DetermineClientSideIdentityForRequest<Env, A>::ComponentType *>(env);
                             req = [attacher,rawReq](std::string const &id, A &&data) {
                                 rawReq(basic::ByteDataWithID {
                                     id

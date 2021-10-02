@@ -786,6 +786,97 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                 }
             }, std::move(heartbeatSource));
         }
+    private:
+        template <template <class...> class ProtocolWrapper, class Request, class Result>
+        static auto adaptNonDistinguishedRemoteFacility(
+            NonDistinguishedRemoteFacility<
+                basic::WrapFacilitioidConnectorForSerializationHelpers::WrappedType<ProtocolWrapper,Request>
+                , basic::WrapFacilitioidConnectorForSerializationHelpers::WrappedType<ProtocolWrapper,Result>
+            > const &f
+            , std::string const &facilityRegistrationName
+        ) -> NonDistinguishedRemoteFacility<Request, Result>
+        {
+            return {
+                basic::WrapFacilitioidConnectorForSerialization<R>
+                    ::template wrapClientSideWithProtocol<ProtocolWrapper,Request,Result>(
+                        f.facility
+                        , "protocol:"+facilityRegistrationName
+                    )
+                , f.feedUnderlyingCount
+            };
+        }
+        template <template <class...> class ProtocolWrapper, class Request, class Result>
+        static auto adaptDistinguishedRemoteFacility(
+            R &r
+            , DistinguishedRemoteFacility<
+                basic::WrapFacilitioidConnectorForSerializationHelpers::WrappedType<ProtocolWrapper,Request>
+                , basic::WrapFacilitioidConnectorForSerializationHelpers::WrappedType<ProtocolWrapper,Result>
+            > const &f
+            , std::string const &facilityRegistrationName
+        ) -> DistinguishedRemoteFacility<Request, Result>
+        {
+            auto receiver = M::template liftPure<typename M::template Key<std::tuple<ConnectionLocator, Request>>>(
+                [](typename M::template Key<std::tuple<ConnectionLocator, Request>> &&x) 
+                    -> typename M::template Key<std::tuple<ConnectionLocator, basic::WrapFacilitioidConnectorForSerializationHelpers::WrappedType<ProtocolWrapper,Request>>>
+                {
+                    return {
+                        x.id()
+                        , {
+                            std::move(std::get<0>(x.key()))
+                            , basic::WrapFacilitioidConnectorForSerializationHelpers::WrapperUtils<ProtocolWrapper>
+                                ::template enclose<Request>(std::get<1>(x.key()))
+                        }
+                    };
+                }
+            );
+            auto feedResults = M::template liftPure<
+                typename M::template KeyedData<
+                    std::tuple<ConnectionLocator, basic::WrapFacilitioidConnectorForSerializationHelpers::WrappedType<ProtocolWrapper,Request>>
+                    , basic::WrapFacilitioidConnectorForSerializationHelpers::WrappedType<ProtocolWrapper,Result>
+                >
+            >(
+                [](typename M::template KeyedData<
+                        std::tuple<ConnectionLocator, basic::WrapFacilitioidConnectorForSerializationHelpers::WrappedType<ProtocolWrapper,Request>>
+                        , basic::WrapFacilitioidConnectorForSerializationHelpers::WrappedType<ProtocolWrapper,Result>
+                    > &&x
+                ) -> typename M::template KeyedData<
+                    std::tuple<ConnectionLocator, Request>
+                    , Result
+                >
+                {
+                    return {
+                        {
+                            x.key.id()
+                            , {
+                                std::get<0>(x.key.key())
+                                , basic::WrapFacilitioidConnectorForSerializationHelpers::WrapperUtils<ProtocolWrapper>
+                                    ::template extract<Request>(std::get<1>(x.key.key()))
+                            }
+                        }
+                        , basic::WrapFacilitioidConnectorForSerializationHelpers::WrapperUtils<ProtocolWrapper>
+                            ::template extract<Result>(std::move(x.data))
+                    };
+                }
+            );
+            r.registerAction("protocol:"+facilityRegistrationName+"/receiver", receiver);
+            r.registerAction("protocol:"+facilityRegistrationName+"/feedResults", feedResults);
+            f.orderReceiver(r, r.actionAsSource(receiver));
+            f.feedOrderResults(r, r.actionAsSink(feedResults));
+            auto receiverPlug = M::template vacuousImporter<typename M::template Key<std::tuple<ConnectionLocator, Request>>>();
+            r.registerImporter("protocol:"+facilityRegistrationName+"/receiverPlug", receiverPlug);
+            auto feedOrderResultsPlug = M::template trivialExporter<typename M::template KeyedData<
+                    std::tuple<ConnectionLocator, Request>
+                    , Result
+                >>();
+            r.registerExporter("protocol:"+facilityRegistrationName+"/feedOrderResultsPlug", feedOrderResultsPlug);
+            r.execute(receiver, r.importItem(receiverPlug));
+            r.exportItem(feedOrderResultsPlug, r.actionAsSource(feedResults));
+            return {
+                r.sinkAsSinkoid(r.actionAsSink(receiver))
+                , r.sourceAsSourceoid(r.actionAsSource(feedResults))
+                , f.feedConnectionChanges
+            };
+        }
     public:
         template <class Request, class Result>
         static auto setupOneNonDistinguishedRemoteFacility(
@@ -826,6 +917,40 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                     return hooks;
                 }
             )));
+        }
+        template <template <class...> class ProtocolWrapper, class Request, class Result>
+        static auto setupOneNonDistinguishedRemoteFacilityWithProtocol(
+            R &r 
+            , std::variant<
+                typename R::template ConvertibleToSourceoid<HeartbeatMessage>
+                , typename R::template ConvertibleToSourceoid<std::shared_ptr<HeartbeatMessage const>>
+            > &&heartbeatSource
+            , std::regex const &serverNameRE
+            , std::string const &facilityRegistrationName 
+            , std::optional<ByteDataHookPair> hooks = std::nullopt
+            , std::chrono::system_clock::duration ttl = std::chrono::seconds(3)
+            , std::chrono::system_clock::duration checkPeriod = std::chrono::seconds(5)
+        ) -> NonDistinguishedRemoteFacility<Request, Result>
+        {
+            if constexpr (std::is_same_v<basic::WrapFacilitioidConnectorForSerializationHelpers::WrappedType<
+                ProtocolWrapper, Request
+            >, Request>) {
+                return setupOneNonDistinguishedRemoteFacility<Request,Result>(
+                    r, std::move(heartbeatSource), serverNameRE
+                    , facilityRegistrationName, hooks, ttl, checkPeriod
+                );
+            } else {
+                auto x = setupOneNonDistinguishedRemoteFacility<
+                    basic::WrapFacilitioidConnectorForSerializationHelpers::WrappedType<ProtocolWrapper,Request>
+                    , basic::WrapFacilitioidConnectorForSerializationHelpers::WrappedType<ProtocolWrapper,Result>
+                >(
+                    r, std::move(heartbeatSource), serverNameRE
+                    , facilityRegistrationName, hooks, ttl, checkPeriod
+                );
+                return adaptNonDistinguishedRemoteFacility<
+                    ProtocolWrapper, Request, Result
+                >(x, facilityRegistrationName);
+            }
         }
         template <class Request, class Result>
         static auto setupOneDistinguishedRemoteFacility(
@@ -869,6 +994,61 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                     return hooks;
                 }
             )));
+        }
+        template <template <class...> class ProtocolWrapper, class Request, class Result>
+        static auto setupOneDistinguishedRemoteFacilityWithProtocol(
+            R &r 
+            , std::variant<
+                typename R::template ConvertibleToSourceoid<HeartbeatMessage>
+                , typename R::template ConvertibleToSourceoid<std::shared_ptr<HeartbeatMessage const>>
+            > &&heartbeatSource
+            , std::regex const &serverNameRE
+            , std::string const &facilityRegistrationName
+            , std::function<Request()> requestGenerator
+            , std::function<bool(Request const &, Result const &)> resultChecker
+            , std::optional<ByteDataHookPair> hooks = std::nullopt
+            , std::chrono::system_clock::duration ttl = std::chrono::seconds(3)
+            , std::chrono::system_clock::duration checkPeriod = std::chrono::seconds(5)
+        ) -> DistinguishedRemoteFacility<Request, Result>
+        {
+            if constexpr (std::is_same_v<basic::WrapFacilitioidConnectorForSerializationHelpers::WrappedType<
+                ProtocolWrapper, Request
+            >, Request>) {
+                return setupOneDistinguishedRemoteFacility<Request,Result>(
+                    r, std::move(heartbeatSource), serverNameRE
+                    , facilityRegistrationName, requestGenerator, resultChecker
+                    , hooks, ttl, checkPeriod
+                );
+            } else {
+                auto gen = [requestGenerator]() 
+                    -> basic::WrapFacilitioidConnectorForSerializationHelpers::WrappedType<ProtocolWrapper,Request>
+                {
+                    return basic::WrapFacilitioidConnectorForSerializationHelpers::WrapperUtils<ProtocolWrapper>
+                        ::template enclose<Request>(requestGenerator());
+                };
+                auto checker = [resultChecker](
+                    basic::WrapFacilitioidConnectorForSerializationHelpers::WrappedType<ProtocolWrapper,Request> const &req 
+                    , basic::WrapFacilitioidConnectorForSerializationHelpers::WrappedType<ProtocolWrapper,Result> const &res
+                ) -> bool {
+                    return resultChecker(
+                        basic::WrapFacilitioidConnectorForSerializationHelpers::WrapperUtils<ProtocolWrapper>
+                            ::template extractConst<Request>(req)
+                        , basic::WrapFacilitioidConnectorForSerializationHelpers::WrapperUtils<ProtocolWrapper>
+                            ::template extractConst<Result>(res)
+                    );
+                };
+                auto x = setupOneDistinguishedRemoteFacility<
+                    basic::WrapFacilitioidConnectorForSerializationHelpers::WrappedType<ProtocolWrapper,Request>
+                    , basic::WrapFacilitioidConnectorForSerializationHelpers::WrappedType<ProtocolWrapper,Result>
+                >(
+                    r, std::move(heartbeatSource), serverNameRE
+                    , facilityRegistrationName, gen, checker
+                    , hooks, ttl, checkPeriod
+                );
+                return adaptDistinguishedRemoteFacility<
+                    ProtocolWrapper, Request, Result
+                >(r, x, facilityRegistrationName);   
+            }
         }
         template <class FirstRequest, class FirstResult, class SecondRequest, class SecondResult>
         static auto setupTwoStepRemoteFacility(
@@ -934,6 +1114,88 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                 std::get<0>(std::get<0>(res))
                 , std::get<0>(std::get<1>(res))
             };
+        }
+        template <
+            template <class...> class FirstProtocolWrapper, class FirstRequest, class FirstResult
+            , template <class...> class SecondProtocolWrapper, class SecondRequest, class SecondResult
+        >
+        static auto setupTwoStepRemoteFacilityWithProtocol(
+            R &r 
+            , std::variant<
+                typename R::template ConvertibleToSourceoid<HeartbeatMessage>
+                , typename R::template ConvertibleToSourceoid<std::shared_ptr<HeartbeatMessage const>>
+            > &&heartbeatSource
+            , std::regex const &serverNameRE
+            , std::tuple<std::string, std::string> const &facilityRegistrationNames
+            , std::function<FirstRequest()> firstRequestGenerator
+            , std::function<bool(FirstRequest const &, FirstResult const &)> firstResultChecker
+            , std::tuple<
+                std::optional<ByteDataHookPair>
+                , std::optional<ByteDataHookPair>
+            > hooks = {std::nullopt, std::nullopt}
+            , std::chrono::system_clock::duration ttl = std::chrono::seconds(3)
+            , std::chrono::system_clock::duration checkPeriod = std::chrono::seconds(5)
+        ) -> std::tuple<
+            DistinguishedRemoteFacility<FirstRequest, FirstResult>
+            , NonDistinguishedRemoteFacility<SecondRequest, SecondResult>
+        >
+        {
+            if constexpr (std::is_same_v<basic::WrapFacilitioidConnectorForSerializationHelpers::WrappedType<
+                FirstProtocolWrapper, FirstRequest
+            >, FirstRequest>) {
+                auto x = setupTwoStepRemoteFacility<
+                    basic::WrapFacilitioidConnectorForSerializationHelpers::WrappedType<FirstProtocolWrapper, FirstRequest>
+                    , basic::WrapFacilitioidConnectorForSerializationHelpers::WrappedType<FirstProtocolWrapper, FirstResult>
+                    , basic::WrapFacilitioidConnectorForSerializationHelpers::WrappedType<SecondProtocolWrapper, SecondRequest>
+                    , basic::WrapFacilitioidConnectorForSerializationHelpers::WrappedType<SecondProtocolWrapper, SecondResult>
+                >(
+                    r, std::move(heartbeatSource), serverNameRE
+                    , facilityRegistrationNames, firstRequestGenerator, firstResultChecker
+                    , hooks, ttl, checkPeriod
+                );
+                return {
+                    std::get<0>(x)
+                    , adaptNonDistinguishedRemoteFacility<SecondProtocolWrapper, SecondRequest, SecondResult>(
+                        std::get<1>(x), std::get<1>(facilityRegistrationNames)
+                    )
+                };
+            } else {
+                auto gen = [firstRequestGenerator]() 
+                    -> basic::WrapFacilitioidConnectorForSerializationHelpers::WrappedType<FirstProtocolWrapper,FirstRequest>
+                {
+                    return basic::WrapFacilitioidConnectorForSerializationHelpers::WrapperUtils<FirstProtocolWrapper>
+                        ::template enclose<FirstRequest>(firstRequestGenerator());
+                };
+                auto checker = [firstResultChecker](
+                    basic::WrapFacilitioidConnectorForSerializationHelpers::WrappedType<FirstProtocolWrapper,FirstRequest> const &req 
+                    , basic::WrapFacilitioidConnectorForSerializationHelpers::WrappedType<FirstProtocolWrapper,FirstResult> const &res
+                ) -> bool {
+                    return resultChecker(
+                        basic::WrapFacilitioidConnectorForSerializationHelpers::WrapperUtils<FirstProtocolWrapper>
+                            ::template extract<FirstRequest>(req)
+                        , basic::WrapFacilitioidConnectorForSerializationHelpers::WrapperUtils<FirstProtocolWrapper>
+                            ::template extract<FirstResult>(res)
+                    );
+                };
+                auto x = setupTwoStepRemoteFacility<
+                    basic::WrapFacilitioidConnectorForSerializationHelpers::WrappedType<FirstProtocolWrapper, FirstRequest>
+                    , basic::WrapFacilitioidConnectorForSerializationHelpers::WrappedType<FirstProtocolWrapper, FirstResult>
+                    , basic::WrapFacilitioidConnectorForSerializationHelpers::WrappedType<SecondProtocolWrapper, SecondRequest>
+                    , basic::WrapFacilitioidConnectorForSerializationHelpers::WrappedType<SecondProtocolWrapper, SecondResult>
+                >(
+                    r, std::move(heartbeatSource), serverNameRE
+                    , facilityRegistrationNames, gen, checker
+                    , hooks, ttl, checkPeriod
+                );
+                return {
+                    adaptDistinguishedRemoteFacility<FirstProtocolWrapper, FirstRequest, FirstResult>(
+                        r, std::get<0>(x), std::get<0>(facilityRegistrationNames)
+                    )
+                    , adaptNonDistinguishedRemoteFacility<SecondProtocolWrapper, SecondRequest, SecondResult>(
+                        std::get<1>(x), std::get<1>(facilityRegistrationNames)
+                    )
+                };
+            }
         }
         template <class Request, class Result>
         static auto setupSimpleRemoteFacility(
@@ -1031,6 +1293,56 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
         ) ->  typename R::template OnOrderFacilityPtr<Request, Result>
         {
             return setupSimpleRemoteFacility<Request,Result>(channelSpec, hooks);
+        }
+
+        template <template<class...> class ProtocolWrapper, class Request, class Result>
+        static auto setupSimpleRemoteFacilityWithProtocol(
+            std::string const &channelSpec
+            , std::optional<ByteDataHookPair> hooks = std::nullopt
+        ) ->  typename R::template OnOrderFacilityPtr<Request, Result>
+        {
+            if constexpr (std::is_same_v<basic::WrapFacilitioidConnectorForSerializationHelpers::WrappedType<
+                ProtocolWrapper, Request
+            >, Request>) {
+                return setupSimpleRemoteFacility<Request,Result>(channelSpec, hooks);
+            } else {
+                auto underlyingFacility = setupSimpleRemoteFacility<
+                    basic::WrapFacilitioidConnectorForSerializationHelpers::WrappedType<ProtocolWrapper,Request>
+                    ,basic::WrapFacilitioidConnectorForSerializationHelpers::WrappedType<ProtocolWrapper,Result>
+                >(channelSpec, hooks);
+                auto encodingAction = R::AppType::template liftPure<typename R::AppType::template Key<Request>>(
+                    [](typename R::AppType::template Key<Request> &&key) -> typename R::AppType::template Key<basic::WrapFacilitioidConnectorForSerializationHelpers::WrappedType<ProtocolWrapper,Request>> {
+                        return {
+                            key.id()
+                            , {key.key()}
+                        };
+                    }
+                );
+                auto decodingAction = R::AppType::template liftPure<typename R::AppType::template Key<basic::WrapFacilitioidConnectorForSerializationHelpers::WrappedType<ProtocolWrapper,Result>>>(
+                    [](typename R::AppType::template Key<basic::WrapFacilitioidConnectorForSerializationHelpers::WrappedType<ProtocolWrapper,Result>> &&key) -> typename R::AppType::template Key<Result> {
+                        return {
+                            key.id()
+                            , basic::WrapFacilitioidConnectorForSerializationHelpers::WrapperUtils<
+                                ProtocolWrapper
+                            >::template extract<Result>(key.key())
+                        };
+                    }
+                );
+                return R::AppType::wrappedOnOrderFacility(
+                    std::move(*underlyingFacility)
+                    , std::move(*encodingAction)
+                    , std::move(*decodingAction)
+                );
+            }
+        }
+        template <template<class...> class ProtocolWrapper, class Request, class Result>
+        static auto setupSimpleRemoteFacilityWithProtocol(
+            R &r 
+            , std::string const &channelSpec
+            , std::optional<ByteDataHookPair> hooks = std::nullopt
+        ) ->  typename R::template OnOrderFacilityPtr<Request, Result>
+        {
+            return setupSimpleRemoteFacilityWithProtocol<ProtocolWrapper,Request,Result>(channelSpec, hooks);
         }
 
         template <class Request, class Result>
