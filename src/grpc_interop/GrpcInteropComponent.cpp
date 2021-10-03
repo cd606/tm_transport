@@ -261,6 +261,21 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                         );
                         ifs.close();
                     }
+                    if (sslInfo->rootCertificateFiles.empty()) {
+                        options.client_certificate_request = GRPC_SSL_REQUEST_AND_REQUIRE_CLIENT_CERTIFICATE_BUT_DONT_VERIFY;
+                    } else {
+                        std::ostringstream oss;
+                        for (auto const &f : sslInfo->rootCertificateFiles) {
+                            std::ifstream ifs(f.c_str());
+                            oss << std::string(
+                                std::istreambuf_iterator<char>{ifs}, {}
+                            );
+                            ifs.close();
+                        }
+                        options.pem_root_certs = oss.str();
+                        options.client_certificate_request = GRPC_SSL_REQUEST_AND_REQUIRE_CLIENT_CERTIFICATE_AND_VERIFY;
+                    }
+                    
                     iter->second->AddListeningPort(bindStr, grpc::SslServerCredentials(options));
                 } else {
                     iter->second->AddListeningPort(bindStr, grpc::InsecureServerCredentials());;
