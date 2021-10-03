@@ -4,6 +4,8 @@
 #include <crossguid/guid.hpp>
 
 #include <tm_kit/basic/ByteData.hpp>
+#include <tm_kit/basic/ProtoInterop.hpp>
+#include <tm_kit/basic/NlohmannJsonInterop.hpp>
 
 namespace dev { namespace cd606 { namespace tm { namespace transport {
     struct CrossGuidComponent {
@@ -74,6 +76,84 @@ namespace dev { namespace cd606 { namespace tm { namespace basic { namespace byt
         }
     };
 
+} } } } }
+
+namespace dev { namespace cd606 { namespace tm { namespace basic { namespace proto_interop {
+    template <>
+    class ProtoEncoder<xg::Guid, void> {
+    public:
+        static constexpr uint64_t thisFieldNumber(uint64_t inputFieldNumber) {
+            return inputFieldNumber;
+        }
+        static constexpr uint64_t nextFieldNumber(uint64_t inputFieldNumber) {
+            return inputFieldNumber+1;
+        }
+        static void write(std::optional<uint64_t> fieldNumber, xg::Guid const &id, std::ostream &os, bool writeDefaultValue) {
+            ProtoEncoder<std::string>::write(fieldNumber, (std::string) id, os, false);
+        }
+    };
+    template <>
+    struct ProtoWrappable<xg::Guid, void> {
+        static constexpr bool value = true;
+    };
+    template <>
+    class ProtoDecoder<xg::Guid, void> final : public IProtoDecoder<xg::Guid> {
+    private:
+        uint64_t baseFieldNumber_;
+    public:
+        ProtoDecoder(xg::Guid *output, uint64_t baseFieldNumber) : IProtoDecoder<xg::Guid>(output), baseFieldNumber_(baseFieldNumber) {}
+        static std::vector<uint64_t> responsibleForFieldNumbers(uint64_t baseFieldNumber) {
+            return {baseFieldNumber};
+        }
+        std::optional<std::size_t> read(xg::Guid &output, internal::FieldHeader const &fh, std::string_view const &input, std::size_t start) override final {
+            std::string s;
+            ProtoDecoder<std::string> subDec(&s, baseFieldNumber_);
+            auto res = subDec.handle(fh, input, start);
+            if (res) {
+                try {
+                    output = (xg::Guid) s;
+                } catch (...) {
+                    return std::nullopt;
+                }
+            }
+            return res;
+        }
+    };
+    
+} } } } }
+
+namespace dev { namespace cd606 { namespace tm { namespace basic { namespace nlohmann_json_interop {
+    template <>
+    class JsonEncoder<xg::Guid, void> {
+    public:
+        static void write(nlohmann::json &output, std::optional<std::string> const &key, xg::Guid const &data) {
+            auto &o = (key?output[*key]:output);
+            o = (std::string) data;
+        }
+    };
+    template <>
+    struct JsonWrappable<xg::Guid, void> {
+        static constexpr bool value = true;
+    };
+    template <>
+    class JsonDecoder<xg::Guid, void> {
+    public:
+        static void read(nlohmann::json const &input, std::optional<std::string> const &key, xg::Guid &data, JsonFieldMapping const &mapping=JsonFieldMapping {}) {
+            auto const &i = (key?input.at(*key):input);
+            if (i.is_null()) {
+                data = xg::Guid {};
+            } else {
+                std::string s;
+                i.get_to(s);
+                try {
+                    data = (xg::Guid) s;
+                } catch (...) {
+                    data = xg::Guid {};
+                }
+            }
+        }
+    };
+    
 } } } } }
 
 #endif
