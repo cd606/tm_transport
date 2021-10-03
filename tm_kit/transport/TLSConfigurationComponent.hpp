@@ -23,7 +23,8 @@ namespace dev { namespace cd606 {namespace tm {namespace transport {
         ((std::string, clientKeyFile))
     #define TM_KIT_TRANSPORT_TLS_SERVER_INFO_FIELDS \
         ((std::string, serverCertificateFile)) \
-        ((std::string, serverKeyFile))
+        ((std::string, serverKeyFile)) \
+        ((std::vector<std::string>, rootCertificateFiles))
 
     TM_BASIC_CBOR_CAPABLE_STRUCT(TLSClientInfoKey, TM_KIT_TRANSPORT_TLS_CLIENT_INFO_KEY_FIELDS);
     TM_BASIC_CBOR_CAPABLE_STRUCT(TLSServerInfoKey, TM_KIT_TRANSPORT_TLS_SERVER_INFO_KEY_FIELDS);

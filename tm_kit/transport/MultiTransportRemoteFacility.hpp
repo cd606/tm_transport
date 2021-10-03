@@ -445,7 +445,9 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                 break;
             case MultiTransportRemoteFacilityConnectionType::GrpcInterop:
                 if constexpr (std::is_convertible_v<Env *, grpc_interop::GrpcInteropComponent *>) {
-                    if constexpr (std::is_same_v<Identity, void>) {
+                    if constexpr (std::is_same_v<Identity, void> || std::is_same_v<Identity, std::string>) {
+                        //in grpc, if identity is std::string, it is treated as if there is no identity
+                        //on client side
                         if constexpr (
                             basic::bytedata_utils::ProtobufStyleSerializableChecker<A>::IsProtobufStyleSerializable()
                             &&
@@ -565,9 +567,10 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                             errOss << "[MultiTransportRemoteFacility::registerFacility] Trying to set up grpc interop rpc facility for " << locator << ", but grpc interop requires the data structures to be protobuf compatible";
                             env->log(infra::LogLevel::Warning, errOss.str());
                         }
+
                     } else {
                         std::ostringstream errOss;
-                        errOss << "[MultiTransportRemoteFacility::registerFacility] Trying to set up grpc interop rpc facility for " << locator << ", but grpc interop does not support identities in request";
+                        errOss << "[MultiTransportRemoteFacility::registerFacility] Trying to set up grpc interop rpc facility for " << locator << ", but grpc interop does not support non-string identities in request";
                         env->log(infra::LogLevel::Warning, errOss.str());
                     }
                 } else {

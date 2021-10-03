@@ -70,7 +70,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             );
         }
 
-        template <class ItemKey, class ItemData, class QueryType=basic::CBOR<basic::VoidStruct>>
+        template <class ItemKey, class ItemData, class QueryType=basic::VoidStruct>
         static auto fullDataQueryFacility(
             std::shared_ptr<soci::session> const &session
             , std::string const &selectInput
@@ -86,11 +86,11 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                         session->prepare << selectStatement<ItemKey,ItemData>(selectInput);
                     basic::transaction::complex_key_value_store::FullDataResult<ItemKey,ItemData> ret;
                     for (auto const &r : res) {
-                        ret.value.insert({KF::retrieveData(r,0), DF::retrieveData(r,KF::FieldCount)});
+                        ret.insert({KF::retrieveData(r,0), DF::retrieveData(r,KF::FieldCount)});
                     }
                     if (logger) {
                         std::ostringstream oss;
-                        oss << "[PreloadAllReadonlyServer::keyBasedQueryFacility::initFunc] loaded " << ret.value.size() << " rows";
+                        oss << "[PreloadAllReadonlyServer::keyBasedQueryFacility::initFunc] loaded " << ret.size() << " rows";
                         logger(infra::LogLevel::Info, oss.str());
                     }
                     return ret;

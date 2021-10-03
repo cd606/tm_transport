@@ -153,7 +153,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                                 for (auto const &kv : initResponse.kvs()) {
                                     auto delta = createDeltaUpdate(mvccpb::Event::PUT, kv, revision);
                                     if (delta) {
-                                        updates.push_back(*delta);
+                                        updates.push_back({std::move(*delta)});
                                     }
                                 }
                                 watchListener_->onUpdate(typename DI::Update {
@@ -178,7 +178,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                                 for (auto const &ev : watchResponse.events()) {
                                     auto delta = createDeltaUpdate(ev.type(), ev.kv(), revision);
                                     if (delta) {
-                                        updates.push_back(*delta);
+                                        updates.push_back({std::move(*delta)});
                                     }
                                 }
                                 watchListener_->onUpdate(typename DI::Update {
@@ -242,11 +242,11 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 watchListener_->onUpdate(typename DI::Update {
                     0
                     , std::vector<typename DI::OneUpdateItem> {
-                        typename DI::OneFullUpdateItem {
+                        {typename DI::OneFullUpdateItem {
                             basic::VoidStruct {}
                             , 0
                             , basic::transaction::named_value_store::Collection<Data>()
-                        }
+                        }}
                     }
                 });
 

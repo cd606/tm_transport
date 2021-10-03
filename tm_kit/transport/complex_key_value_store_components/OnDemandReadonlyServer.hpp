@@ -91,7 +91,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             );
         }
 
-        template <class ItemKey, class ItemData, class QueryType=basic::CBOR<basic::VoidStruct>>
+        template <class ItemKey, class ItemData, class QueryType=basic::VoidStruct>
         static auto fullDataQueryFacility(
             std::shared_ptr<soci::session> const &session
             , std::string const &selectMainPart
@@ -113,7 +113,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                             session->prepare << query;
                         basic::transaction::complex_key_value_store::FullDataResult<ItemKey,ItemData> ret;
                         for (auto const &r : res) {
-                            ret.value.insert({KF::retrieveData(r,0), DF::retrieveData(r,KF::FieldCount)});
+                            ret.insert({KF::retrieveData(r,0), DF::retrieveData(r,KF::FieldCount)});
                         }
                         return ret;
                     } catch (soci::soci_error const &) {

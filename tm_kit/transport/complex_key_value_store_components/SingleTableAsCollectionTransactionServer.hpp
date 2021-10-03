@@ -63,11 +63,11 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 cb_->onUpdate(typename DI::Update {
                     basic::ConstType<0> {}
                     , std::vector<typename DI::OneUpdateItem> {
-                        typename DI::OneFullUpdateItem {
+                        { typename DI::OneFullUpdateItem {
                             {}
                             , basic::ConstType<0> {}
                             , std::move(initialData)
-                        }
+                        } }
                     }
                 });
             }
