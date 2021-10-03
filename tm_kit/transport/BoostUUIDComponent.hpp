@@ -8,6 +8,8 @@
 #include <boost/lexical_cast.hpp>
 
 #include <tm_kit/basic/ByteData.hpp>
+#include <tm_kit/basic/ProtoInterop.hpp>
+#include <tm_kit/basic/NlohmannJsonInterop.hpp>
 
 namespace dev { namespace cd606 { namespace tm { namespace transport {
 
@@ -90,6 +92,84 @@ namespace dev { namespace cd606 { namespace tm { namespace basic { namespace byt
         }
     };
 
+} } } } }
+
+namespace dev { namespace cd606 { namespace tm { namespace basic { namespace proto_interop {
+    template <>
+    class ProtoEncoder<boost::uuids::uuid, void> {
+    public:
+        static constexpr uint64_t thisFieldNumber(uint64_t inputFieldNumber) {
+            return inputFieldNumber;
+        }
+        static constexpr uint64_t nextFieldNumber(uint64_t inputFieldNumber) {
+            return inputFieldNumber+1;
+        }
+        static void write(std::optional<uint64_t> fieldNumber, boost::uuids::uuid const &id, std::ostream &os, bool writeDefaultValue) {
+            ProtoEncoder<std::string>::write(fieldNumber, boost::lexical_cast<std::string>(id), os, false);
+        }
+    };
+    template <>
+    struct ProtoWrappable<boost::uuids::uuid, void> {
+        static constexpr bool value = true;
+    };
+    template <>
+    class ProtoDecoder<boost::uuids::uuid, void> final : public IProtoDecoder<boost::uuids::uuid> {
+    private:
+        uint64_t baseFieldNumber_;
+    public:
+        ProtoDecoder(boost::uuids::uuid *output, uint64_t baseFieldNumber) : IProtoDecoder<boost::uuids::uuid>(output), baseFieldNumber_(baseFieldNumber) {}
+        static std::vector<uint64_t> responsibleForFieldNumbers(uint64_t baseFieldNumber) {
+            return {baseFieldNumber};
+        }
+        std::optional<std::size_t> read(boost::uuids::uuid &output, internal::FieldHeader const &fh, std::string_view const &input, std::size_t start) override final {
+            std::string s;
+            ProtoDecoder<std::string> subDec(&s, baseFieldNumber_);
+            auto res = subDec.handle(fh, input, start);
+            if (res) {
+                try {
+                    output = boost::lexical_cast<boost::uuids::uuid>(s);
+                } catch (...) {
+                    return std::nullopt;
+                }
+            }
+            return res;
+        }
+    };
+    
+} } } } }
+
+namespace dev { namespace cd606 { namespace tm { namespace basic { namespace nlohmann_json_interop {
+    template <>
+    class JsonEncoder<boost::uuids::uuid, void> {
+    public:
+        static void write(nlohmann::json &output, std::optional<std::string> const &key, boost::uuids::uuid const &data) {
+            auto &o = (key?output[*key]:output);
+            o = boost::lexical_cast<std::string>(data);
+        }
+    };
+    template <>
+    struct JsonWrappable<boost::uuids::uuid, void> {
+        static constexpr bool value = true;
+    };
+    template <>
+    class JsonDecoder<boost::uuids::uuid, void> {
+    public:
+        static void read(nlohmann::json const &input, std::optional<std::string> const &key, boost::uuids::uuid &data, JsonFieldMapping const &mapping=JsonFieldMapping {}) {
+            auto const &i = (key?input.at(*key):input);
+            if (i.is_null()) {
+                data = boost::uuids::uuid {};
+            } else {
+                std::string s;
+                i.get_to(s);
+                try {
+                    data = boost::lexical_cast<boost::uuids::uuid>(s);
+                } catch (...) {
+                    data = boost::uuids::uuid {};
+                }
+            }
+        }
+    };
+    
 } } } } }
 
 #endif
