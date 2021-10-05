@@ -136,7 +136,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
             }
         }
     public:
-        template <class GS>
+        template <template<class...> class ProtocolWrapper, class GS>
         static auto createSubscriber(
             R &r 
             , std::variant<
@@ -156,8 +156,8 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
             >
         > {
             using M = typename R::AppType;
-            auto res = MultiTransportRemoteFacilityManagingUtils<R>::template setupOneDistinguishedRemoteFacility
-            <typename GS::Input, typename GS::Output>(
+            auto res = MultiTransportRemoteFacilityManagingUtils<R>::template setupOneDistinguishedRemoteFacilityWithProtocol
+            <ProtocolWrapper, typename GS::Input, typename GS::Output>(
                 r 
                 , std::move(heartbeatSource)
                 , serverNameRE
@@ -199,7 +199,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                 typename TI::Transaction, typename TI::TransactionResponse
             > connectUpdateRequest;
         };
-        template <class GS, class TI>
+        template <template<class...> class ProtocolWrapper, class GS, class TI>
         static auto createSubscriberAndUpdater(
             R &r 
             , std::variant<
@@ -218,8 +218,8 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
         ) -> SubscriberAndUpdater<GS,TI> 
         {
             using M = typename R::AppType;
-            auto res = MultiTransportRemoteFacilityManagingUtils<R>::template setupTwoStepRemoteFacility
-            <typename GS::Input, typename GS::Output, typename TI::Transaction, typename TI::TransactionResponse>(
+            auto res = MultiTransportRemoteFacilityManagingUtils<R>::template setupTwoStepRemoteFacilityWithProtocol
+            <ProtocolWrapper, typename GS::Input, typename GS::Output, ProtocolWrapper, typename TI::Transaction, typename TI::TransactionResponse>(
                 r 
                 , std::move(heartbeatSource)
                 , serverNameRE

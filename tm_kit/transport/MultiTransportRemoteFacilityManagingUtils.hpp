@@ -1170,11 +1170,11 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                     basic::WrapFacilitioidConnectorForSerializationHelpers::WrappedType<FirstProtocolWrapper,FirstRequest> const &req 
                     , basic::WrapFacilitioidConnectorForSerializationHelpers::WrappedType<FirstProtocolWrapper,FirstResult> const &res
                 ) -> bool {
-                    return resultChecker(
+                    return firstResultChecker(
                         basic::WrapFacilitioidConnectorForSerializationHelpers::WrapperUtils<FirstProtocolWrapper>
-                            ::template extract<FirstRequest>(req)
+                            ::template extractConst<FirstRequest>(req)
                         , basic::WrapFacilitioidConnectorForSerializationHelpers::WrapperUtils<FirstProtocolWrapper>
-                            ::template extract<FirstResult>(res)
+                            ::template extractConst<FirstResult>(res)
                     );
                 };
                 auto x = setupTwoStepRemoteFacility<
