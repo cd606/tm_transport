@@ -39,13 +39,15 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
         , SocketRPC
         , GrpcInterop
         , JsonREST
+        , WebSocket
     };
-    inline const std::array<std::string,5> MULTI_TRANSPORT_REMOTE_FACILITY_CONNECTION_TYPE_STR = {
+    inline const std::array<std::string,6> MULTI_TRANSPORT_REMOTE_FACILITY_CONNECTION_TYPE_STR = {
         "rabbitmq"
         , "redis"
         , "socket_rpc"
         , "grpc_interop"
         , "json_rest"
+        , "websocket"
     };
 
     inline auto parseMultiTransportRemoteFacilityChannel(std::string const &s) 
@@ -584,6 +586,10 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                 env->log(infra::LogLevel::Warning, "[MultiTransportRemoteFacility::registerFacility] Json REST client facility is currently unsupported");
                 return {0, false};
                 break;
+            case MultiTransportRemoteFacilityConnectionType::WebSocket:
+                env->log(infra::LogLevel::Warning, "[MultiTransportRemoteFacility::registerFacility] WebSocket client facility is currently unsupported");
+                return {0, false};
+                break;
             default:
                 return {0, false};
                 break;
@@ -706,6 +712,10 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                 break;
             case MultiTransportRemoteFacilityConnectionType::JsonREST:
                 env->log(infra::LogLevel::Warning, "[MultiTransportRemoteFacility::registerFacility] Json REST client facility is currently unsupported");
+                return {0, false};
+                break;
+            case MultiTransportRemoteFacilityConnectionType::WebSocket:
+                env->log(infra::LogLevel::Warning, "[MultiTransportRemoteFacility::registerFacility] WebSocket client facility is currently unsupported");
                 return {0, false};
                 break;
             default:
@@ -874,6 +884,8 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                 }
             } else if (connType == MultiTransportRemoteFacilityConnectionType::JsonREST) {
                 throw std::runtime_error("OneShotMultiTransportRemoteFacilityCall::call: Json REST client facility is currently unsupported");
+            } else if (connType == MultiTransportRemoteFacilityConnectionType::WebSocket) {
+                throw std::runtime_error("OneShotMultiTransportRemoteFacilityCall::call: WebSocket client facility is currently unsupported");
             } else {
                 throw std::runtime_error("OneShotMultiTransportRemoteFacilityCall::call: unknown connection type");
             }
@@ -1000,6 +1012,8 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                 }
             } else if (connType == MultiTransportRemoteFacilityConnectionType::JsonREST) {
                 throw std::runtime_error("OneShotMultiTransportRemoteFacilityCall::callNoReply: Json REST client facility is currently unsupported");
+            } else if (connType == MultiTransportRemoteFacilityConnectionType::WebSocket) {
+                throw std::runtime_error("OneShotMultiTransportRemoteFacilityCall::callNoReply: WebSocket client facility is currently unsupported");
             } else {
                 throw std::runtime_error("OneShotMultiTransportRemoteFacilityCall::callNoReply: unknown connection type");
             }
@@ -1084,6 +1098,8 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                 }
             } else if (connType == MultiTransportRemoteFacilityConnectionType::JsonREST) {
                 throw std::runtime_error("OneShotMultiTransportRemoteFacilityCall::removeClient: Json REST client facility is currently unsupported");
+            } else if (connType == MultiTransportRemoteFacilityConnectionType::WebSocket) {
+                throw std::runtime_error("OneShotMultiTransportRemoteFacilityCall::removeClient: WebSocket client facility is currently unsupported");
             } else {
                 throw std::runtime_error("OneShotMultiTransportRemoteFacilityCall::removeClient: unknown connection type");
             }

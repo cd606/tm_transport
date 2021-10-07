@@ -4,6 +4,7 @@
 #include <tm_kit/transport/MultiTransportRemoteFacility.hpp>
 #include <tm_kit/transport/grpc_interop/GrpcServerFacility.hpp>
 #include <tm_kit/transport/json_rest/JsonRESTFacilityWrapper.hpp>
+#include <tm_kit/transport/websocket/WebSocketServerFacility.hpp>
 #include <tm_kit/basic/AppRunnerUtils.hpp>
 #include <tm_kit/basic/WrapFacilitioidConnectorForSerialization.hpp>
 
@@ -212,6 +213,23 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                     throw std::runtime_error(errOss.str());
                 }
                 break;
+            case MultiTransportRemoteFacilityConnectionType::WebSocket:
+                if constexpr (std::is_convertible_v<Env *, web_socket::WebSocketComponent *>) {
+                    if constexpr (Option == MultiTransportFacilityWrapperOption::NoReply) {
+                        web_socket::WebSocketOnOrderFacility<Env>::template wrapOnOrderFacilityWithoutReply<A,B>(
+                            runner, toBeWrapped, rpcQueueLocator, wrapperItemsNamePrefix, hooks
+                        );
+                    } else {
+                        web_socket::WebSocketOnOrderFacility<Env>::template wrapOnOrderFacility<A,B>(
+                            runner, toBeWrapped, rpcQueueLocator, wrapperItemsNamePrefix, hooks
+                        );
+                    }
+                } else {
+                    std::ostringstream errOss;
+                    errOss << "[MultiTransportFacilityWrapper::wrap(onOrderFacility)] trying to wrap a facility with WebSocket channel '" << rpcQueueLocator << "', but WebSocket is unsupported in the environment";
+                    throw std::runtime_error(errOss.str());
+                }
+                break;
             default:
                 throw std::runtime_error("[MultiTransportFacilityWrapper::wrap(onOrderFacility)] Unknown connection type");
                 break;
@@ -385,6 +403,23 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                 } else {
                     std::ostringstream errOss;
                     errOss << "[MultiTransportFacilityWrapper::wrap(localOnOrderFacility)] trying to wrap a facility with Json REST channel '" << rpcQueueLocator << "', but Json REST is unsupported in the environment";
+                    throw std::runtime_error(errOss.str());
+                }
+                break;
+            case MultiTransportRemoteFacilityConnectionType::WebSocket:
+                if constexpr (std::is_convertible_v<Env *, web_socket::WebSocketComponent *>) {
+                    if constexpr (Option == MultiTransportFacilityWrapperOption::NoReply) {
+                        web_socket::WebSocketOnOrderFacility<Env>::template wrapLocalOnOrderFacilityWithoutReply<A,B,C>(
+                            runner, toBeWrapped, rpcQueueLocator, wrapperItemsNamePrefix, hooks
+                        );
+                    } else {
+                        web_socket::WebSocketOnOrderFacility<Env>::template wrapLocalOnOrderFacility<A,B,C>(
+                            runner, toBeWrapped, rpcQueueLocator, wrapperItemsNamePrefix, hooks
+                        );
+                    }
+                } else {
+                    std::ostringstream errOss;
+                    errOss << "[MultiTransportFacilityWrapper::wrap(localOnOrderFacility)] trying to wrap a facility with WebSocket channel '" << rpcQueueLocator << "', but WebSocket is unsupported in the environment";
                     throw std::runtime_error(errOss.str());
                 }
                 break;
@@ -564,6 +599,23 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                 } else {
                     std::ostringstream errOss;
                     errOss << "[MultiTransportFacilityWrapper::wrap(onOrderFacilityWithExternalEffects)] trying to wrap a facility with Json REST channel '" << rpcQueueLocator << "', but Json REST is unsupported in the environment";
+                    throw std::runtime_error(errOss.str());
+                }
+                break;
+            case MultiTransportRemoteFacilityConnectionType::WebSocket:
+                if constexpr (std::is_convertible_v<Env *, web_socket::WebSocketComponent *>) {
+                    if constexpr (Option == MultiTransportFacilityWrapperOption::NoReply) {
+                        web_socket::WebSocketOnOrderFacility<Env>::template wrapOnOrderFacilityWithExternalEffectsWithoutReply<A,B,C>(
+                            runner, toBeWrapped, rpcQueueLocator, wrapperItemsNamePrefix, hooks
+                        );
+                    } else {
+                        web_socket::WebSocketOnOrderFacility<Env>::template wrapOnOrderFacilityWithExternalEffects<A,B,C>(
+                            runner, toBeWrapped, rpcQueueLocator, wrapperItemsNamePrefix, hooks
+                        );
+                    }
+                } else {
+                    std::ostringstream errOss;
+                    errOss << "[MultiTransportFacilityWrapper::wrap(onOrderFacilityWithExternalEffects)] trying to wrap a facility with WebSocket channel '" << rpcQueueLocator << "', but WebSocket is unsupported in the environment";
                     throw std::runtime_error(errOss.str());
                 }
                 break;
@@ -747,6 +799,23 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                     throw std::runtime_error(errOss.str());
                 }
                 break;
+            case MultiTransportRemoteFacilityConnectionType::WebSocket:
+                if constexpr (std::is_convertible_v<Env *, web_socket::WebSocketComponent *>) {
+                    if constexpr (Option == MultiTransportFacilityWrapperOption::NoReply) {
+                        web_socket::WebSocketOnOrderFacility<Env>::template wrapVIEOnOrderFacilityWithoutReply<A,B,C,D>(
+                            runner, toBeWrapped, rpcQueueLocator, wrapperItemsNamePrefix, hooks
+                        );
+                    } else {
+                        web_socket::WebSocketOnOrderFacility<Env>::template wrapVIEOnOrderFacility<A,B,C,D>(
+                            runner, toBeWrapped, rpcQueueLocator, wrapperItemsNamePrefix, hooks
+                        );
+                    }
+                } else {
+                    std::ostringstream errOss;
+                    errOss << "[MultiTransportFacilityWrapper::wrap(vieOnOrderFacility)] trying to wrap a facility with WebSocket channel '" << rpcQueueLocator << "', but WebSocket is unsupported in the environment";
+                    throw std::runtime_error(errOss.str());
+                }
+                break;
             default:
                 throw std::runtime_error("[MultiTransportFacilityWrapper::wrap(vieOnOrderFacility)] Unknown connection type");
                 break;
@@ -926,6 +995,23 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                 } else {
                     std::ostringstream errOss;
                     errOss << "[MultiTransportFacilityWrapper::wrap(FacilitiodConnector)] trying to wrap a facility with Json REST channel '" << rpcQueueLocator << "', but Json REST is unsupported in the environment";
+                    throw std::runtime_error(errOss.str());
+                }
+                break;
+            case MultiTransportRemoteFacilityConnectionType::WebSocket:
+                if constexpr (std::is_convertible_v<Env *, web_socket::WebSocketComponent *>) {
+                    if constexpr (Option == MultiTransportFacilityWrapperOption::NoReply) {
+                        web_socket::WebSocketOnOrderFacility<Env>::template wrapFacilitioidConnectorWithoutReply<A,B>(
+                            runner, registeredNameForFacilitioid, toBeWrapped, rpcQueueLocator, wrapperItemsNamePrefix, hooks
+                        );
+                    } else {
+                        web_socket::WebSocketOnOrderFacility<Env>::template wrapFacilitioidConnector<A,B>(
+                            runner, registeredNameForFacilitioid, toBeWrapped, rpcQueueLocator, wrapperItemsNamePrefix, hooks
+                        );
+                    }
+                } else {
+                    std::ostringstream errOss;
+                    errOss << "[MultiTransportFacilityWrapper::wrap(FacilitioidConnector)] trying to wrap a facility with WebSocket channel '" << rpcQueueLocator << "', but WebSocket is unsupported in the environment";
                     throw std::runtime_error(errOss.str());
                 }
                 break;
