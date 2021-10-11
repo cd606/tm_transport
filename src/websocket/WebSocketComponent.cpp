@@ -38,6 +38,8 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                     , boost::beast::websocket::stream<boost::beast::ssl_stream<boost::beast::tcp_stream>>
                 > stream_;
                 boost::beast::flat_buffer buffer_;
+                boost::beast::http::request<boost::beast::http::string_body> initialReq_;
+                std::string targetPath_;
                 std::atomic<bool> good_;
                 std::mutex writeMutex_;
             public:
@@ -45,19 +47,31 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                     OnePublisher *parent
                     , boost::asio::ip::tcp::socket &&socket
                     , std::optional<boost::asio::ssl::context> &sslCtx
+                    , bool *needToRun
                 ) 
                     : parent_(parent)
                     , stream_()
                     , buffer_()
+                    , initialReq_()
+                    , targetPath_()
                     , good_(false)
                     , writeMutex_()
                 {
                     if (sslCtx) {
                         stream_.emplace<2>(std::move(socket), *sslCtx);
                         std::get<2>(stream_).text(false);
+                        *needToRun = true;
                     } else {
-                        stream_.emplace<1>(std::move(socket));
-                        std::get<1>(stream_).text(false);
+                        boost::beast::http::read(socket, buffer_, initialReq_);
+                        if (boost::beast::websocket::is_upgrade(initialReq_)) {
+                            auto t = initialReq_.target();
+                            targetPath_ = std::string {t.data(), t.length()};
+                            stream_.emplace<1>(std::move(socket));
+                            std::get<1>(stream_).text(false);
+                            *needToRun = true;
+                        } else {
+                            *needToRun = false;
+                        }
                     }
                 }
                 ~OneClientHandler() {
@@ -85,6 +99,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 }
 
                 void onRun() {
+                    buffer_.clear();
                     if (stream_.index() == 1) {
                         std::get<1>(stream_).set_option(
                             boost::beast::websocket::stream_base::timeout::suggested(
@@ -102,7 +117,8 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                             )
                         );
                         std::get<1>(stream_).async_accept(
-                            boost::beast::bind_front_handler(
+                            initialReq_
+                            , boost::beast::bind_front_handler(
                                 &OneClientHandler::onWsHandshake 
                                 , shared_from_this()
                             )
@@ -123,28 +139,36 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                     if (ec) {
                         parent_->removeClientHandler(shared_from_this());
                     } else {
-                        boost::beast::get_lowest_layer(std::get<2>(stream_)).expires_never();
-                        std::get<2>(stream_).set_option(
-                            boost::beast::websocket::stream_base::timeout::suggested(
-                                boost::beast::role_type::server
-                            )
-                        );
-                        std::get<2>(stream_).set_option(
-                            boost::beast::websocket::stream_base::decorator(
-                                [](boost::beast::websocket::response_type &res) {
-                                    res.set(
-                                        boost::beast::http::field::server
-                                        , BOOST_BEAST_VERSION_STRING
-                                    );
-                                }
-                            )
-                        );
-                        std::get<2>(stream_).async_accept(
-                            boost::beast::bind_front_handler(
-                                &OneClientHandler::onWsHandshake 
-                                , shared_from_this()
-                            )
-                        );
+                        boost::beast::http::read(std::get<2>(stream_).next_layer(), buffer_, initialReq_);
+                        if (boost::beast::websocket::is_upgrade(initialReq_)) {
+                            auto t = initialReq_.target();
+                            targetPath_ = std::string {t.data(), t.length()};
+                            boost::beast::get_lowest_layer(std::get<2>(stream_)).expires_never();
+                            std::get<2>(stream_).set_option(
+                                boost::beast::websocket::stream_base::timeout::suggested(
+                                    boost::beast::role_type::server
+                                )
+                            );
+                            std::get<2>(stream_).set_option(
+                                boost::beast::websocket::stream_base::decorator(
+                                    [](boost::beast::websocket::response_type &res) {
+                                        res.set(
+                                            boost::beast::http::field::server
+                                            , BOOST_BEAST_VERSION_STRING
+                                        );
+                                    }
+                                )
+                            );
+                            std::get<2>(stream_).async_accept(
+                                initialReq_
+                                , boost::beast::bind_front_handler(
+                                    &OneClientHandler::onWsHandshake 
+                                    , shared_from_this()
+                                )
+                            );
+                        } else {
+                            parent_->removeClientHandler(shared_from_this());
+                        }
                     }
                 }
                 void onWsHandshake(boost::system::error_code ec) {
@@ -152,6 +176,8 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                         parent_->removeClientHandler(shared_from_this());
                     } else {
                         good_ = true;
+                        parent_->registerClientHandlerForPath(this);
+                        buffer_.clear();
                         if (stream_.index() == 1) {
                             std::get<1>(stream_).async_read(
                                 buffer_
@@ -217,6 +243,9 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                         parent_->removeClientHandler(shared_from_this());
                     }
                 }
+                std::string const &targetPath() const {
+                    return targetPath_;
+                }
             };
 
             WebSocketComponentImpl *parent_;
@@ -229,11 +258,11 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             boost::asio::ip::tcp::acceptor acceptor_;
 
             std::unordered_set<std::shared_ptr<OneClientHandler>> clientHandlers_;
+            std::unordered_map<std::string, std::unordered_set<OneClientHandler *>> pathToClientMap_;
             std::mutex clientHandlersMutex_;
         
-            void doPublish(std::string_view const &data) {
-                std::lock_guard<std::mutex> _(clientHandlersMutex_);
-                for (auto const &h : clientHandlers_) {
+            void doPublish(std::unordered_set<OneClientHandler *> &handlers, std::string_view const &data) {
+                for (auto *h : handlers) {
                     h->doPublish(data);
                 }
             }
@@ -248,7 +277,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 )
                 , th_(), running_(false)
                 , acceptor_(svc_)
-                , clientHandlers_(), clientHandlersMutex_()
+                , clientHandlers_(), pathToClientMap_(), clientHandlersMutex_()
             {
                 auto addr = boost::asio::ip::make_address("0.0.0.0");
                 if (sslCtx_) {
@@ -281,15 +310,23 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                     th_.join();
                 }
             }
-            void publish(basic::ByteDataWithTopic &&data) {
+            void publish(std::string const &path, basic::ByteDataWithTopic &&data) {
                 if (!running_) {
                     return;
                 }
+                std::lock_guard<std::mutex> _(clientHandlersMutex_);
+                auto iter = pathToClientMap_.find(path);
+                if (iter == pathToClientMap_.end()) {
+                    return;
+                }
+                if (iter->second.empty()) {
+                    return;
+                }
                 if (ignoreTopic_) {
-                    doPublish(data.content);
+                    doPublish(iter->second, data.content);
                 } else {
                     auto s = basic::bytedata_utils::RunCBORSerializer<basic::ByteDataWithTopic>::apply(data);
-                    doPublish(s);
+                    doPublish(iter->second, s);
                 }
             }
             void run() {
@@ -309,12 +346,17 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             }
             void onAccept(boost::beast::error_code ec, boost::asio::ip::tcp::socket socket) {
                 if (!ec) {
-                    auto h = std::make_shared<OneClientHandler>(this, std::move(socket), sslCtx_);
-                    {
-                        std::lock_guard<std::mutex> _(clientHandlersMutex_);
-                        clientHandlers_.insert(h);
+                    bool needToRun;
+                    auto h = std::make_shared<OneClientHandler>(this, std::move(socket), sslCtx_, &needToRun);
+                    if (needToRun) {
+                        {
+                            std::lock_guard<std::mutex> _(clientHandlersMutex_);
+                            clientHandlers_.insert(h);
+                        }
+                        h->run();
+                    } else {
+                        h.reset();
                     }
-                    h->run();
                     acceptor_.async_accept(boost::asio::make_strand(svc_)
                         , boost::beast::bind_front_handler(
                             &OnePublisher::onAccept
@@ -327,7 +369,13 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             }
             void removeClientHandler(std::shared_ptr<OneClientHandler> const &toBeRemoved) {
                 std::lock_guard<std::mutex> _(clientHandlersMutex_);
+                auto *p = toBeRemoved.get();
+                pathToClientMap_[p->targetPath()].erase(p);
                 clientHandlers_.erase(toBeRemoved);
+            }
+            void registerClientHandlerForPath(OneClientHandler *p) {
+                std::lock_guard<std::mutex> _(clientHandlersMutex_);
+                pathToClientMap_[p->targetPath()].insert(p);
             }
         };
         std::unordered_map<int, std::shared_ptr<OnePublisher>> publisherMap_;
@@ -704,16 +752,20 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                     iter->second->run();
                 }
             }
+            std::string targetPath = locator.identifier();
+            if (!boost::starts_with(targetPath, "/")) {
+                targetPath = "/"+targetPath;
+            }
             auto *p = iter->second.get();
             if (userToWireHook) {
                 auto hook = userToWireHook->hook;
-                return [p,hook](basic::ByteDataWithTopic &&data) {
+                return [targetPath,p,hook](basic::ByteDataWithTopic &&data) {
                     auto x = hook(basic::ByteData {std::move(data.content)});
-                    p->publish({std::move(data.topic), std::move(x.content)});
+                    p->publish(targetPath, {std::move(data.topic), std::move(x.content)});
                 };
             } else {
-                return [p](basic::ByteDataWithTopic &&data) {
-                    p->publish(std::move(data));
+                return [targetPath,p](basic::ByteDataWithTopic &&data) {
+                    p->publish(targetPath,std::move(data));
                 };
             }
         }
