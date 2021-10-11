@@ -392,6 +392,8 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                     , boost::beast::websocket::stream<boost::beast::ssl_stream<boost::beast::tcp_stream>>
                 > stream_;
                 boost::beast::flat_buffer buffer_;
+                boost::beast::http::request<boost::beast::http::string_body> initialReq_;
+                std::string targetPath_;
                 std::atomic<bool> good_;
                 std::mutex writeMutex_;
             public:
@@ -399,19 +401,31 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                     OneRPCServer *parent
                     , boost::asio::ip::tcp::socket &&socket
                     , std::optional<boost::asio::ssl::context> &sslCtx
+                    , bool *needToRun
                 ) 
                     : parent_(parent)
                     , stream_()
                     , buffer_()
+                    , initialReq_()
+                    , targetPath_()
                     , good_(false)
                     , writeMutex_()
                 {
                     if (sslCtx) {
                         stream_.emplace<2>(std::move(socket), *sslCtx);
                         std::get<2>(stream_).text(false);
+                        *needToRun = true;
                     } else {
-                        stream_.emplace<1>(std::move(socket));
-                        std::get<1>(stream_).text(false);
+                        boost::beast::http::read(socket, buffer_, initialReq_);
+                        if (boost::beast::websocket::is_upgrade(initialReq_)) {
+                            auto t = initialReq_.target();
+                            targetPath_ = std::string {t.data(), t.length()};
+                            stream_.emplace<1>(std::move(socket));
+                            std::get<1>(stream_).text(false);
+                            *needToRun = true;
+                        } else {
+                            *needToRun = false;
+                        }
                     }
                 }
                 ~OneClientHandler() {
@@ -456,7 +470,8 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                             )
                         );
                         std::get<1>(stream_).async_accept(
-                            boost::beast::bind_front_handler(
+                            initialReq_
+                            , boost::beast::bind_front_handler(
                                 &OneClientHandler::onWsHandshake 
                                 , shared_from_this()
                             )
@@ -477,28 +492,36 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                     if (ec) {
                         parent_->removeClientHandler(shared_from_this());
                     } else {
-                        boost::beast::get_lowest_layer(std::get<2>(stream_)).expires_never();
-                        std::get<2>(stream_).set_option(
-                            boost::beast::websocket::stream_base::timeout::suggested(
-                                boost::beast::role_type::server
-                            )
-                        );
-                        std::get<2>(stream_).set_option(
-                            boost::beast::websocket::stream_base::decorator(
-                                [](boost::beast::websocket::response_type &res) {
-                                    res.set(
-                                        boost::beast::http::field::server
-                                        , BOOST_BEAST_VERSION_STRING
-                                    );
-                                }
-                            )
-                        );
-                        std::get<2>(stream_).async_accept(
-                            boost::beast::bind_front_handler(
-                                &OneClientHandler::onWsHandshake 
-                                , shared_from_this()
-                            )
-                        );
+                        boost::beast::http::read(std::get<2>(stream_).next_layer(), buffer_, initialReq_);
+                        if (boost::beast::websocket::is_upgrade(initialReq_)) {
+                            auto t = initialReq_.target();
+                            targetPath_ = std::string {t.data(), t.length()};
+                            boost::beast::get_lowest_layer(std::get<2>(stream_)).expires_never();
+                            std::get<2>(stream_).set_option(
+                                boost::beast::websocket::stream_base::timeout::suggested(
+                                    boost::beast::role_type::server
+                                )
+                            );
+                            std::get<2>(stream_).set_option(
+                                boost::beast::websocket::stream_base::decorator(
+                                    [](boost::beast::websocket::response_type &res) {
+                                        res.set(
+                                            boost::beast::http::field::server
+                                            , BOOST_BEAST_VERSION_STRING
+                                        );
+                                    }
+                                )
+                            );
+                            std::get<2>(stream_).async_accept(
+                                initialReq_
+                                , boost::beast::bind_front_handler(
+                                    &OneClientHandler::onWsHandshake 
+                                    , shared_from_this()
+                                )
+                            );
+                        } else {
+                            parent_->removeClientHandler(shared_from_this());
+                        }
                     }
                 }
                 void onWsHandshake(boost::system::error_code ec) {
@@ -506,6 +529,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                         parent_->removeClientHandler(shared_from_this());
                     } else {
                         good_ = true;
+                        buffer_.clear();
                         if (stream_.index() == 1) {
                             std::get<1>(stream_).async_read(
                                 buffer_
@@ -577,12 +601,19 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                         parent_->removeClientHandler(shared_from_this());
                     }
                 }
+                std::string const &targetPath() const {
+                    return targetPath_;
+                }
             };
 
             WebSocketComponentImpl *parent_;
             int port_;
-            std::optional<WireToUserHook> wireToUserHook_;
-            std::function<void(basic::ByteDataWithID &&)> server_;
+            struct OneServerInfo {
+                std::function<void(basic::ByteDataWithID &&)> server_;
+                std::optional<WireToUserHook> wireToUserHook_;
+            };
+            std::unordered_map<std::string, OneServerInfo> servers_;
+            std::mutex serversMutex_;
             boost::asio::io_context svc_;
             std::optional<boost::asio::ssl::context> sslCtx_;
             std::thread th_;
@@ -590,7 +621,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             boost::asio::ip::tcp::acceptor acceptor_;
 
             std::unordered_set<std::shared_ptr<OneClientHandler>> clientHandlers_;
-            std::unordered_map<std::string, OneClientHandler *> clientHandlersByID_;
+            std::unordered_map<std::string, std::unordered_map<std::string, OneClientHandler *>> clientHandlersByID_;
             std::unordered_map<OneClientHandler *, std::unordered_set<std::string>> idsByClientHandler_;
             std::mutex clientHandlersMutex_;
         
@@ -598,11 +629,9 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             OneRPCServer(
                 WebSocketComponentImpl *parent
                 , int port
-                , std::optional<WireToUserHook> const &wireToUserHook
-                , std::function<void(basic::ByteDataWithID &&)> server
                 , std::optional<TLSServerInfo> const &sslInfo
             ) 
-                : parent_(parent), port_(port), wireToUserHook_(wireToUserHook), server_(server)
+                : parent_(parent), port_(port), servers_(), serversMutex_()
                 , svc_()
                 , sslCtx_(
                     sslInfo
@@ -644,6 +673,18 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                     th_.join();
                 }
             }
+            void addServer(
+                std::string const &targetPath
+                , std::function<void(basic::ByteDataWithID &&)> server
+                , std::optional<WireToUserHook> const &wireToUserHook
+            ) {
+                std::lock_guard<std::mutex> _(serversMutex_);
+                auto iter = servers_.find(targetPath);
+                if (iter != servers_.end()) {
+                    throw WebSocketComponentException("Can't add multiple servers to path '"+targetPath+"' on port "+std::to_string(port_));
+                }
+                servers_.insert({targetPath, OneServerInfo {server, wireToUserHook}});
+            }
             void run() {
                 running_ = true;
                 th_ = std::thread([this]() {                   
@@ -661,12 +702,15 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             }
             void onAccept(boost::beast::error_code ec, boost::asio::ip::tcp::socket socket) {
                 if (!ec) {
-                    auto h = std::make_shared<OneClientHandler>(this, std::move(socket), sslCtx_);
-                    {
-                        std::lock_guard<std::mutex> _(clientHandlersMutex_);
-                        clientHandlers_.insert(h);
+                    bool needToRun;
+                    auto h = std::make_shared<OneClientHandler>(this, std::move(socket), sslCtx_, &needToRun);
+                    if (needToRun) {
+                        {
+                            std::lock_guard<std::mutex> _(clientHandlersMutex_);
+                            clientHandlers_.insert(h);
+                        }
+                        h->run();
                     }
-                    h->run();
                     acceptor_.async_accept(boost::asio::make_strand(svc_)
                         , boost::beast::bind_front_handler(
                             &OneRPCServer::onAccept
@@ -680,47 +724,61 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             void removeClientHandler(std::shared_ptr<OneClientHandler> const &toBeRemoved) {
                 std::lock_guard<std::mutex> _(clientHandlersMutex_);
                 auto iter = idsByClientHandler_.find(toBeRemoved.get());
+                auto iter1 = clientHandlersByID_.find(toBeRemoved->targetPath());
                 if (iter != idsByClientHandler_.end()) {
                     for (auto const &id : iter->second) {
-                        clientHandlersByID_.erase(id);
+                        if (iter1 != clientHandlersByID_.end()) {
+                            iter1->second.erase(id);
+                        }
                     }
                     iter->second.clear();
                     idsByClientHandler_.erase(iter);
                 }
                 clientHandlers_.erase(toBeRemoved);
             }
-            void sendReply(bool isFinal, basic::ByteDataWithID &&reply) {
+            void sendReply(std::string const &targetPath, bool isFinal, basic::ByteDataWithID &&reply) {
                 if (!running_) {
                     return;
                 }
                 std::lock_guard<std::mutex> _(clientHandlersMutex_);
-                auto iter = clientHandlersByID_.find(reply.id);
+                auto iter = clientHandlersByID_.find(targetPath);
                 if (iter == clientHandlersByID_.end()) {
                     return;
                 }
-                auto *p = iter->second;
+                auto iter1 = iter->second.find(reply.id);
+                if (iter1 == iter->second.end()) {
+                    return;
+                }
+                auto *p = iter1->second;
                 if (isFinal) {
-                    auto iter1 = idsByClientHandler_.find(p);
-                    if (iter1 != idsByClientHandler_.end()) {
-                        iter1->second.erase(reply.id);
+                    auto iter2 = idsByClientHandler_.find(p);
+                    if (iter2 != idsByClientHandler_.end()) {
+                        iter2->second.erase(reply.id);
                     }
-                    clientHandlersByID_.erase(iter);
+                    iter->second.erase(iter1);
                 }
                 p->sendReply(isFinal, std::move(reply));
             }
             void callServer(OneClientHandler *p, basic::ByteDataWithID &&data) {
                 {
                     std::lock_guard<std::mutex> _(clientHandlersMutex_);
-                    clientHandlersByID_[data.id] = p;
+                    clientHandlersByID_[p->targetPath()][data.id] = p;
                     idsByClientHandler_[p].insert(data.id);
                 }
-                if (wireToUserHook_) {
-                    auto d = (wireToUserHook_->hook)(basic::ByteDataView {std::string_view(data.content)});
-                    if (d) {
-                        server_({std::move(data.id), std::move(d->content)});
+                {
+                    std::lock_guard<std::mutex> _(serversMutex_);
+                    auto iter = servers_.find(p->targetPath());
+                    if (iter == servers_.end()) {
+                        return;
                     }
-                } else {
-                    server_(std::move(data));
+                    if (iter->second.wireToUserHook_) {
+                        auto d = (iter->second.wireToUserHook_->hook)(basic::ByteDataView {std::string_view(data.content)});
+                        if (d) {
+                            iter->second.server_({std::move(data.id), std::move(d->content)});
+                        }
+                    } else {
+                        iter->second.server_(std::move(data));
+                    }
                 }
             }
         };
@@ -781,6 +839,10 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             } else {
                 wireToUserHook = std::nullopt;
             }
+            std::string targetPath = locator.identifier();
+            if (!boost::starts_with(targetPath, "/")) {
+                targetPath = "/"+targetPath;
+            }
             auto iter = rpcServerMap_.find(locator.port());
             if (iter == rpcServerMap_.end()) {
                 iter = rpcServerMap_.insert({
@@ -788,27 +850,24 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                     , std::make_shared<OneRPCServer>(
                         this
                         , locator.port()
-                        , wireToUserHook 
-                        , server
                         , (config?config->getConfigurationItem(TLSServerInfoKey {locator.port()}):std::nullopt)
                     )
                 }).first;
                 if (started_) {
                     iter->second->run();
                 }
-            } else {
-                throw WebSocketComponentException("Cannot bind the web socket port "+std::to_string(locator.port())+" to two or more RPC servers");
             }
+            iter->second->addServer(targetPath, server, wireToUserHook);
             auto *p = iter->second.get();
             if (hookPair && hookPair->userToWire) {
                 auto hook = hookPair->userToWire->hook;
-                return [p,hook](bool isFinal, basic::ByteDataWithID &&data) {
+                return [targetPath,p,hook](bool isFinal, basic::ByteDataWithID &&data) {
                     auto x = hook(basic::ByteData {std::move(data.content)});
-                    p->sendReply(isFinal, {data.id, std::move(x.content)});
+                    p->sendReply(targetPath, isFinal, {data.id, std::move(x.content)});
                 };
             } else {
-                return [p](bool isFinal, basic::ByteDataWithID &&data) {
-                    p->sendReply(isFinal, std::move(data));
+                return [targetPath,p](bool isFinal, basic::ByteDataWithID &&data) {
+                    p->sendReply(targetPath, isFinal, std::move(data));
                 };
             }
         }
