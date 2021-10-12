@@ -191,9 +191,10 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                     Env *env_;
                     ConnectionLocator locator_;
                     std::function<void(basic::ByteDataWithID &&)> requester_;
+                    uint32_t clientNumber_;
                     std::optional<ByteDataHookPair> hooks_;
                 public:
-                    LocalCore(ConnectionLocator const &locator, std::optional<ByteDataHookPair> hooks) : env_(nullptr), locator_(locator), hooks_(hooks) {}
+                    LocalCore(ConnectionLocator const &locator, std::optional<ByteDataHookPair> hooks) : env_(nullptr), locator_(locator), clientNumber_(0), hooks_(hooks) {}
                     virtual void start(Env *env) override final {
                         env_ = env;
                         requester_ = env->rabbitmq_setRPCQueueClient(locator_, [this](bool isFinal, basic::ByteDataWithID &&data) {
@@ -203,7 +204,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                                 return;
                             }
                             this->publish(env_, typename M::template Key<B> {Env::id_from_string(data.id), std::move(b)}, isFinal);
-                        }, DefaultHookFactory<Env>::template supplyFacilityHookPair_ClientSide<A,B>(env_, hooks_));
+                        }, DefaultHookFactory<Env>::template supplyFacilityHookPair_ClientSide<A,B>(env_, hooks_), &clientNumber_);
                     }
                     virtual void handle(typename M::template InnerData<typename M::template Key<A>> &&data) override final {
                         if (env_) {
@@ -219,7 +220,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                     }
                     virtual void control(Env *env, std::string const &command, std::vector<std::string> const &params) override final {
                         if (command == "stop") {
-                            env->rabbitmq_removeRPCQueueClient(locator_);
+                            env->rabbitmq_removeRPCQueueClient(locator_, clientNumber_);
                         }
                     }
                 };
@@ -498,13 +499,14 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             }
 
             template <class A, class B>
-            static std::future<B> typedOneShotRemoteCall(Env *env, ConnectionLocator const &rpcQueueLocator, A &&request, std::optional<ByteDataHookPair> hooks = std::nullopt, bool autoDisconnect=false) {
+            static std::future<B> typedOneShotRemoteCall(Env *env, ConnectionLocator const &rpcQueueLocator, A &&request, std::optional<ByteDataHookPair> hooks = std::nullopt, bool autoDisconnect=false, uint32_t *clientNumberOutput = nullptr) {
                 std::shared_ptr<std::promise<B>> ret = std::make_shared<std::promise<B>>();
                 basic::ByteData byteData = { basic::SerializationActions<M>::template serializeFunc<A>(request) };
                 typename M::template Key<basic::ByteData> keyInput = infra::withtime_utils::keyify<basic::ByteData,typename M::EnvironmentType>(std::move(byteData));
                 
                 bool done = false;
-                auto requester = env->rabbitmq_setRPCQueueClient(rpcQueueLocator, [autoDisconnect,rpcQueueLocator,env,ret,done](bool isFinal, basic::ByteDataWithID &&data) mutable {
+                auto clientNum = std::make_shared<uint32_t>(0);
+                auto requester = env->rabbitmq_setRPCQueueClient(rpcQueueLocator, [autoDisconnect,rpcQueueLocator,env,ret,done,clientNum](bool isFinal, basic::ByteDataWithID &&data) mutable {
                     if (!done) {
                         try {
                             B b;
@@ -514,10 +516,10 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                             } else {
                                 done = true;
                                 if (autoDisconnect) {
-                                    std::thread([env,rpcQueueLocator,ret,b=std::move(b)]() mutable {
+                                    std::thread([env,rpcQueueLocator,ret,b=std::move(b),clientNum]() mutable {
                                         try {
                                             std::this_thread::sleep_for(std::chrono::milliseconds(10));
-                                            env->rabbitmq_removeRPCQueueClient(rpcQueueLocator);
+                                            env->rabbitmq_removeRPCQueueClient(rpcQueueLocator, *clientNum);
                                             ret->set_value_at_thread_exit(std::move(b));
                                         } catch (std::future_error const &) {
                                         } catch (std::exception const &) {
@@ -534,10 +536,10 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                         } catch (std::future_error const &) {
                         } catch (std::exception const &) {
                             if (autoDisconnect) {
-                                std::thread([env,rpcQueueLocator,ret,ex=std::current_exception()]() {
+                                std::thread([env,rpcQueueLocator,ret,clientNum,ex=std::current_exception()]() {
                                     try {
                                         std::this_thread::sleep_for(std::chrono::milliseconds(10));
-                                        env->rabbitmq_removeRPCQueueClient(rpcQueueLocator);
+                                        env->rabbitmq_removeRPCQueueClient(rpcQueueLocator,*clientNum);
                                         ret->set_exception_at_thread_exit(std::move(ex));
                                     } catch (std::future_error const &) {
                                     } catch (std::exception const &) {
@@ -555,7 +557,10 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                             }
                         }
                     }
-                }, DefaultHookFactory<Env>::template supplyFacilityHookPair_ClientSide<A,B>(env, hooks));
+                }, DefaultHookFactory<Env>::template supplyFacilityHookPair_ClientSide<A,B>(env, hooks), clientNum.get());
+                if (clientNumberOutput) {
+                    *clientNumberOutput = *clientNum;
+                }
                 sendRequest(env, requester, basic::ByteDataWithID {
                     Env::id_to_string(keyInput.id())
                     , std::move(keyInput.key().content)
@@ -564,18 +569,22 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             }
 
             template <class A>
-            static void typedOneShotRemoteCallNoReply(Env *env, ConnectionLocator const &rpcQueueLocator, A &&request, std::optional<ByteDataHookPair> hooks = std::nullopt, bool autoDisconnect=false) {
+            static void typedOneShotRemoteCallNoReply(Env *env, ConnectionLocator const &rpcQueueLocator, A &&request, std::optional<ByteDataHookPair> hooks = std::nullopt, bool autoDisconnect=false, uint32_t *clientNumberOutput = nullptr) {
                 basic::ByteData byteData = { basic::SerializationActions<M>::template serializeFunc<A>(request) };
                 typename M::template Key<basic::ByteData> keyInput = infra::withtime_utils::keyify<basic::ByteData,typename M::EnvironmentType>(std::move(byteData));
                 
+                uint32_t clientNum = 0;
                 auto requester = env->rabbitmq_setRPCQueueClient(rpcQueueLocator, [](bool isFinal, basic::ByteDataWithID &&data) {
-                }, DefaultHookFactory<Env>::template supplyFacilityHookPair_ClientSideOutgoingOnly<A>(env, hooks));
+                }, DefaultHookFactory<Env>::template supplyFacilityHookPair_ClientSideOutgoingOnly<A>(env, hooks),&clientNum);
+                if (clientNumberOutput) {
+                    *clientNumberOutput = clientNum;
+                }
                 sendRequest(env, requester, basic::ByteDataWithID {
                     Env::id_to_string(keyInput.id())
                     , std::move(keyInput.key().content)
                 });
                 if (autoDisconnect) {
-                    env->rabbitmq_removeRPCQueueClient(rpcQueueLocator);
+                    env->rabbitmq_removeRPCQueueClient(rpcQueueLocator, clientNum);
                 }
             }
         };
@@ -592,9 +601,10 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                     Env *env_;
                     ConnectionLocator locator_;
                     std::function<void(basic::ByteDataWithID &&)> requester_;
+                    uint32_t clientNumber_;
                     std::optional<ByteDataHookPair> hooks_;
                 public:
-                    LocalCore(ConnectionLocator const &locator, std::optional<ByteDataHookPair> hooks) : env_(nullptr), locator_(locator), hooks_(hooks) {}
+                    LocalCore(ConnectionLocator const &locator, std::optional<ByteDataHookPair> hooks) : env_(nullptr), locator_(locator), clientNumber_(0), hooks_(hooks) {}
                     virtual void start(Env *env) override final {
                         env_ = env;
                         requester_ = env->rabbitmq_setRPCQueueClient(locator_, [this](bool isFinal, basic::ByteDataWithID &&data) {
@@ -609,7 +619,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                                 }
                                 this->publish(env_, typename M::template Key<B> {Env::id_from_string(data.id), std::move(b)}, isFinal);
                             }
-                        }, DefaultHookFactory<Env>::template supplyFacilityHookPair_ClientSide<A,B>(env_, hooks_));
+                        }, DefaultHookFactory<Env>::template supplyFacilityHookPair_ClientSide<A,B>(env_, hooks_), &clientNumber_);
                     }
                     virtual void handle(typename M::template InnerData<typename M::template Key<A>> &&data) override final {
                         if (env_) {
@@ -625,7 +635,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                     }
                     virtual void control(Env *env, std::string const &command, std::vector<std::string> const &params) override final {
                         if (command == "stop") {
-                            env->rabbitmq_removeRPCQueueClient(locator_);
+                            env->rabbitmq_removeRPCQueueClient(locator_, clientNumber_);
                         }
                     }
                 };
@@ -905,13 +915,14 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             }
 
             template <class A, class B>
-            static std::future<B> typedOneShotRemoteCall(Env *env, ConnectionLocator const &rpcQueueLocator, A &&request, std::optional<ByteDataHookPair> hooks = std::nullopt, bool autoDisconnect=false) {
+            static std::future<B> typedOneShotRemoteCall(Env *env, ConnectionLocator const &rpcQueueLocator, A &&request, std::optional<ByteDataHookPair> hooks = std::nullopt, bool autoDisconnect=false, uint32_t *clientNumberOutput = nullptr) {
                 std::shared_ptr<std::promise<B>> ret = std::make_shared<std::promise<B>>();
                 basic::ByteData byteData = { basic::SerializationActions<M>::template serializeFunc<A>(request) };
                 typename M::template Key<basic::ByteData> keyInput = infra::withtime_utils::keyify<basic::ByteData,typename M::EnvironmentType>(std::move(byteData));
                 
                 bool done = false;
-                auto requester = env->rabbitmq_setRPCQueueClient(rpcQueueLocator, [autoDisconnect,ret,env,rpcQueueLocator,done](bool isFinal, basic::ByteDataWithID &&data) mutable {    
+                auto clientNum = std::make_shared<uint32_t>(0);
+                auto requester = env->rabbitmq_setRPCQueueClient(rpcQueueLocator, [autoDisconnect,ret,env,rpcQueueLocator,done,clientNum](bool isFinal, basic::ByteDataWithID &&data) mutable {    
                     if (!done) {
                         try {
                             auto processRes = static_cast<typename DetermineClientSideIdentityForRequest<Env,A>::ComponentType *>(env)->process_incoming_data(
@@ -925,10 +936,10 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                                 } else {
                                     done = true;
                                     if (autoDisconnect) {
-                                        std::thread([env,rpcQueueLocator,ret,b=std::move(b)]() mutable {
+                                        std::thread([env,rpcQueueLocator,ret,clientNum,b=std::move(b)]() mutable {
                                             try {
                                                 std::this_thread::sleep_for(std::chrono::milliseconds(10));
-                                                env->rabbitmq_removeRPCQueueClient(rpcQueueLocator);
+                                                env->rabbitmq_removeRPCQueueClient(rpcQueueLocator, *clientNum);
                                                 ret->set_value_at_thread_exit(std::move(b));
                                             } catch (std::future_error const &) {
                                             } catch (std::exception const &) {
@@ -946,10 +957,10 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                         } catch (std::future_error const &) {
                         } catch (std::exception const &) {
                             if (autoDisconnect) {
-                                std::thread([env,rpcQueueLocator,ret,ex=std::current_exception()]() {
+                                std::thread([env,rpcQueueLocator,ret,clientNum,ex=std::current_exception()]() {
                                     try {
                                         std::this_thread::sleep_for(std::chrono::milliseconds(10));
-                                        env->rabbitmq_removeRPCQueueClient(rpcQueueLocator);
+                                        env->rabbitmq_removeRPCQueueClient(rpcQueueLocator,*clientNum);
                                         ret->set_exception_at_thread_exit(std::move(ex));
                                     } catch (std::future_error const &) {
                                     } catch (std::exception const &) {
@@ -967,8 +978,11 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                             }
                         }
                     }
-                }, DefaultHookFactory<Env>::template supplyFacilityHookPair_ClientSide<A,B>(env, hooks));
+                }, DefaultHookFactory<Env>::template supplyFacilityHookPair_ClientSide<A,B>(env, hooks), clientNum.get());
                 
+                if (clientNumberOutput) {
+                    *clientNumberOutput = *clientNum;
+                }
                 sendRequestWithIdentity<Identity,A>(env, requester, basic::ByteDataWithID {
                     Env::id_to_string(keyInput.id())
                     , std::move(keyInput.key().content)
@@ -977,18 +991,22 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             }
 
             template <class A>
-            static void typedOneShotRemoteCallNoReply(Env *env, ConnectionLocator const &rpcQueueLocator, A &&request, std::optional<ByteDataHookPair> hooks = std::nullopt, bool autoDisconnect=false) {
+            static void typedOneShotRemoteCallNoReply(Env *env, ConnectionLocator const &rpcQueueLocator, A &&request, std::optional<ByteDataHookPair> hooks = std::nullopt, bool autoDisconnect=false, uint32_t *clientNumberOutput = nullptr) {
                 basic::ByteData byteData = { basic::SerializationActions<M>::template serializeFunc<A>(request) };
                 typename M::template Key<basic::ByteData> keyInput = infra::withtime_utils::keyify<basic::ByteData,typename M::EnvironmentType>(std::move(byteData));
                 
+                uint32_t clientNum = 0;
                 auto requester = env->rabbitmq_setRPCQueueClient(rpcQueueLocator, [](bool isFinal, basic::ByteDataWithID &&data) {
-                }, DefaultHookFactory<Env>::template supplyFacilityHookPair_ClientSideOutgoingOnly<A>(env, hooks));
+                }, DefaultHookFactory<Env>::template supplyFacilityHookPair_ClientSideOutgoingOnly<A>(env, hooks), &clientNum);
+                if (clientNumberOutput) {
+                    *clientNumberOutput = clientNum;
+                }
                 sendRequestWithIdentity<Identity,A>(env, requester, basic::ByteDataWithID {
                     Env::id_to_string(keyInput.id())
                     , std::move(keyInput.key().content)
                 });
                 if (autoDisconnect) {
-                    env->rabbitmq_removeRPCQueueClient(rpcQueueLocator);
+                    env->rabbitmq_removeRPCQueueClient(rpcQueueLocator, clientNum);
                 }
             }
         };
@@ -1265,24 +1283,24 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         }
 
         template <class A, class B>
-        static std::future<B> typedOneShotRemoteCall(Env *env, ConnectionLocator const &rpcQueueLocator, A &&request, std::optional<ByteDataHookPair> hooks = std::nullopt, bool autoDisconnect=false) {
+        static std::future<B> typedOneShotRemoteCall(Env *env, ConnectionLocator const &rpcQueueLocator, A &&request, std::optional<ByteDataHookPair> hooks = std::nullopt, bool autoDisconnect=false, uint32_t *clientNumberOutput = nullptr) {
             if constexpr(DetermineClientSideIdentityForRequest<Env, A>::HasIdentity) {
                 return WithIdentity<typename DetermineClientSideIdentityForRequest<Env, A>::IdentityType>
-                    ::template typedOneShotRemoteCall<A,B>(env, rpcQueueLocator, std::move(request), hooks, autoDisconnect);
+                    ::template typedOneShotRemoteCall<A,B>(env, rpcQueueLocator, std::move(request), hooks, autoDisconnect, clientNumberOutput);
             } else {
                 return WithoutIdentity
-                    ::template typedOneShotRemoteCall<A,B>(env, rpcQueueLocator, std::move(request), hooks, autoDisconnect);
+                    ::template typedOneShotRemoteCall<A,B>(env, rpcQueueLocator, std::move(request), hooks, autoDisconnect, clientNumberOutput);
             }
         }
 
         template <class A>
-        static void typedOneShotRemoteCallNoReply(Env *env, ConnectionLocator const &rpcQueueLocator, A &&request, std::optional<ByteDataHookPair> hooks = std::nullopt, bool autoDisconnect=false) {
+        static void typedOneShotRemoteCallNoReply(Env *env, ConnectionLocator const &rpcQueueLocator, A &&request, std::optional<ByteDataHookPair> hooks = std::nullopt, bool autoDisconnect=false, uint32_t *clientNumberOutput = nullptr) {
             if constexpr(DetermineClientSideIdentityForRequest<Env, A>::HasIdentity) {
                 WithIdentity<typename DetermineClientSideIdentityForRequest<Env, A>::IdentityType>
-                    ::template typedOneShotRemoteCallNoReply<A>(env, rpcQueueLocator, std::move(request), hooks, autoDisconnect);
+                    ::template typedOneShotRemoteCallNoReply<A>(env, rpcQueueLocator, std::move(request), hooks, autoDisconnect, clientNumberOutput);
             } else {
                 WithoutIdentity
-                    ::template typedOneShotRemoteCallNoReply<A>(env, rpcQueueLocator, std::move(request), hooks, autoDisconnect);
+                    ::template typedOneShotRemoteCallNoReply<A>(env, rpcQueueLocator, std::move(request), hooks, autoDisconnect, clientNumberOutput);
             }
         }
 

@@ -46,8 +46,9 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         std::function<void(basic::ByteDataWithID &&)> redis_setRPCClient(ConnectionLocator const &locator,
                         std::function<std::string()> clientCommunicationIDCreator,
                         std::function<void(bool, basic::ByteDataWithID &&)> client,
-                        std::optional<ByteDataHookPair> hookPair = std::nullopt); //the return value is the requester
-        void redis_removeRPCClient(ConnectionLocator const &locator);
+                        std::optional<ByteDataHookPair> hookPair = std::nullopt,
+                        uint32_t *clientNumberOutput = nullptr); //the return value is the requester
+        void redis_removeRPCClient(ConnectionLocator const &locator, uint32_t clientNumber);
         std::function<void(bool, basic::ByteDataWithID &&)> redis_setRPCServer(ConnectionLocator const &locator,
                         std::function<void(basic::ByteDataWithID &&)> server,
                         std::optional<ByteDataHookPair> hookPair = std::nullopt); //the return value is the replier, where bool means whether it is the final reply

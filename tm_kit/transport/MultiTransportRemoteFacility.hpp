@@ -170,6 +170,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
         std::function<std::optional<ByteDataHookPair>(std::string const &, ConnectionLocator const &)> hookPairFactory_; 
         std::vector<std::tuple<ConnectionLocator, std::unique_ptr<RequestSender>>> underlyingSenders_;
         SenderMap senderMap_;
+        std::unordered_map<ConnectionLocator, uint32_t> clientNumberRecord_;
         std::mutex mutex_;
 
         std::tuple<bool, std::size_t> registerFacility(Env *env, MultiTransportRemoteFacilityConnectionType connType, ConnectionLocator const &locator, std::string const &description) {
@@ -179,6 +180,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                 if constexpr (std::is_convertible_v<Env *, rabbitmq::RabbitMQComponent *>) {
                     auto *component = static_cast<rabbitmq::RabbitMQComponent *>(env);
                     try {
+                        uint32_t clientNumber = 0;
                         auto rawReq = component->rabbitmq_setRPCQueueClient(
                             locator
                             , [this,env](bool isFinal, basic::ByteDataWithID &&data) {
@@ -218,6 +220,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                                 }
                             }
                             , DefaultHookFactory<Env>::template supplyFacilityHookPair_ClientSide<A,B>(env, hookPairFactory_(description, locator))
+                            , &clientNumber
                         );
                         RequestSender req;
                         if constexpr (std::is_same_v<Identity,void>) {
@@ -245,6 +248,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                                 senderMap_.insert({locator, std::get<1>(underlyingSenders_.back()).get()});
                             }
                             newSize = underlyingSenders_.size();
+                            clientNumberRecord_[locator] = clientNumber;
                         }
                         std::ostringstream oss;
                         oss << "[MultiTransportRemoteFacility::registerFacility] Registered RabbitMQ facility for "
@@ -268,6 +272,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                 if constexpr (std::is_convertible_v<Env *, redis::RedisComponent *>) {
                     auto *component = static_cast<redis::RedisComponent *>(env);
                     try {
+                        uint32_t clientNumber = 0;
                         auto rawReq = component->redis_setRPCClient(
                             locator
                             , [env]() {
@@ -310,6 +315,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                                 }
                             }
                             , DefaultHookFactory<Env>::template supplyFacilityHookPair_ClientSide<A,B>(env, hookPairFactory_(description, locator))
+                            , &clientNumber
                         );
                         RequestSender req;
                         if constexpr (std::is_same_v<Identity,void>) {
@@ -337,6 +343,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                                 senderMap_.insert({locator, std::get<1>(underlyingSenders_.back()).get()});
                             }
                             newSize = underlyingSenders_.size();
+                            clientNumberRecord_[locator] = clientNumber;
                         }
                         std::ostringstream oss;
                         oss << "[MultiTransportRemoteFacility::registerFacility] Registered Redis facility for "
@@ -601,7 +608,16 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
             case MultiTransportRemoteFacilityConnectionType::RabbitMQ:
                 if constexpr (std::is_convertible_v<Env *, rabbitmq::RabbitMQComponent *>) {
                     auto *component = static_cast<rabbitmq::RabbitMQComponent *>(env);
-                    component->rabbitmq_removeRPCQueueClient(locator);
+                    uint32_t clientNumber = 0;
+                    {
+                        std::lock_guard<std::mutex> _(mutex_);
+                        auto iter = clientNumberRecord_.find(locator);
+                        if (iter != clientNumberRecord_.end()) {
+                            clientNumber = iter->second;
+                            clientNumberRecord_.erase(iter);
+                        }
+                    }
+                    component->rabbitmq_removeRPCQueueClient(locator, clientNumber);
                     {
                         std::lock_guard<std::mutex> _(mutex_);
                         if constexpr (DispatchStrategy == MultiTransportRemoteFacilityDispatchStrategy::Designated) {
@@ -629,7 +645,16 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
             case MultiTransportRemoteFacilityConnectionType::Redis:
                 if constexpr (std::is_convertible_v<Env *, redis::RedisComponent *>) {
                     auto *component = static_cast<redis::RedisComponent *>(env);
-                    component->redis_removeRPCClient(locator);
+                    uint32_t clientNumber = 0;
+                    {
+                        std::lock_guard<std::mutex> _(mutex_);
+                        auto iter = clientNumberRecord_.find(locator);
+                        if (iter != clientNumberRecord_.end()) {
+                            clientNumber = iter->second;
+                            clientNumberRecord_.erase(iter);
+                        }
+                    }
+                    component->redis_removeRPCClient(locator, clientNumber);
                     {
                         std::lock_guard<std::mutex> _(mutex_);
                         if constexpr (DispatchStrategy == MultiTransportRemoteFacilityDispatchStrategy::Designated) {
@@ -787,7 +812,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
         }
     public:
         MultiTransportRemoteFacility(std::function<std::optional<ByteDataHookPair>(std::string const &, ConnectionLocator const &)> const &hookPairFactory = [](std::string const &, ConnectionLocator const &) {return std::nullopt;})
-            : Parent(), hookPairFactory_(hookPairFactory), underlyingSenders_(), senderMap_(), mutex_()
+            : Parent(), hookPairFactory_(hookPairFactory), underlyingSenders_(), senderMap_(), clientNumberRecord_(), mutex_()
         {
             static_assert(
                 (
@@ -824,11 +849,12 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
             , A &&request
             , std::optional<ByteDataHookPair> hooks = std::nullopt
             , bool autoDisconnect = true
+            , uint32_t *clientNumberOutput = nullptr
         ) {
             if (connType == MultiTransportRemoteFacilityConnectionType::RabbitMQ) {
                 if constexpr (std::is_convertible_v<Env *, rabbitmq::RabbitMQComponent *>) {
                     return rabbitmq::RabbitMQOnOrderFacility<Env>::template typedOneShotRemoteCall<A,B>(
-                        env, locator, std::move(request), hooks, autoDisconnect
+                        env, locator, std::move(request), hooks, autoDisconnect, clientNumberOutput
                     );
                 } else {
                     throw std::runtime_error("OneShotMultiTransportRemoteFacilityCall::call: connection type RabbitMQ not supported in environment");
@@ -836,7 +862,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
             } else if (connType == MultiTransportRemoteFacilityConnectionType::Redis) {
                 if constexpr (std::is_convertible_v<Env *, redis::RedisComponent *>) {
                     return redis::RedisOnOrderFacility<Env>::template typedOneShotRemoteCall<A,B>(
-                        env, locator, std::move(request), hooks, autoDisconnect
+                        env, locator, std::move(request), hooks, autoDisconnect, clientNumberOutput
                     );
                 } else {
                     throw std::runtime_error("OneShotMultiTransportRemoteFacilityCall::call: connection type Redis not supported in environment");
@@ -898,12 +924,13 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
             , A &&request
             , std::optional<ByteDataHookPair> hooks = std::nullopt
             , bool autoDisconnect = true
+            , uint32_t *clientNumberOutput = nullptr
         ) {
             if constexpr (std::is_same_v<
                 basic::WrapFacilitioidConnectorForSerializationHelpers::WrappedType<ProtocolWrapper,A>
                 , A
             >) {
-                return call<A,B>(env, connType, locator, std::move(request), hooks, autoDisconnect);
+                return call<A,B>(env, connType, locator, std::move(request), hooks, autoDisconnect, clientNumberOutput);
             } else {
                 auto wrappedB = call<
                     basic::WrapFacilitioidConnectorForSerializationHelpers::WrappedType<ProtocolWrapper,A>
@@ -912,7 +939,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                     env, connType, locator
                     , basic::WrapFacilitioidConnectorForSerializationHelpers::WrapperUtils<ProtocolWrapper>
                         ::enclose(std::move(request))
-                    , hooks, autoDisconnect
+                    , hooks, autoDisconnect, clientNumberOutput
                 );
                 return std::async(std::launch::async, [wrappedB=std::move(wrappedB)]() mutable -> B {
                     return basic::WrapFacilitioidConnectorForSerializationHelpers::WrapperUtils<ProtocolWrapper>
@@ -927,10 +954,11 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
             , A &&request
             , std::optional<ByteDataHookPair> hooks = std::nullopt
             , bool autoDisconnect = true
+            , uint32_t *clientNumberOutput = nullptr
         ) {
             auto parseRes = parseMultiTransportRemoteFacilityChannel(facilityDescriptor);
             if (parseRes) {
-                return call<A,B>(env, std::get<0>(*parseRes), std::get<1>(*parseRes), std::move(request), hooks, autoDisconnect);
+                return call<A,B>(env, std::get<0>(*parseRes), std::get<1>(*parseRes), std::move(request), hooks, autoDisconnect, clientNumberOutput);
             } else {
                 throw std::runtime_error("OneShotMultiTransportRemoteFacilityCall::call: bad facility descriptor '"+facilityDescriptor+"'");
             }
@@ -942,10 +970,11 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
             , A &&request
             , std::optional<ByteDataHookPair> hooks = std::nullopt
             , bool autoDisconnect = true
+            , uint32_t *clientNumberOutput = nullptr
         ) {
             auto parseRes = parseMultiTransportRemoteFacilityChannel(facilityDescriptor);
             if (parseRes) {
-                return callWithProtocol<ProtocolWrapper,A,B>(env, std::get<0>(*parseRes), std::get<1>(*parseRes), std::move(request), hooks, autoDisconnect);
+                return callWithProtocol<ProtocolWrapper,A,B>(env, std::get<0>(*parseRes), std::get<1>(*parseRes), std::move(request), hooks, autoDisconnect, clientNumberOutput);
             } else {
                 throw std::runtime_error("OneShotMultiTransportRemoteFacilityCall::call: bad facility descriptor '"+facilityDescriptor+"'");
             }
@@ -958,11 +987,12 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
             , A &&request
             , std::optional<ByteDataHookPair> hooks = std::nullopt
             , bool autoDisconnect = true
+            , uint32_t *clientNumberOutput = nullptr
         ) {
             if (connType == MultiTransportRemoteFacilityConnectionType::RabbitMQ) {
                 if constexpr (std::is_convertible_v<Env *, rabbitmq::RabbitMQComponent *>) {
                     rabbitmq::RabbitMQOnOrderFacility<Env>::template typedOneShotRemoteCallNoReply<A,B>(
-                        env, locator, std::move(request), hooks, autoDisconnect
+                        env, locator, std::move(request), hooks, autoDisconnect, clientNumberOutput
                     );
                 } else {
                     throw std::runtime_error("OneShotMultiTransportRemoteFacilityCall::callNoReply: connection type RabbitMQ not supported in environment");
@@ -970,7 +1000,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
             } else if (connType == MultiTransportRemoteFacilityConnectionType::Redis) {
                 if constexpr (std::is_convertible_v<Env *, redis::RedisComponent *>) {
                     redis::RedisOnOrderFacility<Env>::template typedOneShotRemoteCallNoReply<A,B>(
-                        env, locator, std::move(request), hooks, autoDisconnect
+                        env, locator, std::move(request), hooks, autoDisconnect, clientNumberOutput
                     );
                 } else {
                     throw std::runtime_error("OneShotMultiTransportRemoteFacilityCall::callNoReply: connection type Redis not supported in environment");
@@ -1026,6 +1056,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
             , A &&request
             , std::optional<ByteDataHookPair> hooks = std::nullopt
             , bool autoDisconnect = true
+            , uint32_t *clientNumberOutput = nullptr
         ) {
             callNoReply<
                 basic::WrapFacilitioidConnectorForSerializationHelpers::WrappedType<ProtocolWrapper,A>
@@ -1034,7 +1065,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                 env, connType, locator 
                 , basic::WrapFacilitioidConnectorForSerializationHelpers::WrapperUtils<ProtocolWrapper>
                     ::enclose(std::move(request))
-                , hooks, autoDisconnect
+                , hooks, autoDisconnect, clientNumberOutput
             );
         }
         template <class A, class B>
@@ -1044,10 +1075,11 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
             , A &&request
             , std::optional<ByteDataHookPair> hooks = std::nullopt
             , bool autoDisconnect = true
+            , uint32_t *clientNumberOutput = nullptr
         ) {
             auto parseRes = parseMultiTransportRemoteFacilityChannel(facilityDescriptor);
             if (parseRes) {
-                callNoReply<A,B>(env, std::get<0>(*parseRes), std::get<1>(*parseRes), std::move(request), hooks, autoDisconnect);
+                callNoReply<A,B>(env, std::get<0>(*parseRes), std::get<1>(*parseRes), std::move(request), hooks, autoDisconnect, clientNumberOutput);
             } else {
                 throw std::runtime_error("OneShotMultiTransportRemoteFacilityCall::callNoReply: bad facility descriptor '"+facilityDescriptor+"'");
             }
@@ -1059,10 +1091,11 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
             , A &&request
             , std::optional<ByteDataHookPair> hooks = std::nullopt
             , bool autoDisconnect = true
+            , uint32_t *clientNumberOutput = nullptr
         ) {
             auto parseRes = parseMultiTransportRemoteFacilityChannel(facilityDescriptor);
             if (parseRes) {
-                callNoReplyWithProtocol<ProtocolWrapper,A,B>(env, std::get<0>(*parseRes), std::get<1>(*parseRes), std::move(request), hooks, autoDisconnect);
+                callNoReplyWithProtocol<ProtocolWrapper,A,B>(env, std::get<0>(*parseRes), std::get<1>(*parseRes), std::move(request), hooks, autoDisconnect, clientNumberOutput);
             } else {
                 throw std::runtime_error("OneShotMultiTransportRemoteFacilityCall::callNoReply: bad facility descriptor '"+facilityDescriptor+"'");
             }
@@ -1071,16 +1104,17 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
             Env *env
             , MultiTransportRemoteFacilityConnectionType connType
             , ConnectionLocator const &locator
+            , uint32_t clientNumberIfNeeded
         ) {
             if (connType == MultiTransportRemoteFacilityConnectionType::RabbitMQ) {
                 if constexpr (std::is_convertible_v<Env *, rabbitmq::RabbitMQComponent *>) {
-                    env->rabbitmq_removeRPCQueueClient(locator);
+                    env->rabbitmq_removeRPCQueueClient(locator, clientNumberIfNeeded);
                 } else {
                     throw std::runtime_error("OneShotMultiTransportRemoteFacilityCall::removeClient: connection type RabbitMQ not supported in environment");
                 }
             } else if (connType == MultiTransportRemoteFacilityConnectionType::Redis) {
                 if constexpr (std::is_convertible_v<Env *, redis::RedisComponent *>) {
-                    env->redis_removeRPCClient(locator);
+                    env->redis_removeRPCClient(locator, clientNumberIfNeeded);
                 } else {
                     throw std::runtime_error("OneShotMultiTransportRemoteFacilityCall::removeClient: connection type Redis not supported in environment");
                 }
@@ -1107,10 +1141,11 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
         static void removeClient(
             Env *env
             , std::string const &facilityDescriptor
+            , uint32_t clientNumberIfNeeded
         ) {
             auto parseRes = parseMultiTransportRemoteFacilityChannel(facilityDescriptor);
             if (parseRes) {
-                return removeClient(env, std::get<0>(*parseRes), std::get<1>(*parseRes));
+                return removeClient(env, std::get<0>(*parseRes), std::get<1>(*parseRes), clientNumberIfNeeded);
             } else {
                 throw std::runtime_error("OneShotMultiTransportRemoteFacilityCall::removeClient: bad facility descriptor '"+facilityDescriptor+"'");
             }
@@ -1124,11 +1159,12 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
             , std::chrono::system_clock::duration const &timeOut
             , std::optional<ByteDataHookPair> hooks = std::nullopt
         ) {
-            auto ret = call<A,B>(env, connType, locator, std::move(request), hooks, true);
+            uint32_t clientNum = 0;
+            auto ret = call<A,B>(env, connType, locator, std::move(request), hooks, true, &clientNum);
             if (ret.wait_for(timeOut) == std::future_status::ready) {
                 return {std::move(ret.get())};
             } else {
-                removeClient(env, connType, locator);
+                removeClient(env, connType, locator, clientNum);
                 return std::nullopt;
             }
         }
@@ -1141,11 +1177,12 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
             , std::chrono::system_clock::duration const &timeOut
             , std::optional<ByteDataHookPair> hooks = std::nullopt
         ) {
-            auto ret = callWithProtocol<ProtocolWrapper,A,B>(env, connType, locator, std::move(request), hooks, true);
+            uint32_t clientNum = 0;
+            auto ret = callWithProtocol<ProtocolWrapper,A,B>(env, connType, locator, std::move(request), hooks, true, &clientNum);
             if (ret.wait_for(timeOut) == std::future_status::ready) {
                 return {std::move(ret.get())};
             } else {
-                removeClient(env, connType, locator);
+                removeClient(env, connType, locator, clientNum);
                 return std::nullopt;
             }
         }
@@ -1190,6 +1227,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
             , std::optional<WireToUserHook> heartbeatHook = std::nullopt
             , std::optional<ByteDataHookPair> hooks = std::nullopt
             , bool autoDisconnect = true
+            , uint32_t *clientNumberOutput = nullptr
         ) {
             auto heartbeatResult = MultiTransportBroadcastFirstUpdateQueryManagingUtils<Env>
                 ::template fetchTypedFirstUpdateAndDisconnect<HeartbeatMessage>
@@ -1215,6 +1253,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                     , std::move(request)
                     , hooks 
                     , autoDisconnect
+                    , clientNumberOutput
                 );
             }
         }
@@ -1229,6 +1268,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
             , std::optional<WireToUserHook> heartbeatHook = std::nullopt
             , std::optional<ByteDataHookPair> hooks = std::nullopt
             , bool autoDisconnect = true
+            , uint32_t *clientNumberOutput = nullptr
         ) {
             if constexpr (std::is_same_v<
                 basic::WrapFacilitioidConnectorForSerializationHelpers::WrappedType<ProtocolWrapper,A>
@@ -1237,7 +1277,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                 return callByHeartbeat<A,B>(
                     env, heartbeatChannelSpec, heartbeatTopicDescription, heartbeatSenderNameRE, facilityNameInServer
                     , std::move(request)
-                    , heartbeatHook, hooks, autoDisconnect 
+                    , heartbeatHook, hooks, autoDisconnect, clientNumberOutput
                 );
             } else {
                 auto wrappedB = callByHeartbeat<
@@ -1247,7 +1287,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                     env, heartbeatChannelSpec, heartbeatTopicDescription, heartbeatSenderNameRE, facilityNameInServer
                     , basic::WrapFacilitioidConnectorForSerializationHelpers::WrapperUtils<ProtocolWrapper>
                         ::enclose(std::move(request))
-                    , heartbeatHook, hooks, autoDisconnect
+                    , heartbeatHook, hooks, autoDisconnect, clientNumberOutput
                 );
                 return std::async(std::launch::async, [wrappedB=std::move(wrappedB)]() mutable -> B {
                     return basic::WrapFacilitioidConnectorForSerializationHelpers::WrapperUtils<ProtocolWrapper>
@@ -1266,6 +1306,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
             , std::optional<WireToUserHook> heartbeatHook = std::nullopt
             , std::optional<ByteDataHookPair> hooks = std::nullopt
             , bool autoDisconnect = true
+            , uint32_t *clientNumberOutput = nullptr
         ) {
             auto heartbeatResult = MultiTransportBroadcastFirstUpdateQueryManagingUtils<Env>
                 ::template fetchTypedFirstUpdateAndDisconnect<HeartbeatMessage>
@@ -1291,6 +1332,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                     , std::move(request)
                     , hooks 
                     , autoDisconnect
+                    , clientNumberOutput
                 );
             }
         }
@@ -1305,6 +1347,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
             , std::optional<WireToUserHook> heartbeatHook = std::nullopt
             , std::optional<ByteDataHookPair> hooks = std::nullopt
             , bool autoDisconnect = true
+            , uint32_t *clientNumberOutput = nullptr
         ) {
             callNoReplyByHeartbeat<
                 basic::WrapFacilitioidConnectorForSerializationHelpers::WrappedType<ProtocolWrapper,A>
@@ -1313,7 +1356,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                 env, heartbeatChannelSpec, heartbeatTopicDescription, heartbeatSenderNameRE, facilityNameInServer
                 , basic::WrapFacilitioidConnectorForSerializationHelpers::WrapperUtils<ProtocolWrapper>
                     ::enclose(std::move(request))
-                , heartbeatHook, hooks, autoDisconnect
+                , heartbeatHook, hooks, autoDisconnect, clientNumberOutput
             );
         }
         template <class A, class B>

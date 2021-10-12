@@ -342,8 +342,15 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         private:
             amqp_connection_state_t connection_;
             std::string rpcQueue_, localQueue_;
-            std::function<void(bool, basic::ByteDataWithID &&)> callback_;
-            std::optional<WireToUserHook> wireToUserHook_;
+            struct OneClientInfo {
+                std::function<void(bool, basic::ByteDataWithID &&)> callback_;
+                std::optional<WireToUserHook> wireToUserHook_;
+            };
+            uint32_t clientCounter_;
+            std::unordered_map<uint32_t, OneClientInfo> clients_;
+            std::unordered_map<uint32_t, std::unordered_set<std::string>> clientToIDMap_;
+            std::unordered_map<std::string, uint32_t> idToClientMap_;
+            std::mutex clientsMutex_;
             std::thread th_;
             std::atomic<bool> running_;
             OnePublishingConnection *publishing_;
@@ -367,13 +374,26 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                                     &&
                                     (std::string_view((char *) envelop.message.properties.content_type.bytes, envelop.message.properties.content_type.len) == "final")
                                 );
-                                if (wireToUserHook_) {
-                                    auto d = (wireToUserHook_->hook)(basic::ByteDataView {std::string_view((char *) envelop.message.body.bytes, envelop.message.body.len)});
-                                    if (d) {
-                                        callback_(isFinal, {corrID, std::move(d->content)});
+                                {
+                                    std::lock_guard<std::mutex> _(clientsMutex_);
+                                    auto iter = idToClientMap_.find(corrID);
+                                    if (iter != idToClientMap_.end()) {
+                                        auto iter1 = clients_.find(iter->second);
+                                        if (iter1 != clients_.end()) {
+                                            if (iter1->second.wireToUserHook_) {
+                                                auto d = (iter1->second.wireToUserHook_->hook)(basic::ByteDataView {std::string_view((char *) envelop.message.body.bytes, envelop.message.body.len)});
+                                                if (d) {
+                                                    iter1->second.callback_(isFinal, {corrID, std::move(d->content)});
+                                                }
+                                            } else {
+                                                iter1->second.callback_(isFinal, {corrID, std::string((char *) envelop.message.body.bytes, envelop.message.body.len)});
+                                            }
+                                        }
+                                        if (isFinal) {
+                                            clientToIDMap_[iter->second].erase(corrID);
+                                            idToClientMap_.erase(iter);
+                                        }
                                     }
-                                } else {
-                                    callback_(isFinal, {corrID, std::string((char *) envelop.message.body.bytes, envelop.message.body.len)});
                                 }
                             }
                             amqp_destroy_envelope(&envelop);
@@ -400,12 +420,15 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 }
             }
         public:
-            OneRPCQueueClientConnection(RabbitMQComponent::ExceptionPolicy exceptionPolicy, ConnectionLocator const &l, std::function<void(bool, basic::ByteDataWithID &&)> callback, std::optional<WireToUserHook> wireToUserHook, OnePublishingConnection *publishing, TLSClientConfigurationComponent const *config)
+            OneRPCQueueClientConnection(RabbitMQComponent::ExceptionPolicy exceptionPolicy, ConnectionLocator const &l, OnePublishingConnection *publishing, TLSClientConfigurationComponent const *config)
                 : connection_(createConnection(l, config))
                 , rpcQueue_(l.identifier())
                 , localQueue_("")
-                , callback_(callback)
-                , wireToUserHook_(wireToUserHook)
+                , clientCounter_(0)
+                , clients_()
+                , clientToIDMap_()
+                , idToClientMap_()
+                , clientsMutex_()
                 , th_()
                 , running_(true)
                 , publishing_(publishing)
@@ -451,13 +474,36 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 amqp_connection_close(connection_, AMQP_REPLY_SUCCESS);
                 amqp_destroy_connection(connection_);
             }
-            void sendRequest(basic::ByteDataWithID &&data) {
+            uint32_t addClient(std::function<void(bool, basic::ByteDataWithID &&)> callback, std::optional<WireToUserHook> wireToUserHook) {
+                std::lock_guard<std::mutex> _(clientsMutex_);
+                clients_[++clientCounter_] = {callback, wireToUserHook};
+                return clientCounter_;
+            }
+            std::size_t removeClient(uint32_t clientNumber) {
+                std::lock_guard<std::mutex> _(clientsMutex_);
+                auto iter = clientToIDMap_.find(clientNumber);
+                if (iter != clientToIDMap_.end()) {
+                    for (auto const &id : iter->second) {
+                        idToClientMap_.erase(id);
+                    }
+                    clientToIDMap_.erase(iter);
+                }
+                clients_.erase(clientNumber);
+                return clients_.size();
+            }
+            void sendRequest(uint32_t clientNumber, basic::ByteDataWithID &&data) {
                 amqp_basic_properties_t props;
                 props._flags = AMQP_BASIC_CORRELATION_ID_FLAG | AMQP_BASIC_REPLY_TO_FLAG | AMQP_BASIC_DELIVERY_MODE_FLAG | AMQP_BASIC_EXPIRATION_FLAG;
                 props.correlation_id = amqp_cstring_bytes(data.id.c_str());
                 props.reply_to = amqp_cstring_bytes(localQueue_.c_str());
                 props.delivery_mode = (persistent_?AMQP_DELIVERY_PERSISTENT:AMQP_DELIVERY_NONPERSISTENT);
                 props.expiration = amqp_cstring_bytes("5000");
+
+                {
+                    std::lock_guard<std::mutex> _(clientsMutex_);
+                    clientToIDMap_[clientNumber].insert(data.id);
+                    idToClientMap_[data.id] = clientNumber;
+                }
        
                 publishing_->publishOnQueue(rpcQueue_, &props, data.content);           
             }
@@ -641,15 +687,14 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             }
             return iter->second.get();
         }
-        OneRPCQueueClientConnection *createRpcQueueClientConnection(ConnectionLocator const &l, std::function<void(bool, basic::ByteDataWithID &&)> client, std::optional<WireToUserHook> wireToUserHook, TLSClientConfigurationComponent const *config) {
+        OneRPCQueueClientConnection *createRpcQueueClientConnection(ConnectionLocator const &l, TLSClientConfigurationComponent const *config) {
             std::lock_guard<std::mutex> _(mutex_);
             auto iter = rpcQueueClientConnections_.find(l);
-            if (iter != rpcQueueClientConnections_.end()) {
-                throw RabbitMQComponentException("Cannot create duplicate RPC Queue client connection for "+l.toSerializationFormat());
+            if (iter == rpcQueueClientConnections_.end()) {
+                iter = rpcQueueClientConnections_.insert(
+                    {l, std::make_unique<OneRPCQueueClientConnection>(exceptionPolicy_, l, publishingConnectionNoLock(l, config), config)}
+                ).first;
             }
-            iter = rpcQueueClientConnections_.insert(
-                {l, std::make_unique<OneRPCQueueClientConnection>(exceptionPolicy_, l, client, wireToUserHook, publishingConnectionNoLock(l, config), config)}
-            ).first;
             return iter->second.get();
         }
         OneRPCQueueServerConnection *createRpcQueueServerConnection(ConnectionLocator const &l, std::function<void(basic::ByteDataWithID &&)> handler, std::optional<WireToUserHook> wireToUserHook, TLSClientConfigurationComponent const *config) {
@@ -719,29 +764,39 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         std::function<void(basic::ByteDataWithID &&)> setRPCQueueClient(ConnectionLocator const &locator,
             std::function<void(bool, basic::ByteDataWithID &&)> client,
             std::optional<ByteDataHookPair> hookPair,
-            TLSClientConfigurationComponent const *config) {
+            TLSClientConfigurationComponent const *config,
+            uint32_t *clientNumberOutput) {
             std::optional<WireToUserHook> wireToUserHook;
             if (hookPair) {
                 wireToUserHook = hookPair->wireToUser;
             } else {
                 wireToUserHook = std::nullopt;
             }
-            auto *conn = createRpcQueueClientConnection(locator, client, wireToUserHook, config);
+            auto *conn = createRpcQueueClientConnection(locator, config);
+            auto clientNum = conn->addClient(client, wireToUserHook);
+            if (clientNumberOutput) {
+                *clientNumberOutput = clientNum;
+            }
             if (hookPair && hookPair->userToWire) {
                 auto hook = hookPair->userToWire->hook;
-                return [conn,hook](basic::ByteDataWithID &&data) {
+                return [conn,clientNum,hook](basic::ByteDataWithID &&data) {
                     auto x = hook(basic::ByteData {std::move(data.content)});
-                    conn->sendRequest({data.id, std::move(x.content)});
+                    conn->sendRequest(clientNum, {data.id, std::move(x.content)});
                 };
             } else {
-                return [conn](basic::ByteDataWithID &&data) {
-                    conn->sendRequest(std::move(data));
+                return [conn,clientNum](basic::ByteDataWithID &&data) {
+                    conn->sendRequest(clientNum, std::move(data));
                 };
             }
         }
-        void removeRPCQueueClient(ConnectionLocator const &locator) {
+        void removeRPCQueueClient(ConnectionLocator const &locator, uint32_t clientNumber) {
             std::lock_guard<std::mutex> _(mutex_);
-            rpcQueueClientConnections_.erase(locator);
+            auto iter = rpcQueueClientConnections_.find(locator);
+            if (iter != rpcQueueClientConnections_.end()) {
+                if (iter->second->removeClient(clientNumber) == 0) {
+                    rpcQueueClientConnections_.erase(iter);
+                }
+            }
         }
         std::function<void(bool, basic::ByteDataWithID &&)> setRPCQueueServer(ConnectionLocator const &locator,
             std::function<void(basic::ByteDataWithID &&)> server,
@@ -801,11 +856,12 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
     }
     std::function<void(basic::ByteDataWithID &&)> RabbitMQComponent::rabbitmq_setRPCQueueClient(ConnectionLocator const &locator,
         std::function<void(bool, basic::ByteDataWithID &&)> client,
-        std::optional<ByteDataHookPair> hookPair) {
-        return impl_->setRPCQueueClient(locator, client, hookPair, dynamic_cast<TLSClientConfigurationComponent const *>(this));
+        std::optional<ByteDataHookPair> hookPair,
+        uint32_t *clientNumberOutput) {
+        return impl_->setRPCQueueClient(locator, client, hookPair, dynamic_cast<TLSClientConfigurationComponent const *>(this), clientNumberOutput);
     }
-    void RabbitMQComponent::rabbitmq_removeRPCQueueClient(ConnectionLocator const &locator) {
-        impl_->removeRPCQueueClient(locator);
+    void RabbitMQComponent::rabbitmq_removeRPCQueueClient(ConnectionLocator const &locator, uint32_t clientNumber) {
+        impl_->removeRPCQueueClient(locator, clientNumber);
     }
     std::function<void(bool, basic::ByteDataWithID &&)> RabbitMQComponent::rabbitmq_setRPCQueueServer(ConnectionLocator const &locator,
         std::function<void(basic::ByteDataWithID &&)> server,

@@ -179,8 +179,15 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             redisContext *ctx_;
             std::string rpcTopic_;
             std::string myCommunicationID_;
-            std::function<void(bool, basic::ByteDataWithID &&)> callback_;
-            std::optional<WireToUserHook> wireToUserHook_;
+            struct OneClientInfo {
+                std::function<void(bool, basic::ByteDataWithID &&)> callback_;
+                std::optional<WireToUserHook> wireToUserHook_;
+            };
+            uint32_t clientCounter_;
+            std::unordered_map<uint32_t, OneClientInfo> clients_;
+            std::unordered_map<uint32_t, std::unordered_set<std::string>> clientToIDMap_;
+            std::unordered_map<std::string, uint32_t> idToClientMap_;
+            std::mutex clientsMutex_;
             std::thread th_;
             std::atomic<bool> running_;
             OneRedisSender *sender_;
@@ -231,24 +238,36 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                         break;
                     }             
 
-                    if (wireToUserHook_) {
-                        auto d = (wireToUserHook_->hook)(basic::ByteDataView {std::string_view(std::get<1>(std::get<0>(*parseRes)).content)});
-                        if (d) {
-                            callback_(std::get<0>(std::get<0>(*parseRes)), {std::move(std::get<1>(std::get<0>(*parseRes)).id), std::move(d->content)});
+                    {
+                        std::lock_guard<std::mutex> _(clientsMutex_);
+                        auto iter = idToClientMap_.find(std::get<1>(std::get<0>(*parseRes)).id);
+                        if (iter != idToClientMap_.end()) {
+                            auto iter1 = clients_.find(iter->second);
+                            if (iter1 != clients_.end()) {
+                                if (iter1->second.wireToUserHook_) {
+                                    auto d = (iter1->second.wireToUserHook_->hook)(basic::ByteDataView {std::string_view(std::get<1>(std::get<0>(*parseRes)).content)});
+                                    if (d) {
+                                        iter1->second.callback_(std::get<0>(std::get<0>(*parseRes)), {std::move(std::get<1>(std::get<0>(*parseRes)).id), std::move(d->content)});
+                                    }
+                                } else {
+                                    iter1->second.callback_(std::get<0>(std::get<0>(*parseRes)), std::move(std::get<1>(std::get<0>(*parseRes))));
+                                }
+                            }
                         }
-                    } else {
-                        callback_(std::get<0>(std::get<0>(*parseRes)), std::move(std::get<1>(std::get<0>(*parseRes))));
                     }
                 }
                 redisFree(ctx_);
             }
         public:
-            OneRedisRPCClientConnection(ConnectionLocator const &locator, std::string const &myCommunicationID, std::function<void(bool, basic::ByteDataWithID &&)> callback, std::optional<WireToUserHook> wireToUserHook, OneRedisSender *sender)
+            OneRedisRPCClientConnection(ConnectionLocator const &locator, std::string const &myCommunicationID, OneRedisSender *sender)
                 : ctx_(nullptr)
                 , rpcTopic_(locator.identifier())
                 , myCommunicationID_(myCommunicationID)
-                , callback_(callback)
-                , wireToUserHook_(wireToUserHook)
+                , clientCounter_(0)
+                , clients_()
+                , clientToIDMap_()
+                , idToClientMap_()
+                , clientsMutex_()
                 , th_()
                 , running_(true)
                 , sender_(sender)
@@ -268,7 +287,29 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 } catch (std::system_error const &) {
                 }
             }
-            void sendRequest(basic::ByteDataWithID &&data) {
+            uint32_t addClient(std::function<void(bool, basic::ByteDataWithID &&)> callback, std::optional<WireToUserHook> wireToUserHook) {
+                std::lock_guard<std::mutex> _(clientsMutex_);
+                clients_[++clientCounter_] = {callback, wireToUserHook};
+                return clientCounter_;
+            }
+            std::size_t removeClient(uint32_t clientNumber) {
+                std::lock_guard<std::mutex> _(clientsMutex_);
+                auto iter = clientToIDMap_.find(clientNumber);
+                if (iter != clientToIDMap_.end()) {
+                    for (auto const &id : iter->second) {
+                        idToClientMap_.erase(id);
+                    }
+                    clientToIDMap_.erase(iter);
+                }
+                clients_.erase(clientNumber);
+                return clients_.size();
+            }
+            void sendRequest(uint32_t clientNumber, basic::ByteDataWithID &&data) {
+                {
+                    std::lock_guard<std::mutex> _(clientsMutex_);
+                    clientToIDMap_[clientNumber].insert(data.id);
+                    idToClientMap_[data.id] = clientNumber;
+                }
                 auto encodedData = basic::bytedata_utils::RunSerializer<basic::CBOR<basic::ByteDataWithID>>::apply({std::move(data)});
                 auto encodedDataAndTopic = basic::bytedata_utils::RunSerializer<basic::CBOR<basic::ByteDataWithTopic>>::apply({myCommunicationID_, std::move(encodedData)});
                 sender_->publish(basic::ByteDataWithTopic {rpcTopic_, std::move(encodedDataAndTopic)});       
@@ -439,15 +480,14 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             }
             return senderIter->second.get();
         }
-        OneRedisRPCClientConnection *createRpcClientConnection(ConnectionLocator const &l, std::function<std::string()> clientCommunicationIDCreator, std::function<void(bool, basic::ByteDataWithID &&)> client, std::optional<WireToUserHook> wireToUserHook) {
+        OneRedisRPCClientConnection *createRpcClientConnection(ConnectionLocator const &l, std::function<std::string()> clientCommunicationIDCreator) {
             std::lock_guard<std::mutex> _(mutex_);
             auto iter = rpcClientConnections_.find(l);
-            if (iter != rpcClientConnections_.end()) {
-                throw RedisComponentException("Cannot create duplicate RPC client connection for "+l.toSerializationFormat());
+            if (iter == rpcClientConnections_.end()) {
+                iter = rpcClientConnections_.insert(
+                    {l, std::make_unique<OneRedisRPCClientConnection>(l, clientCommunicationIDCreator(), getOrStartSenderNoLock(l))}
+                ).first;
             }
-            iter = rpcClientConnections_.insert(
-                {l, std::make_unique<OneRedisRPCClientConnection>(l, clientCommunicationIDCreator(), client, wireToUserHook, getOrStartSenderNoLock(l))}
-            ).first;
             return iter->second.get();
         }
         OneRedisRPCServerConnection *createRpcServerConnection(ConnectionLocator const &l, std::function<void(basic::ByteDataWithID &&)> handler, std::optional<WireToUserHook> wireToUserHook) {
@@ -520,29 +560,39 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         std::function<void(basic::ByteDataWithID &&)> setRPCClient(ConnectionLocator const &locator,
             std::function<std::string()> clientCommunicationIDCreator,
             std::function<void(bool, basic::ByteDataWithID &&)> client,
-            std::optional<ByteDataHookPair> hookPair) {
+            std::optional<ByteDataHookPair> hookPair,
+            uint32_t *clientNumberOutput) {
             std::optional<WireToUserHook> wireToUserHook;
             if (hookPair) {
                 wireToUserHook = hookPair->wireToUser;
             } else {
                 wireToUserHook = std::nullopt;
             }
-            auto *conn = createRpcClientConnection(locator, clientCommunicationIDCreator, client, wireToUserHook);
+            auto *conn = createRpcClientConnection(locator, clientCommunicationIDCreator);
+            auto clientNum = conn->addClient(client, wireToUserHook);
+            if (clientNumberOutput) {
+                *clientNumberOutput = clientNum;
+            }
             if (hookPair && hookPair->userToWire) {
                 auto hook = hookPair->userToWire->hook;
-                return [conn,hook](basic::ByteDataWithID &&data) {
+                return [conn,hook,clientNum](basic::ByteDataWithID &&data) {
                     auto x = hook(basic::ByteData {std::move(data.content)});
-                    conn->sendRequest({data.id, std::move(x.content)});
+                    conn->sendRequest(clientNum, {data.id, std::move(x.content)});
                 };
             } else {
-                return [conn](basic::ByteDataWithID &&data) {
-                    conn->sendRequest(std::move(data));
+                return [conn,clientNum](basic::ByteDataWithID &&data) {
+                    conn->sendRequest(clientNum, std::move(data));
                 };
             }
         }
-        void removeRPCClient(ConnectionLocator const &locator) {
-            std::lock_guard<std::mutex> _(idMutex_);
-            rpcClientConnections_.erase(locator);
+        void removeRPCClient(ConnectionLocator const &locator, uint32_t clientNumber) {
+            std::lock_guard<std::mutex> _(mutex_);
+            auto iter = rpcClientConnections_.find(locator);
+            if (iter != rpcClientConnections_.end()) {
+                if (iter->second->removeClient(clientNumber) == 0) {
+                    rpcClientConnections_.erase(iter);
+                }
+            }
         }
         std::function<void(bool, basic::ByteDataWithID &&)> setRPCServer(ConnectionLocator const &locator,
             std::function<void(basic::ByteDataWithID &&)> server,
@@ -604,11 +654,12 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
     std::function<void(basic::ByteDataWithID &&)> RedisComponent::redis_setRPCClient(ConnectionLocator const &locator,
                         std::function<std::string()> clientCommunicationIDCreator,
                         std::function<void(bool, basic::ByteDataWithID &&)> client,
-                        std::optional<ByteDataHookPair> hookPair) {
-        return impl_->setRPCClient(locator, clientCommunicationIDCreator, client, hookPair);
+                        std::optional<ByteDataHookPair> hookPair,
+                        uint32_t *clientNumberOutput) {
+        return impl_->setRPCClient(locator, clientCommunicationIDCreator, client, hookPair, clientNumberOutput);
     }
-    void RedisComponent::redis_removeRPCClient(ConnectionLocator const &locator) {
-        impl_->removeRPCClient(locator);
+    void RedisComponent::redis_removeRPCClient(ConnectionLocator const &locator, uint32_t clientNumber) {
+        impl_->removeRPCClient(locator, clientNumber);
     }
     std::function<void(bool, basic::ByteDataWithID &&)> RedisComponent::redis_setRPCServer(ConnectionLocator const &locator,
                     std::function<void(basic::ByteDataWithID &&)> server,
