@@ -914,7 +914,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                         ::enclose(std::move(request))
                     , hooks, autoDisconnect
                 );
-                return std::async(std::launch::deferred, [wrappedB=std::move(wrappedB)]() mutable -> B {
+                return std::async(std::launch::async, [wrappedB=std::move(wrappedB)]() mutable -> B {
                     return basic::WrapFacilitioidConnectorForSerializationHelpers::WrapperUtils<ProtocolWrapper>
                         ::extract(wrappedB.get());
                 });
@@ -1249,7 +1249,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                         ::enclose(std::move(request))
                     , heartbeatHook, hooks, autoDisconnect
                 );
-                return std::async(std::launch::deferred, [wrappedB=std::move(wrappedB)]() mutable -> B {
+                return std::async(std::launch::async, [wrappedB=std::move(wrappedB)]() mutable -> B {
                     return basic::WrapFacilitioidConnectorForSerializationHelpers::WrapperUtils<ProtocolWrapper>
                         ::extract(wrappedB.get());
                 });
