@@ -1230,7 +1230,50 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                 case MultiTransportRemoteFacilityConnectionType::GrpcInterop:
                     if constexpr(std::is_convertible_v<typename R::EnvironmentType *, grpc_interop::GrpcInteropComponent *>) {
                         if constexpr(DetermineClientSideIdentityForRequest<typename R::EnvironmentType, Request>::HasIdentity) {
-                            throw std::runtime_error("[MultiTransportRemoteFacilityManagingUtils::setupSimpleRemoteFacility] trying to set up grpc interop facility for channel spec '"+channelSpec+"', but grpc interop does not support requests with identity");
+                            if constexpr (std::is_same_v<typename DetermineClientSideIdentityForRequest<typename R::EnvironmentType, Request>::IdentityType, std::string>) {
+                                if (hooks) {
+                                    throw std::runtime_error("[MultiTransportRemoteFacilityManagingUtils::setupSimpleRemoteFacility] trying to set up grpc interop facility for channel spec '"+channelSpec+"', but grpc interop does not support requests with hooks");
+                                } else {
+                                    if constexpr (
+                                        basic::bytedata_utils::ProtobufStyleSerializableChecker<Request>::IsProtobufStyleSerializable()
+                                        &&
+                                        basic::bytedata_utils::ProtobufStyleSerializableChecker<Result>::IsProtobufStyleSerializable()
+                                    ) {
+                                        return grpc_interop::GrpcClientFacilityFactory<typename R::AppType>::template createClientFacility<Request, Result>(std::get<1>(*parsed));
+                                    } else if constexpr (
+                                        basic::proto_interop::ProtoWrappable<Request>::value
+                                        &&
+                                        basic::proto_interop::ProtoWrappable<Result>::value
+                                    ) {
+                                        auto underlyingFacility = grpc_interop::GrpcClientFacilityFactory<typename R::AppType>::template createClientFacility<basic::proto_interop::Proto<Request>, basic::proto_interop::Proto<Result>>(std::get<1>(*parsed));
+                                        auto encodingAction = R::AppType::template liftPure<typename R::AppType::template Key<Request>>(
+                                            [](typename R::AppType::template Key<Request> &&key) -> typename R::AppType::template Key<basic::proto_interop::Proto<Request>> {
+                                                return {
+                                                    key.id()
+                                                    , {key.key()}
+                                                };
+                                            }
+                                        );
+                                        auto decodingAction = R::AppType::template liftPure<typename R::AppType::template Key<basic::proto_interop::Proto<Result>>>(
+                                            [](typename R::AppType::template Key<basic::proto_interop::Proto<Result>> &&key) -> typename R::AppType::template Key<Result> {
+                                                return {
+                                                    key.id()
+                                                    , key.key().moveValue()
+                                                };
+                                            }
+                                        );
+                                        return R::AppType::wrappedOnOrderFacility(
+                                            std::move(*underlyingFacility)
+                                            , std::move(*encodingAction)
+                                            , std::move(*decodingAction)
+                                        );
+                                    } else {
+                                        throw std::runtime_error("[MultiTransportRemoteFacilityManagingUtils::setupSimpleRemoteFacility] trying to set up grpc interop facility for channel spec '"+channelSpec+"', but the types are not grpc compatible");
+                                    }
+                                }
+                            } else {
+                                throw std::runtime_error("[MultiTransportRemoteFacilityManagingUtils::setupSimpleRemoteFacility] trying to set up grpc interop facility for channel spec '"+channelSpec+"', but grpc interop does not support non-string identity on request");
+                            }
                         } else {
                             if (hooks) {
                                 throw std::runtime_error("[MultiTransportRemoteFacilityManagingUtils::setupSimpleRemoteFacility] trying to set up grpc interop facility for channel spec '"+channelSpec+"', but grpc interop does not support requests with hooks");

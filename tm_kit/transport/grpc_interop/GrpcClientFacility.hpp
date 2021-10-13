@@ -264,7 +264,19 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 basic::bytedata_utils::ProtobufStyleSerializableChecker<Resp>::IsProtobufStyleSerializable()
             ) {
                 if constexpr(DetermineClientSideIdentityForRequest<Env, Req>::HasIdentity) {
-                    throw GrpcInteropComponentException("grpc typed one shot remote call does not work when the request has identity");
+                    if constexpr (std::is_same_v<typename DetermineClientSideIdentityForRequest<Env, Req>::IdentityType, std::string>) {
+                        auto ret = std::make_shared<std::promise<Resp>>();
+                        std::thread th([env,rpcQueueLocator,request=std::move(request),ret]() mutable {
+                            auto callRes = runSyncClient<Req,Resp>(env, rpcQueueLocator, std::move(request));
+                            if (!callRes.empty()) {
+                                ret->set_value_at_thread_exit(callRes[0]);
+                            }
+                        });
+                        th.detach();
+                        return ret->get_future();
+                    } else {
+                        throw GrpcInteropComponentException("grpc typed one shot remote call does not work when the request has identity");
+                    }
                 } else {
                     auto ret = std::make_shared<std::promise<Resp>>();
                     std::thread th([env,rpcQueueLocator,request=std::move(request),ret]() mutable {
