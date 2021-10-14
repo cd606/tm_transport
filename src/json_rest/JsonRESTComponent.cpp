@@ -498,6 +498,13 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         ~JsonRESTComponentImpl() {
         }
         void registerHandler(ConnectionLocator const &locator, HandlerFunc const &handler, TLSServerConfigurationComponent const *tlsConfig) {
+            if (locator.userName() != "") {
+                if (locator.password() == "") {
+                    addBasicAuthentication(locator.port(), locator.userName(), std::nullopt);
+                } else {
+                    addBasicAuthentication(locator.port(), locator.userName(), locator.password());
+                }
+            }
             std::lock_guard<std::mutex> _(handlerMapMutex_);
             bool newPort = false;
             auto iter = handlerMap_.find(locator.port());
@@ -524,7 +531,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 iter = allPasswords_.insert({port, PasswordMap{}}).first;
             }
             if (!password) {
-                iter->second.insert({login, password});
+                iter->second[login] = password;
                 return;
             }
             std::string hashed;
@@ -535,7 +542,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             ) != 0) {
                 throw JsonRESTComponentException("Error hashing password for login '"+login+"' on port "+std::to_string(port));
             }
-            iter->second.insert({login, {hashed}});
+            iter->second[login] = std::optional<std::string> {hashed};
         }
         void addBasicAuthentication_salted(int port, std::string const &login, std::string const &saltedPassword) {
             std::lock_guard<std::mutex> _(allPasswordsMutex_);
@@ -543,7 +550,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             if (iter == allPasswords_.end()) {
                 iter = allPasswords_.insert({port, PasswordMap{}}).first;
             }
-            iter->second.insert({login, {saltedPassword}});
+            iter->second[login] = std::optional<std::string> {saltedPassword};
         }
         void setDocRoot(int port, std::filesystem::path const &docRoot) {
             std::lock_guard<std::mutex> _(docRootMapMutex_);
