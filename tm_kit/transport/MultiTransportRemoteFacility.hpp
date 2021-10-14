@@ -16,6 +16,7 @@
 #include <tm_kit/transport/socket_rpc/SocketRPCOnOrderFacility.hpp>
 #include <tm_kit/transport/grpc_interop/GrpcInteropComponent.hpp>
 #include <tm_kit/transport/grpc_interop/GrpcClientFacility.hpp>
+#include <tm_kit/transport/websocket/WebSocketClientFacility.hpp>
 #include <tm_kit/transport/AbstractIdentityCheckerComponent.hpp>
 #include <tm_kit/transport/MultiTransportBroadcastListenerManagingUtils.hpp>
 
@@ -594,8 +595,96 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                 return {0, false};
                 break;
             case MultiTransportRemoteFacilityConnectionType::WebSocket:
-                env->log(infra::LogLevel::Warning, "[MultiTransportRemoteFacility::registerFacility] WebSocket client facility is currently unsupported");
-                return {0, false};
+                if constexpr (std::is_convertible_v<Env *, web_socket::WebSocketComponent *>) {
+                    auto *component = static_cast<web_socket::WebSocketComponent *>(env);
+                    try {
+                        uint32_t clientNumber = 0;
+                        auto rawReq = component->websocket_setRPCClient(
+                            locator
+                            , [this,env](bool isFinal, basic::ByteDataWithID &&data) {
+                                if constexpr (std::is_same_v<Identity, void>) {
+                                    Output o;
+                                    auto result = basic::bytedata_utils::RunDeserializer<Output>::applyInPlace(o, data.content);
+                                    if (!result) {
+                                        return;
+                                    }
+                                    this->FacilityParent::publish(
+                                        env
+                                        , typename M::template Key<Output> {
+                                            Env::id_from_string(data.id)
+                                            , std::move(o)
+                                        }
+                                        , isFinal
+                                    );
+                                } else {
+                                    auto processRes = static_cast<typename DetermineClientSideIdentityForRequest<Env, A>::ComponentType *>(env)->process_incoming_data(
+                                        basic::ByteData {std::move(data.content)}
+                                    );
+                                    if (processRes) {
+                                        Output o;
+                                        auto result = basic::bytedata_utils::RunDeserializer<Output>::applyInPlace(o, processRes->content);
+                                        if (!result) {
+                                            return;
+                                        }
+                                        this->FacilityParent::publish(
+                                            env
+                                            , typename M::template Key<Output> {
+                                                Env::id_from_string(data.id)
+                                                , std::move(o)
+                                            }
+                                            , isFinal
+                                        );
+                                    }
+                                }
+                            }
+                            , DefaultHookFactory<Env>::template supplyFacilityHookPair_ClientSide<A,B>(env, hookPairFactory_(description, locator))
+                            , &clientNumber
+                        );
+                        RequestSender req;
+                        if constexpr (std::is_same_v<Identity,void>) {
+                            req = [rawReq](std::string const &id, A &&data) {
+                                rawReq(basic::ByteDataWithID {
+                                    id 
+                                    , basic::SerializationActions<M>::template serializeFunc<A>(std::move(data))
+                                });
+                            };
+                        } else {
+                            static_assert(std::is_convertible_v<Env *, typename DetermineClientSideIdentityForRequest<Env, A>::ComponentType *>
+                                        , "the client side identity attacher must be present");
+                            auto *attacher = static_cast<typename DetermineClientSideIdentityForRequest<Env, A>::ComponentType *>(env);
+                            req = [attacher,rawReq](std::string const &id, A &&data) {
+                                rawReq(basic::ByteDataWithID {
+                                    id
+                                    , attacher->attach_identity({basic::SerializationActions<M>::template serializeFunc<A>(std::move(data))}).content
+                                });
+                            };
+                        }
+                        {
+                            std::lock_guard<std::mutex> _(mutex_);
+                            underlyingSenders_.push_back({locator, std::make_unique<RequestSender>(std::move(req))});
+                            if constexpr (DispatchStrategy == MultiTransportRemoteFacilityDispatchStrategy::Designated) {
+                                senderMap_.insert({locator, std::get<1>(underlyingSenders_.back()).get()});
+                            }
+                            newSize = underlyingSenders_.size();
+                            clientNumberRecord_[locator] = clientNumber;
+                        }
+                        std::ostringstream oss;
+                        oss << "[MultiTransportRemoteFacility::registerFacility] Registered web socket facility for "
+                            << locator;
+                        env->log(infra::LogLevel::Info, oss.str());
+                    } catch (web_socket::WebSocketComponentException const &ex) {
+                        std::ostringstream oss;
+                        oss << "[MultiTransportRemoteFacility::registerFacility] Error registering web socket facility for "
+                            << locator
+                            << ": " << ex.what();
+                        env->log(infra::LogLevel::Error, oss.str());
+                    }
+                } else {
+                    std::ostringstream errOss;
+                    errOss << "[MultiTransportRemoteFacility::registerFacility] Trying to set up web socket facility for " << locator << ", but web socket is unsupported in the environment";
+                    env->log(infra::LogLevel::Warning, errOss.str());
+                }
+                return {newSize, true};
                 break;
             default:
                 return {0, false};
@@ -740,8 +829,41 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                 return {0, false};
                 break;
             case MultiTransportRemoteFacilityConnectionType::WebSocket:
-                env->log(infra::LogLevel::Warning, "[MultiTransportRemoteFacility::registerFacility] WebSocket client facility is currently unsupported");
-                return {0, false};
+                if constexpr (std::is_convertible_v<Env *, web_socket::WebSocketComponent *>) {
+                    auto *component = static_cast<web_socket::WebSocketComponent *>(env);
+                    uint32_t clientNumber = 0;
+                    {
+                        std::lock_guard<std::mutex> _(mutex_);
+                        auto iter = clientNumberRecord_.find(locator);
+                        if (iter != clientNumberRecord_.end()) {
+                            clientNumber = iter->second;
+                            clientNumberRecord_.erase(iter);
+                        }
+                    }
+                    component->websocket_removeRPCClient(locator, clientNumber);
+                    {
+                        std::lock_guard<std::mutex> _(mutex_);
+                        if constexpr (DispatchStrategy == MultiTransportRemoteFacilityDispatchStrategy::Designated) {
+                            senderMap_.erase(locator);
+                        }
+                        underlyingSenders_.erase(
+                            std::remove_if(
+                                underlyingSenders_.begin()
+                                , underlyingSenders_.end()
+                                , [&locator](auto const &x) {
+                                    return (std::get<0>(x) == locator);
+                                }
+                            )
+                            , underlyingSenders_.end()
+                        );
+                        newSize = underlyingSenders_.size();
+                    }
+                    std::ostringstream oss;
+                    oss << "[MultiTransportRemoteFacility::deregisterFacility] De-registered web socket facility for "
+                        << locator;
+                    env->log(infra::LogLevel::Info, oss.str());
+                }
+                return {newSize, true};
                 break;
             default:
                 return {0, false};
@@ -911,7 +1033,13 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
             } else if (connType == MultiTransportRemoteFacilityConnectionType::JsonREST) {
                 throw std::runtime_error("OneShotMultiTransportRemoteFacilityCall::call: Json REST client facility is currently unsupported");
             } else if (connType == MultiTransportRemoteFacilityConnectionType::WebSocket) {
-                throw std::runtime_error("OneShotMultiTransportRemoteFacilityCall::call: WebSocket client facility is currently unsupported");
+                if constexpr (std::is_convertible_v<Env *, web_socket::WebSocketComponent *>) {
+                    return web_socket::WebSocketOnOrderFacilityClient<Env>::template typedOneShotRemoteCall<A,B>(
+                        env, locator, std::move(request), hooks, autoDisconnect, clientNumberOutput
+                    );
+                } else {
+                    throw std::runtime_error("OneShotMultiTransportRemoteFacilityCall::call: connection type web socket not supported in environment");
+                }
             } else {
                 throw std::runtime_error("OneShotMultiTransportRemoteFacilityCall::call: unknown connection type");
             }
@@ -1043,7 +1171,13 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
             } else if (connType == MultiTransportRemoteFacilityConnectionType::JsonREST) {
                 throw std::runtime_error("OneShotMultiTransportRemoteFacilityCall::callNoReply: Json REST client facility is currently unsupported");
             } else if (connType == MultiTransportRemoteFacilityConnectionType::WebSocket) {
-                throw std::runtime_error("OneShotMultiTransportRemoteFacilityCall::callNoReply: WebSocket client facility is currently unsupported");
+                if constexpr (std::is_convertible_v<Env *, web_socket::WebSocketComponent *>) {
+                    web_socket::WebSocketOnOrderFacilityClient<Env>::template typedOneShotRemoteCallNoReply<A,B>(
+                        env, locator, std::move(request), hooks, autoDisconnect, clientNumberOutput
+                    );
+                } else {
+                    throw std::runtime_error("OneShotMultiTransportRemoteFacilityCall::callNoReply: connection type web socket not supported in environment");
+                }
             } else {
                 throw std::runtime_error("OneShotMultiTransportRemoteFacilityCall::callNoReply: unknown connection type");
             }
@@ -1133,7 +1267,11 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
             } else if (connType == MultiTransportRemoteFacilityConnectionType::JsonREST) {
                 throw std::runtime_error("OneShotMultiTransportRemoteFacilityCall::removeClient: Json REST client facility is currently unsupported");
             } else if (connType == MultiTransportRemoteFacilityConnectionType::WebSocket) {
-                throw std::runtime_error("OneShotMultiTransportRemoteFacilityCall::removeClient: WebSocket client facility is currently unsupported");
+                if constexpr (std::is_convertible_v<Env *, web_socket::WebSocketComponent *>) {
+                    env->websocket_removeRPCClient(locator, clientNumberIfNeeded);
+                } else {
+                    throw std::runtime_error("OneShotMultiTransportRemoteFacilityCall::removeClient: connection type web socket not supported in environment");
+                }
             } else {
                 throw std::runtime_error("OneShotMultiTransportRemoteFacilityCall::removeClient: unknown connection type");
             }

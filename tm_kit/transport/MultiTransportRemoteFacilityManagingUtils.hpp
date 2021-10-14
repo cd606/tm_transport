@@ -1320,6 +1320,13 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                         throw std::runtime_error("[MultiTransportRemoteFacilityManagingUtils::setupSimpleRemoteFacility] trying to set up grpc interop facility for channel spec '"+channelSpec+"', but grpc interop is unsupported in the environment");
                     }
                     break;
+                case MultiTransportRemoteFacilityConnectionType::WebSocket:
+                    if constexpr(std::is_convertible_v<typename R::EnvironmentType *, web_socket::WebSocketComponent *>) {
+                        return web_socket::WebSocketOnOrderFacilityClient<typename R::EnvironmentType>::template createTypedRPCOnOrderFacility<Request,Result>(std::get<1>(*parsed), hooks);
+                    } else {
+                        throw std::runtime_error("[MultiTransportRemoteFacilityManagingUtils::setupSimpleRemoteFacility] trying to set up web socket facility for channel spec '"+channelSpec+"', but web socket is unsupported in the environment");
+                    }
+                    break;
                 default:
                     throw std::runtime_error("[MultiTransportRemoteFacilityManagingUtils::setupSimpleRemoteFacility] trying to set up unsupported facility for channel spec '"+channelSpec+"'");
                     break;

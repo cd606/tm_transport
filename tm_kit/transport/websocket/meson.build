@@ -3,6 +3,7 @@ tm_transport_websocket_headers = [
     , 'WebSocketComponentException.hpp'
     , 'WebSocketImporterExporter.hpp'
     , 'WebSocketServerFacility.hpp'
+    , 'WebSocketClientFacility.hpp'
     ]
   
 install_headers(tm_transport_websocket_headers, subdir : 'tm_kit/transport/websocket')

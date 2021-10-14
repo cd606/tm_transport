@@ -21,10 +21,16 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         virtual ~WebSocketComponent();
 
         std::function<void(basic::ByteDataWithTopic &&)> websocket_getPublisher(ConnectionLocator const &locator, std::optional<UserToWireHook> userToWireHook = std::nullopt);
+        std::function<void(basic::ByteDataWithID &&)> websocket_setRPCClient(ConnectionLocator const &locator,
+                        std::function<void(bool, basic::ByteDataWithID &&)> client,
+                        std::optional<ByteDataHookPair> hookPair = std::nullopt,
+                        uint32_t *clientNumberOutput = nullptr); //the return value is the requester
+        void websocket_removeRPCClient(ConnectionLocator const &locator, uint32_t clientNumber);
         std::function<void(bool, basic::ByteDataWithID &&)> websocket_setRPCServer(ConnectionLocator const &locator,
                         std::function<void(basic::ByteDataWithID &&)> server,
                         std::optional<ByteDataHookPair> hookPair = std::nullopt); //the return value is the replier, where bool means whether it is the final reply
         void finalizeEnvironment();
+        std::unordered_map<ConnectionLocator, std::thread::native_handle_type> websocket_threadHandles();
     };
 
 } } } } }

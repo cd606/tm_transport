@@ -240,7 +240,8 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
 
                     {
                         std::lock_guard<std::mutex> _(clientsMutex_);
-                        auto iter = idToClientMap_.find(std::get<1>(std::get<0>(*parseRes)).id);
+                        std::string theID = std::get<1>(std::get<0>(*parseRes)).id;
+                        auto iter = idToClientMap_.find(theID);
                         if (iter != idToClientMap_.end()) {
                             auto iter1 = clients_.find(iter->second);
                             if (iter1 != clients_.end()) {
@@ -252,6 +253,10 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                                 } else {
                                     iter1->second.callback_(std::get<0>(std::get<0>(*parseRes)), std::move(std::get<1>(std::get<0>(*parseRes))));
                                 }
+                            }
+                            if (std::get<0>(std::get<0>(*parseRes))) {
+                                clientToIDMap_[iter->second].erase(theID);
+                                idToClientMap_.erase(iter);
                             }
                         }
                     }

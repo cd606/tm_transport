@@ -226,15 +226,20 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                     if (!good_) {
                         return;
                     }
-                    std::lock_guard<std::mutex> _(writeMutex_);
-                    if (stream_.index() == 1) {
-                        std::get<1>(stream_).write(
-                            boost::asio::buffer(reinterpret_cast<const char *>(data.data()), data.size())
-                        );
-                    } else {
-                        std::get<2>(stream_).write(
-                            boost::asio::buffer(reinterpret_cast<const char *>(data.data()), data.size())
-                        );
+                    try {
+                        std::lock_guard<std::mutex> _(writeMutex_);
+                        if (stream_.index() == 1) {
+                            std::get<1>(stream_).write(
+                                boost::asio::buffer(reinterpret_cast<const char *>(data.data()), data.size())
+                            );
+                        } else {
+                            std::get<2>(stream_).write(
+                                boost::asio::buffer(reinterpret_cast<const char *>(data.data()), data.size())
+                            );
+                        }
+                    } catch (...) {
+                        good_ = false;
+                        parent_->removeClientHandler(shared_from_this());
                     }
                 }
                 void onWrite(boost::beast::error_code ec, std::size_t bytes_transferred) {
@@ -377,9 +382,382 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 std::lock_guard<std::mutex> _(clientHandlersMutex_);
                 pathToClientMap_[p->targetPath()].insert(p);
             }
+            std::thread::native_handle_type getThreadHandle() {
+                return th_.native_handle();
+            }
         };
         std::unordered_map<int, std::shared_ptr<OnePublisher>> publisherMap_;
         mutable std::mutex publisherMapMutex_;
+
+        class OneRPCClient : public std::enable_shared_from_this<OneRPCClient> {
+        private:
+            WebSocketComponentImpl *parent_;
+            ConnectionLocator locator_;
+            std::string handshakeHost_;
+            boost::asio::io_context svc_;
+            std::optional<boost::asio::ssl::context> sslCtx_;
+            struct OneClientInfo {
+                std::function<void(bool, basic::ByteDataWithID &&)> callback_;
+                std::optional<WireToUserHook> wireToUserHook_;
+            };
+            uint32_t clientCounter_;
+            std::unordered_map<uint32_t, OneClientInfo> clients_;
+            std::unordered_map<uint32_t, std::unordered_set<std::string>> clientToIDMap_;
+            std::unordered_map<std::string, uint32_t> idToClientMap_;
+            std::mutex clientsMutex_;
+            std::thread th_;
+            std::atomic<bool> running_, ready_;
+            boost::asio::ip::tcp::resolver resolver_;
+            std::variant<
+                std::monostate
+                , boost::beast::websocket::stream<boost::beast::tcp_stream>
+                , boost::beast::websocket::stream<boost::beast::ssl_stream<boost::beast::tcp_stream>>
+            > stream_;
+            boost::beast::flat_buffer buffer_;
+            bool initializationFailure_;
+            std::mutex writeMutex_;
+            std::list<std::tuple<uint32_t,basic::ByteDataWithID>> beforeReadyBuffer_;
+        public:
+            OneRPCClient(
+                WebSocketComponentImpl *parent
+                , ConnectionLocator const &locator
+                , std::optional<TLSClientInfo> const &sslInfo
+            )
+                : parent_(parent), locator_(locator), svc_()
+                , sslCtx_(
+                    sslInfo
+                    ? std::optional<boost::asio::ssl::context>(boost::asio::ssl::context {boost::asio::ssl::context::tlsv12_client})
+                    : std::nullopt
+                )
+                , clientCounter_(0), clients_(), clientToIDMap_(), idToClientMap_(), clientsMutex_()
+                , th_(), running_(false), ready_(false)
+                , resolver_(boost::asio::make_strand(svc_))
+                , stream_()
+                , buffer_()
+                , initializationFailure_(false)
+                , writeMutex_()
+                , beforeReadyBuffer_()
+            {
+                if (sslInfo) {
+                    std::string caCert;
+                    if (sslInfo->caCertificateFile != "") {
+                        std::ifstream ifs(sslInfo->caCertificateFile.c_str());
+                        caCert = std::string(
+                            std::istreambuf_iterator<char>{ifs}, {}
+                        );
+                        ifs.close();
+                    }
+                    boost::system::error_code ec;
+                    sslCtx_->add_certificate_authority(
+                        boost::asio::buffer(caCert.data(), caCert.length())
+                        , ec
+                    );
+                    if (ec) {
+                        initializationFailure_ = true;
+                        return;
+                    }
+                    stream_.emplace<2>(boost::asio::make_strand(svc_), *sslCtx_);
+                    std::get<2>(stream_).binary(true);
+                } else {
+                    stream_.emplace<1>(boost::asio::make_strand(svc_));
+                    std::get<1>(stream_).binary(true);
+                }
+            }
+            ~OneRPCClient() {
+                if (stream_.index() == 1) {
+                    std::get<1>(stream_).close(boost::beast::websocket::close_code::normal);
+                } else if (stream_.index() == 2) {
+                    std::get<2>(stream_).close(boost::beast::websocket::close_code::normal);
+                }
+                if (running_) {
+                    running_ = false;
+                    svc_.stop();
+                    th_.join();
+                }
+            }
+            void run() {
+                running_ = true;
+                th_ = std::thread([this]() {                   
+                    boost::asio::io_context::work work(svc_);
+                    svc_.run();
+                });
+                th_.detach();
+                resolver_.async_resolve(
+                    locator_.host()
+                    , std::to_string(locator_.port())
+                    , boost::beast::bind_front_handler(
+                        &OneRPCClient::onResolve
+                        , shared_from_this()
+                    )
+                );
+            }
+            void onResolve(boost::beast::error_code ec, boost::asio::ip::tcp::resolver::results_type results) {
+                if (ec) {
+                    parent_->removeRPCClient(locator_);
+                    return;
+                }
+                if (stream_.index() == 1) {
+                    boost::beast::get_lowest_layer(std::get<1>(stream_)).expires_after(std::chrono::seconds(30));
+                    boost::beast::get_lowest_layer(std::get<1>(stream_)).async_connect(
+                        results,
+                        boost::beast::bind_front_handler(
+                            &OneRPCClient::onConnect,
+                            shared_from_this()
+                        )
+                    );
+                } else {
+                    boost::beast::get_lowest_layer(std::get<2>(stream_)).expires_after(std::chrono::seconds(30));
+                    boost::beast::get_lowest_layer(std::get<2>(stream_)).async_connect(
+                        results,
+                        boost::beast::bind_front_handler(
+                            &OneRPCClient::onConnect,
+                            shared_from_this()
+                        )
+                    );
+                }
+            }
+            void onConnect(boost::beast::error_code ec, boost::asio::ip::tcp::resolver::results_type::endpoint_type ep) {
+                if (ec) {
+                    parent_->removeRPCClient(locator_);
+                    return;
+                }
+                handshakeHost_ = locator_.host()+":"+std::to_string(ep.port());
+                if (stream_.index() == 1) {
+                    boost::beast::get_lowest_layer(std::get<1>(stream_)).expires_never();
+                    std::get<1>(stream_).set_option(
+                        boost::beast::websocket::stream_base::timeout::suggested(
+                            boost::beast::role_type::client
+                        )
+                    );
+                    std::get<1>(stream_).set_option(
+                        boost::beast::websocket::stream_base::decorator(
+                            [](boost::beast::websocket::request_type& req)
+                            {
+                                req.set(
+                                    boost::beast::http::field::user_agent
+                                    , std::string(BOOST_BEAST_VERSION_STRING)
+                                );
+                            }
+                        )
+                    );
+
+                    std::string targetPath = locator_.identifier();
+                    if (!boost::starts_with(targetPath, "/")) {
+                        targetPath = "/"+targetPath;
+                    }
+                    std::get<1>(stream_).async_handshake(
+                        handshakeHost_
+                        , targetPath
+                        , boost::beast::bind_front_handler(
+                            &OneRPCClient::onWebSocketHandshake
+                            ,shared_from_this()
+                        )
+                    );
+                } else {
+                    boost::beast::get_lowest_layer(std::get<2>(stream_)).expires_after(std::chrono::seconds(30));
+                    if(!SSL_set_tlsext_host_name(
+                        std::get<2>(stream_).next_layer().native_handle(),
+                        handshakeHost_.c_str()
+                    ))
+                    {
+                        parent_->removeRPCClient(locator_);
+                        return;
+                    }
+                    std::get<2>(stream_).next_layer().async_handshake(
+                        boost::asio::ssl::stream_base::client
+                        , boost::beast::bind_front_handler(
+                            &OneRPCClient::onSSLHandshake,
+                            shared_from_this()
+                        )
+                    );
+                }
+            }
+            void onSSLHandshake(boost::beast::error_code ec) {
+                if (ec) {
+                    parent_->removeRPCClient(locator_);
+                    return;
+                }
+                boost::beast::get_lowest_layer(std::get<2>(stream_)).expires_never();
+                std::get<2>(stream_).set_option(
+                    boost::beast::websocket::stream_base::timeout::suggested(
+                        boost::beast::role_type::client
+                    )
+                );
+                std::get<2>(stream_).set_option(
+                    boost::beast::websocket::stream_base::decorator(
+                        [](boost::beast::websocket::request_type& req)
+                        {
+                            req.set(
+                                boost::beast::http::field::user_agent
+                                , std::string(BOOST_BEAST_VERSION_STRING)
+                            );
+                        }
+                    )
+                );
+
+                std::string targetPath = locator_.identifier();
+                if (!boost::starts_with(targetPath, "/")) {
+                    targetPath = "/"+targetPath;
+                }
+                std::get<2>(stream_).async_handshake(
+                    handshakeHost_
+                    , targetPath
+                    , boost::beast::bind_front_handler(
+                        &OneRPCClient::onWebSocketHandshake
+                        ,shared_from_this()
+                    )
+                );
+            }
+            void onWebSocketHandshake(boost::beast::error_code ec) {
+                if (ec) {
+                    parent_->removeRPCClient(locator_);
+                    return;
+                }
+                if (stream_.index() == 1) {
+                    std::get<1>(stream_).async_read(
+                        buffer_ 
+                        , boost::beast::bind_front_handler(
+                            &OneRPCClient::onRead 
+                            , shared_from_this()
+                        )
+                    );
+                } else {
+                    std::get<2>(stream_).async_read(
+                        buffer_ 
+                        , boost::beast::bind_front_handler(
+                            &OneRPCClient::onRead 
+                            , shared_from_this()
+                        )
+                    );
+                }
+                ready_ = true;
+                std::list<std::tuple<uint32_t,basic::ByteDataWithID>> bufferCopy;
+                {
+                    std::lock_guard<std::mutex> _(writeMutex_);
+                    bufferCopy.splice(bufferCopy.end(), beforeReadyBuffer_);
+                }
+                for (auto &x : bufferCopy) {
+                    doSendRequest(std::get<0>(x), std::move(std::get<1>(x)));
+                }
+            }
+            void onRead(boost::beast::error_code ec, std::size_t bytes_transferred) {
+                boost::ignore_unused(bytes_transferred);
+                if (ec) {
+                    ready_ = false;
+                    parent_->removeRPCClient(locator_);
+                    return;
+                }
+                auto input = boost::beast::buffers_to_string(buffer_.data());
+                auto parseRes = basic::bytedata_utils::RunCBORDeserializer<std::tuple<bool,basic::ByteDataWithID>>::apply(std::string_view {input}, 0);
+                if (parseRes) {
+                    std::lock_guard<std::mutex> _(clientsMutex_);
+                    std::string theID = std::get<1>(std::get<0>(*parseRes)).id;
+                    auto iter = idToClientMap_.find(theID);
+                    if (iter != idToClientMap_.end()) {
+                        auto clientIter = clients_.find(iter->second);
+                        if (clientIter != clients_.end()) {
+                            if (clientIter->second.wireToUserHook_) {
+                                auto d = (clientIter->second.wireToUserHook_->hook)(basic::ByteDataView {std::string_view(std::get<1>(std::get<0>(*parseRes)).content)});
+                                if (d) {
+                                    clientIter->second.callback_(std::get<0>(std::get<0>(*parseRes)), {std::move(std::get<1>(std::get<0>(*parseRes)).id), std::move(d->content)});
+                                }
+                            } else {
+                                clientIter->second.callback_(std::get<0>(std::get<0>(*parseRes)), std::move(std::get<1>(std::get<0>(*parseRes))));
+                            }
+                        }
+                        if (std::get<0>(std::get<0>(*parseRes))) {
+                            clientToIDMap_[iter->second].erase(theID);
+                            idToClientMap_.erase(iter);
+                        }
+                    }
+                }
+                
+                buffer_.clear();
+                if (stream_.index() == 1) {
+                    std::get<1>(stream_).async_read(
+                        buffer_ 
+                        , boost::beast::bind_front_handler(
+                            &OneRPCClient::onRead 
+                            , shared_from_this()
+                        )
+                    );
+                } else {
+                    std::get<2>(stream_).async_read(
+                        buffer_ 
+                        , boost::beast::bind_front_handler(
+                            &OneRPCClient::onRead 
+                            , shared_from_this()
+                        )
+                    );
+                }
+            }
+            bool initializationFailure() const {
+                return initializationFailure_;
+            }
+            uint32_t addClient(std::function<void(bool, basic::ByteDataWithID &&)> callback, std::optional<WireToUserHook> wireToUserHook) {
+                std::lock_guard<std::mutex> _(clientsMutex_);
+                clients_[++clientCounter_] = {callback, wireToUserHook};
+                return clientCounter_;
+            }
+            std::size_t removeClient(uint32_t clientNumber) {
+                std::lock_guard<std::mutex> _(clientsMutex_);
+                auto iter = clientToIDMap_.find(clientNumber);
+                if (iter != clientToIDMap_.end()) {
+                    for (auto const &id : iter->second) {
+                        idToClientMap_.erase(id);
+                    }
+                    clientToIDMap_.erase(iter);
+                }
+                clients_.erase(clientNumber);
+                return clients_.size();
+            }
+            void sendRequest(uint32_t clientNumber, basic::ByteDataWithID &&data) {
+                if (!running_) {
+                    return;
+                }
+                if (!ready_) {
+                    std::lock_guard<std::mutex> _(writeMutex_);
+                    beforeReadyBuffer_.push_back({clientNumber, std::move(data)});
+                    return;
+                }
+                doSendRequest(clientNumber, std::move(data));
+            }
+            void doSendRequest(uint32_t clientNumber, basic::ByteDataWithID &&data) {
+                if (!ready_) {
+                    return;
+                }
+                {
+                    std::lock_guard<std::mutex> _(clientsMutex_);
+                    clientToIDMap_[clientNumber].insert(data.id);
+                    idToClientMap_[data.id] = clientNumber;
+                }
+                auto encodedData = basic::bytedata_utils::RunSerializer<basic::CBOR<basic::ByteDataWithID>>::apply({std::move(data)});
+                try {
+                    std::lock_guard<std::mutex> _(writeMutex_);
+                    if (stream_.index() == 1) {
+                        std::get<1>(stream_).write(
+                            boost::asio::buffer(
+                                reinterpret_cast<const char *>(encodedData.data()), encodedData.length()
+                            )
+                        );
+                    } else {
+                        std::get<2>(stream_).write(
+                            boost::asio::buffer(
+                                reinterpret_cast<const char *>(encodedData.data()), encodedData.length()
+                            )
+                        );
+                    }
+                } catch (...) {
+                    ready_ = false;
+                    parent_->removeRPCClient(locator_);
+                }
+            }
+            std::thread::native_handle_type getThreadHandle() {
+                return th_.native_handle();
+            }
+        };
+        std::unordered_map<ConnectionLocator, std::shared_ptr<OneRPCClient>> rpcClientMap_;
+        mutable std::mutex rpcClientMapMutex_;
 
         class OneRPCServer : public std::enable_shared_from_this<OneRPCServer> {
         private:
@@ -416,14 +794,18 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                         std::get<2>(stream_).text(false);
                         *needToRun = true;
                     } else {
-                        boost::beast::http::read(socket, buffer_, initialReq_);
-                        if (boost::beast::websocket::is_upgrade(initialReq_)) {
-                            auto t = initialReq_.target();
-                            targetPath_ = std::string {t.data(), t.length()};
-                            stream_.emplace<1>(std::move(socket));
-                            std::get<1>(stream_).text(false);
-                            *needToRun = true;
-                        } else {
+                        try {
+                            boost::beast::http::read(socket, buffer_, initialReq_);
+                            if (boost::beast::websocket::is_upgrade(initialReq_)) {
+                                auto t = initialReq_.target();
+                                targetPath_ = std::string {t.data(), t.length()};
+                                stream_.emplace<1>(std::move(socket));
+                                std::get<1>(stream_).text(false);
+                                *needToRun = true;
+                            } else {
+                                *needToRun = false;
+                            }
+                        } catch (...) {
                             *needToRun = false;
                         }
                     }
@@ -583,16 +965,21 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                     if (!good_) {
                         return;
                     } 
-                    std::lock_guard<std::mutex> _(writeMutex_);
-                    auto encodedData = basic::bytedata_utils::RunSerializer<basic::CBOR<std::tuple<bool,basic::ByteDataWithID>>>::apply({{isFinal, std::move(data)}});
-                    if (stream_.index() == 1) {
-                        std::get<1>(stream_).write(
-                            boost::asio::buffer(reinterpret_cast<const char *>(encodedData.data()), encodedData.size())
-                        );
-                    } else {
-                        std::get<2>(stream_).write(
-                            boost::asio::buffer(reinterpret_cast<const char *>(encodedData.data()), encodedData.size())
-                        );
+                    try {
+                        std::lock_guard<std::mutex> _(writeMutex_);
+                        auto encodedData = basic::bytedata_utils::RunSerializer<basic::CBOR<std::tuple<bool,basic::ByteDataWithID>>>::apply({{isFinal, std::move(data)}});
+                        if (stream_.index() == 1) {
+                            std::get<1>(stream_).write(
+                                boost::asio::buffer(reinterpret_cast<const char *>(encodedData.data()), encodedData.size())
+                            );
+                        } else {
+                            std::get<2>(stream_).write(
+                                boost::asio::buffer(reinterpret_cast<const char *>(encodedData.data()), encodedData.size())
+                            );
+                        }
+                    } catch (...) {
+                        good_ = false;
+                        parent_->removeClientHandler(shared_from_this());
                     }
                 }
                 void onWrite(boost::beast::error_code ec, std::size_t bytes_transferred) {
@@ -781,14 +1168,17 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                     }
                 }
             }
+            std::thread::native_handle_type getThreadHandle() {
+                return th_.native_handle();
+            }
         };
         std::unordered_map<int, std::shared_ptr<OneRPCServer>> rpcServerMap_;
         std::mutex rpcServerMapMutex_;
         
-        std::atomic<bool> started_;
+        std::atomic<bool> started_;       
     public:
         WebSocketComponentImpl() 
-            : publisherMap_(), publisherMapMutex_(), rpcServerMap_(), rpcServerMapMutex_(), started_(false)
+            : publisherMap_(), publisherMapMutex_(), rpcClientMap_(), rpcClientMapMutex_(), rpcServerMap_(), rpcServerMapMutex_(), started_(false)
         {
         }
         ~WebSocketComponentImpl() {
@@ -825,6 +1215,73 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 return [targetPath,p](basic::ByteDataWithTopic &&data) {
                     p->publish(targetPath,std::move(data));
                 };
+            }
+        }
+        std::function<void(basic::ByteDataWithID &&)> websocket_setRPCClient(ConnectionLocator const &locator,
+                        std::function<void(bool, basic::ByteDataWithID &&)> client,
+                        std::optional<ByteDataHookPair> hookPair,
+                        uint32_t *clientNumberOutput,
+                        TLSClientConfigurationComponent *config) {
+            std::optional<WireToUserHook> wireToUserHook;
+            if (hookPair) {
+                wireToUserHook = hookPair->wireToUser;
+            } else {
+                wireToUserHook = std::nullopt;
+            }
+            OneRPCClient *conn = nullptr;
+            {
+                std::lock_guard<std::mutex> _(rpcClientMapMutex_);
+                auto iter = rpcClientMap_.find(locator);
+                if (iter == rpcClientMap_.end()) {
+                    iter = rpcClientMap_.insert(
+                        {
+                            locator
+                            , std::make_shared<OneRPCClient>(
+                                this
+                                , locator
+                                , (config?config->getConfigurationItem(TLSClientInfoKey {locator.host(), locator.port()}):std::nullopt)
+                            )
+                        }
+                    ).first;
+                    if (iter->second->initializationFailure()) {
+                        rpcClientMap_.erase(iter);
+                    } else {
+                        iter->second->run();
+                    }
+                }
+                if (iter != rpcClientMap_.end()) {
+                    conn = iter->second.get();
+                }
+            }
+            if (!conn) {
+                if (clientNumberOutput) {
+                    *clientNumberOutput = 0;
+                }
+                return {};
+            }
+            auto clientNum = conn->addClient(client, wireToUserHook);
+            if (clientNumberOutput) {
+                *clientNumberOutput = clientNum;
+            }
+            if (hookPair && hookPair->userToWire) {
+                auto hook = hookPair->userToWire->hook;
+                return [conn,hook,clientNum](basic::ByteDataWithID &&data) {
+                    auto x = hook(basic::ByteData {std::move(data.content)});
+                    conn->sendRequest(clientNum, {data.id, std::move(x.content)});
+                };
+            } else {
+                return [conn,clientNum](basic::ByteDataWithID &&data) {
+                    conn->sendRequest(clientNum, std::move(data));
+                };
+            }
+        }
+        void websocket_removeRPCClient(ConnectionLocator const &locator, uint32_t clientNumber) {
+            std::lock_guard<std::mutex> _(rpcClientMapMutex_);
+            auto iter = rpcClientMap_.find(locator);
+            if (iter != rpcClientMap_.end()) {
+                if (iter->second->removeClient(clientNumber) == 0) {
+                    rpcClientMap_.erase(iter);
+                }
             }
         }
         std::function<void(bool, basic::ByteDataWithID &&)> websocket_setRPCServer(
@@ -891,9 +1348,38 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             std::lock_guard<std::mutex> _(publisherMapMutex_);
             publisherMap_.erase(port);
         }
+        //signature forces copy
+        void removeRPCClient(ConnectionLocator locator) {
+            std::lock_guard<std::mutex> _(rpcClientMapMutex_);
+            rpcClientMap_.erase(locator);
+        }
         void removeRPCServer(int port) {
             std::lock_guard<std::mutex> _(rpcServerMapMutex_);
             rpcServerMap_.erase(port);
+        }
+        std::unordered_map<ConnectionLocator, std::thread::native_handle_type> threadHandles() {
+            std::unordered_map<ConnectionLocator, std::thread::native_handle_type> retVal;
+            {
+                std::lock_guard<std::mutex> _(publisherMapMutex_);
+                for (auto &item : publisherMap_) {
+                    ConnectionLocator l {"", item.first, "", ""};
+                    retVal[l] = item.second->getThreadHandle();
+                }
+            }
+            {
+                std::lock_guard<std::mutex> _(rpcClientMapMutex_);
+                for (auto &item : rpcClientMap_) {
+                    retVal[item.first] = item.second->getThreadHandle();
+                }
+            }
+            {
+                std::lock_guard<std::mutex> _(rpcServerMapMutex_);
+                for (auto &item : rpcServerMap_) {
+                    ConnectionLocator l {"", item.first, "", ""};
+                    retVal[l] = item.second->getThreadHandle();
+                }
+            }
+            return retVal;
         }
     };
 
@@ -904,6 +1390,15 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
     std::function<void(basic::ByteDataWithTopic &&)> WebSocketComponent::websocket_getPublisher(ConnectionLocator const &locator, std::optional<UserToWireHook> userToWireHook) {
         return impl_->getPublisher(locator, userToWireHook, dynamic_cast<TLSServerConfigurationComponent *>(this));
     }
+    std::function<void(basic::ByteDataWithID &&)> WebSocketComponent::websocket_setRPCClient(ConnectionLocator const &locator,
+                    std::function<void(bool, basic::ByteDataWithID &&)> client,
+                    std::optional<ByteDataHookPair> hookPair,
+                    uint32_t *clientNumberOutput) {
+        return impl_->websocket_setRPCClient(locator, client, hookPair, clientNumberOutput, dynamic_cast<TLSClientConfigurationComponent *>(this));
+    }
+    void WebSocketComponent::websocket_removeRPCClient(ConnectionLocator const &locator, uint32_t clientNumber) {
+        impl_->websocket_removeRPCClient(locator, clientNumber);
+    }
     std::function<void(bool, basic::ByteDataWithID &&)> WebSocketComponent::websocket_setRPCServer(
         ConnectionLocator const &locator,
         std::function<void(basic::ByteDataWithID &&)> server,
@@ -913,6 +1408,9 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
     }
     void WebSocketComponent::finalizeEnvironment() {
         impl_->finalizeEnvironment();
+    }
+    std::unordered_map<ConnectionLocator, std::thread::native_handle_type> WebSocketComponent::websocket_threadHandles() {
+        return impl_->threadHandles();
     }
 
 } } } } }
