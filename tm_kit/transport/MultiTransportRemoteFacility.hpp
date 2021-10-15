@@ -1296,9 +1296,10 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
             , A &&request
             , std::chrono::system_clock::duration const &timeOut
             , std::optional<ByteDataHookPair> hooks = std::nullopt
+            , bool autoDisconnect = true
         ) {
             uint32_t clientNum = 0;
-            auto ret = call<A,B>(env, connType, locator, std::move(request), hooks, true, &clientNum);
+            auto ret = call<A,B>(env, connType, locator, std::move(request), hooks, autoDisconnect, &clientNum);
             if (ret.wait_for(timeOut) == std::future_status::ready) {
                 return {std::move(ret.get())};
             } else {
@@ -1314,9 +1315,10 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
             , A &&request
             , std::chrono::system_clock::duration const &timeOut
             , std::optional<ByteDataHookPair> hooks = std::nullopt
+            , bool autoDisconnect = true
         ) {
             uint32_t clientNum = 0;
-            auto ret = callWithProtocol<ProtocolWrapper,A,B>(env, connType, locator, std::move(request), hooks, true, &clientNum);
+            auto ret = callWithProtocol<ProtocolWrapper,A,B>(env, connType, locator, std::move(request), hooks, autoDisconnect, &clientNum);
             if (ret.wait_for(timeOut) == std::future_status::ready) {
                 return {std::move(ret.get())};
             } else {
@@ -1331,10 +1333,11 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
             , A &&request
             , std::chrono::system_clock::duration const &timeOut
             , std::optional<ByteDataHookPair> hooks = std::nullopt
+            , bool autoDisconnect = true
         ) {
             auto parseRes = parseMultiTransportRemoteFacilityChannel(facilityDescriptor);
             if (parseRes) {
-                return callWithTimeout<A,B>(env, std::get<0>(*parseRes), std::get<1>(*parseRes), std::move(request), timeOut, hooks);
+                return callWithTimeout<A,B>(env, std::get<0>(*parseRes), std::get<1>(*parseRes), std::move(request), timeOut, hooks, autoDisconnect);
             } else {
                 throw std::runtime_error("OneShotMultiTransportRemoteFacilityCall::callWithTimeout: bad facility descriptor '"+facilityDescriptor+"'");
             }
@@ -1346,10 +1349,11 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
             , A &&request
             , std::chrono::system_clock::duration const &timeOut
             , std::optional<ByteDataHookPair> hooks = std::nullopt
+            , bool autoDisconnect = true
         ) {
             auto parseRes = parseMultiTransportRemoteFacilityChannel(facilityDescriptor);
             if (parseRes) {
-                return callWithProtocolWithTimeout<ProtocolWrapper,A,B>(env, std::get<0>(*parseRes), std::get<1>(*parseRes), std::move(request), timeOut, hooks);
+                return callWithProtocolWithTimeout<ProtocolWrapper,A,B>(env, std::get<0>(*parseRes), std::get<1>(*parseRes), std::move(request), timeOut, hooks, autoDisconnect);
             } else {
                 throw std::runtime_error("OneShotMultiTransportRemoteFacilityCall::callWithTimeout: bad facility descriptor '"+facilityDescriptor+"'");
             }
@@ -1508,6 +1512,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
             , std::chrono::system_clock::duration const &timeOut
             , std::optional<WireToUserHook> heartbeatHook = std::nullopt
             , std::optional<ByteDataHookPair> hooks = std::nullopt
+            , bool autoDisconnect = true
         ) {
             auto heartbeatResult = MultiTransportBroadcastFirstUpdateQueryManagingUtils<Env>
                 ::template fetchTypedFirstUpdateAndDisconnect<HeartbeatMessage>
@@ -1533,6 +1538,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                     , std::move(request)
                     , timeOut
                     , hooks 
+                    , autoDisconnect
                 );
             }
         }
@@ -1547,6 +1553,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
             , std::chrono::system_clock::duration const &timeOut
             , std::optional<WireToUserHook> heartbeatHook = std::nullopt
             , std::optional<ByteDataHookPair> hooks = std::nullopt
+            , bool autoDisconnect = true
         ) {
             auto heartbeatResult = MultiTransportBroadcastFirstUpdateQueryManagingUtils<Env>
                 ::template fetchTypedFirstUpdateAndDisconnect<HeartbeatMessage>
@@ -1572,6 +1579,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                     , std::move(request)
                     , timeOut
                     , hooks 
+                    , autoDisconnect
                 );
             }
         }
