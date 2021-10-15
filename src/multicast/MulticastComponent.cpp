@@ -91,16 +91,16 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                         std::lock_guard<std::mutex> _(mutex_);
                         
                         for (auto const &f : noFilterClients_) {
-                            callClient(f, basic::ByteDataWithTopic {data});
+                            callClient(f, std::move(data));
                         }
                         for (auto const &f : stringMatchClients_) {
                             if (data.topic == std::get<0>(f)) {
-                                callClient(std::get<1>(f), basic::ByteDataWithTopic {data});
+                                callClient(std::get<1>(f), std::move(data));
                             }
                         }
                         for (auto const &f : regexMatchClients_) {
                             if (std::regex_match(data.topic, std::get<0>(f))) {
-                                callClient(std::get<1>(f), basic::ByteDataWithTopic {data});
+                                callClient(std::get<1>(f), std::move(data));
                             }
                         }
                     }  

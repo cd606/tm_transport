@@ -27,6 +27,375 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
 
     class WebSocketComponentImpl {
     private:
+        class OneSubscriber : public std::enable_shared_from_this<OneSubscriber> {
+        private:
+            WebSocketComponentImpl *parent_;
+            ConnectionLocator locator_;
+            bool ignoreTopic_;
+            std::string handshakeHost_;
+            boost::asio::io_context svc_;
+            std::optional<boost::asio::ssl::context> sslCtx_;
+            struct ClientCB {
+                uint32_t id;
+                std::function<void(basic::ByteDataWithTopic &&)> cb;
+                std::optional<WireToUserHook> hook;
+            };
+            std::vector<ClientCB> noFilterClients_;
+            std::vector<std::tuple<std::string, ClientCB>> stringMatchClients_;
+            std::vector<std::tuple<std::regex, ClientCB>> regexMatchClients_;
+            std::mutex clientsMutex_;
+            std::thread th_;
+            std::atomic<bool> running_;
+            boost::asio::ip::tcp::resolver resolver_;
+            std::variant<
+                std::monostate
+                , boost::beast::websocket::stream<boost::beast::tcp_stream>
+                , boost::beast::websocket::stream<boost::beast::ssl_stream<boost::beast::tcp_stream>>
+            > stream_;
+            boost::beast::flat_buffer buffer_;
+            bool initializationFailure_;
+        public:
+            OneSubscriber(
+                WebSocketComponentImpl *parent
+                , ConnectionLocator const &locator
+                , std::optional<TLSClientInfo> const &sslInfo
+            )
+                : parent_(parent), locator_(locator)
+                , ignoreTopic_(locator.query("ignoreTopic","false")=="true")
+                , svc_()
+                , sslCtx_(
+                    sslInfo
+                    ? std::optional<boost::asio::ssl::context>(boost::asio::ssl::context {boost::asio::ssl::context::tlsv12_client})
+                    : std::nullopt
+                )
+                , noFilterClients_(), stringMatchClients_(), regexMatchClients_(), clientsMutex_()
+                , th_(), running_(false)
+                , resolver_(boost::asio::make_strand(svc_))
+                , stream_()
+                , buffer_()
+                , initializationFailure_(false)
+            {
+                if (sslInfo) {
+                    std::string caCert;
+                    if (sslInfo->caCertificateFile != "") {
+                        std::ifstream ifs(sslInfo->caCertificateFile.c_str());
+                        caCert = std::string(
+                            std::istreambuf_iterator<char>{ifs}, {}
+                        );
+                        ifs.close();
+                    }
+                    boost::system::error_code ec;
+                    sslCtx_->add_certificate_authority(
+                        boost::asio::buffer(caCert.data(), caCert.length())
+                        , ec
+                    );
+                    if (ec) {
+                        initializationFailure_ = true;
+                        return;
+                    }
+                    stream_.emplace<2>(boost::asio::make_strand(svc_), *sslCtx_);
+                    std::get<2>(stream_).binary(true);
+                } else {
+                    stream_.emplace<1>(boost::asio::make_strand(svc_));
+                    std::get<1>(stream_).binary(true);
+                }
+            }
+            ~OneSubscriber() {
+                if (stream_.index() == 1) {
+                    std::get<1>(stream_).close(boost::beast::websocket::close_code::normal);
+                } else if (stream_.index() == 2) {
+                    std::get<2>(stream_).close(boost::beast::websocket::close_code::normal);
+                }
+                if (running_) {
+                    running_ = false;
+                    svc_.stop();
+                    th_.join();
+                }
+            }
+            void run() {
+                running_ = true;
+                th_ = std::thread([this]() {                   
+                    boost::asio::io_context::work work(svc_);
+                    svc_.run();
+                });
+                th_.detach();
+                resolver_.async_resolve(
+                    locator_.host()
+                    , std::to_string(locator_.port())
+                    , boost::beast::bind_front_handler(
+                        &OneSubscriber::onResolve
+                        , shared_from_this()
+                    )
+                );
+            }
+            void onResolve(boost::beast::error_code ec, boost::asio::ip::tcp::resolver::results_type results) {
+                if (ec) {
+                    parent_->removeSubscriber(locator_);
+                    return;
+                }
+                if (stream_.index() == 1) {
+                    boost::beast::get_lowest_layer(std::get<1>(stream_)).expires_after(std::chrono::seconds(30));
+                    boost::beast::get_lowest_layer(std::get<1>(stream_)).async_connect(
+                        results,
+                        boost::beast::bind_front_handler(
+                            &OneSubscriber::onConnect,
+                            shared_from_this()
+                        )
+                    );
+                } else {
+                    boost::beast::get_lowest_layer(std::get<2>(stream_)).expires_after(std::chrono::seconds(30));
+                    boost::beast::get_lowest_layer(std::get<2>(stream_)).async_connect(
+                        results,
+                        boost::beast::bind_front_handler(
+                            &OneSubscriber::onConnect,
+                            shared_from_this()
+                        )
+                    );
+                }
+            }
+            void onConnect(boost::beast::error_code ec, boost::asio::ip::tcp::resolver::results_type::endpoint_type ep) {
+                if (ec) {
+                    parent_->removeSubscriber(locator_);
+                    return;
+                }
+                handshakeHost_ = locator_.host()+":"+std::to_string(ep.port());
+                if (stream_.index() == 1) {
+                    boost::beast::get_lowest_layer(std::get<1>(stream_)).expires_never();
+                    std::get<1>(stream_).set_option(
+                        boost::beast::websocket::stream_base::timeout::suggested(
+                            boost::beast::role_type::client
+                        )
+                    );
+                    std::get<1>(stream_).set_option(
+                        boost::beast::websocket::stream_base::decorator(
+                            [](boost::beast::websocket::request_type& req)
+                            {
+                                req.set(
+                                    boost::beast::http::field::user_agent
+                                    , std::string(BOOST_BEAST_VERSION_STRING)
+                                );
+                            }
+                        )
+                    );
+
+                    std::string targetPath = locator_.identifier();
+                    if (!boost::starts_with(targetPath, "/")) {
+                        targetPath = "/"+targetPath;
+                    }
+                    std::get<1>(stream_).async_handshake(
+                        handshakeHost_
+                        , targetPath
+                        , boost::beast::bind_front_handler(
+                            &OneSubscriber::onWebSocketHandshake
+                            ,shared_from_this()
+                        )
+                    );
+                } else {
+                    boost::beast::get_lowest_layer(std::get<2>(stream_)).expires_after(std::chrono::seconds(30));
+                    if(!SSL_set_tlsext_host_name(
+                        std::get<2>(stream_).next_layer().native_handle(),
+                        handshakeHost_.c_str()
+                    ))
+                    {
+                        parent_->removeSubscriber(locator_);
+                        return;
+                    }
+                    std::get<2>(stream_).next_layer().async_handshake(
+                        boost::asio::ssl::stream_base::client
+                        , boost::beast::bind_front_handler(
+                            &OneSubscriber::onSSLHandshake,
+                            shared_from_this()
+                        )
+                    );
+                }
+            }
+            void onSSLHandshake(boost::beast::error_code ec) {
+                if (ec) {
+                    parent_->removeSubscriber(locator_);
+                    return;
+                }
+                boost::beast::get_lowest_layer(std::get<2>(stream_)).expires_never();
+                std::get<2>(stream_).set_option(
+                    boost::beast::websocket::stream_base::timeout::suggested(
+                        boost::beast::role_type::client
+                    )
+                );
+                std::get<2>(stream_).set_option(
+                    boost::beast::websocket::stream_base::decorator(
+                        [](boost::beast::websocket::request_type& req)
+                        {
+                            req.set(
+                                boost::beast::http::field::user_agent
+                                , std::string(BOOST_BEAST_VERSION_STRING)
+                            );
+                        }
+                    )
+                );
+
+                std::string targetPath = locator_.identifier();
+                if (!boost::starts_with(targetPath, "/")) {
+                    targetPath = "/"+targetPath;
+                }
+                std::get<2>(stream_).async_handshake(
+                    handshakeHost_
+                    , targetPath
+                    , boost::beast::bind_front_handler(
+                        &OneSubscriber::onWebSocketHandshake
+                        ,shared_from_this()
+                    )
+                );
+            }
+            void onWebSocketHandshake(boost::beast::error_code ec) {
+                if (ec) {
+                    parent_->removeSubscriber(locator_);
+                    return;
+                }
+                if (stream_.index() == 1) {
+                    std::get<1>(stream_).async_read(
+                        buffer_ 
+                        , boost::beast::bind_front_handler(
+                            &OneSubscriber::onRead 
+                            , shared_from_this()
+                        )
+                    );
+                } else {
+                    std::get<2>(stream_).async_read(
+                        buffer_ 
+                        , boost::beast::bind_front_handler(
+                            &OneSubscriber::onRead 
+                            , shared_from_this()
+                        )
+                    );
+                }
+            }
+            inline void callClient(ClientCB const &c, basic::ByteDataWithTopic &&d) {
+                if (c.hook) {
+                    auto b = (c.hook->hook)(basic::ByteDataView {std::string_view(d.content)});
+                    if (b) {
+                        c.cb({std::move(d.topic), std::move(b->content)});
+                    }
+                } else {
+                    c.cb(std::move(d));
+                }
+            }
+            void onRead(boost::beast::error_code ec, std::size_t bytes_transferred) {
+                boost::ignore_unused(bytes_transferred);
+                if (ec) {
+                    parent_->removeSubscriber(locator_);
+                    return;
+                }
+
+                auto input = boost::beast::buffers_to_string(buffer_.data());
+                
+                if (ignoreTopic_) {
+                    for (auto const &f : noFilterClients_) {
+                        callClient(f, basic::ByteDataWithTopic {"", std::move(input)});
+                    }
+                } else {
+                    basic::ByteDataWithTopic data;
+                    auto parseRes = basic::bytedata_utils::RunCBORDeserializer<basic::ByteDataWithTopic>::applyInPlace(data, std::string_view {input}, 0);
+                    if (parseRes && *parseRes == input.length()) {
+                        std::lock_guard<std::mutex> _(clientsMutex_);
+                        
+                        for (auto const &f : noFilterClients_) {
+                            callClient(f, std::move(data));
+                        }
+                        for (auto const &f : stringMatchClients_) {
+                            if (data.topic == std::get<0>(f)) {
+                                callClient(std::get<1>(f), std::move(data));
+                            }
+                        }
+                        for (auto const &f : regexMatchClients_) {
+                            if (std::regex_match(data.topic, std::get<0>(f))) {
+                                callClient(std::get<1>(f), std::move(data));
+                            }
+                        }
+                    }
+                }
+
+                buffer_.clear();
+                if (stream_.index() == 1) {
+                    std::get<1>(stream_).async_read(
+                        buffer_ 
+                        , boost::beast::bind_front_handler(
+                            &OneSubscriber::onRead 
+                            , shared_from_this()
+                        )
+                    );
+                } else {
+                    std::get<2>(stream_).async_read(
+                        buffer_ 
+                        , boost::beast::bind_front_handler(
+                            &OneSubscriber::onRead 
+                            , shared_from_this()
+                        )
+                    );
+                }
+            }
+            bool initializationFailure() const {
+                return initializationFailure_;
+            }
+            std::thread::native_handle_type getThreadHandle() {
+                return th_.native_handle();
+            }
+            void addClient(
+                uint32_t clientID
+                , std::variant<WebSocketComponent::NoTopicSelection, std::string, std::regex> const &topic 
+                , std::function<void(basic::ByteDataWithTopic &&)> client
+                , std::optional<WireToUserHook> wireToUserHook
+            ) {
+                std::lock_guard<std::mutex> _(clientsMutex_);
+                if (ignoreTopic_) {
+                    noFilterClients_.push_back({clientID, client, wireToUserHook});
+                } else {
+                    std::visit([this,clientID,client,wireToUserHook](auto const &t) {
+                        using T = std::decay_t<decltype(t)>;
+                        if constexpr (std::is_same_v<T,WebSocketComponent::NoTopicSelection>) {
+                            noFilterClients_.push_back({clientID, client, wireToUserHook});
+                        } else if constexpr (std::is_same_v<T,std::string>) {
+                            stringMatchClients_.push_back({t, {clientID, client, wireToUserHook}});
+                        } else if constexpr (std::is_same_v<T,std::regex>) {
+                            regexMatchClients_.push_back({t, {clientID, client, wireToUserHook}});
+                        }
+                    }, topic);
+                }
+            }
+            void removeClient(uint32_t clientID) {
+                std::lock_guard<std::mutex> _(clientsMutex_);
+                noFilterClients_.erase(
+                    std::remove_if(
+                        noFilterClients_.begin()
+                        , noFilterClients_.end()
+                        , [clientID](auto const &x) {
+                            return x.id == clientID;
+                        })
+                    , noFilterClients_.end()
+                );
+                stringMatchClients_.erase(
+                    std::remove_if(
+                        stringMatchClients_.begin()
+                        , stringMatchClients_.end()
+                        , [clientID](auto const &x) {
+                            return std::get<1>(x).id == clientID;
+                        })
+                    , stringMatchClients_.end()
+                );
+                regexMatchClients_.erase(
+                    std::remove_if(
+                        regexMatchClients_.begin()
+                        , regexMatchClients_.end()
+                        , [clientID](auto const &x) {
+                            return std::get<1>(x).id == clientID;
+                        })
+                    , regexMatchClients_.end()
+                );
+            }
+        };
+        std::unordered_map<ConnectionLocator, std::shared_ptr<OneSubscriber>> subscriberMap_;
+        std::unordered_map<uint32_t, ConnectionLocator> subscriberClientIDToSubscriberLocatorMap_;
+        std::atomic<uint32_t> subscriberClientIDCounter_;
+        mutable std::mutex subscriberMapMutex_;
+
         class OnePublisher : public std::enable_shared_from_this<OnePublisher> {
         private:
             class OneClientHandler : public std::enable_shared_from_this<OneClientHandler> {
@@ -1178,10 +1547,58 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         std::atomic<bool> started_;       
     public:
         WebSocketComponentImpl() 
-            : publisherMap_(), publisherMapMutex_(), rpcClientMap_(), rpcClientMapMutex_(), rpcServerMap_(), rpcServerMapMutex_(), started_(false)
+            : subscriberMap_(), subscriberClientIDToSubscriberLocatorMap_(), subscriberClientIDCounter_(0), subscriberMapMutex_(), publisherMap_(), publisherMapMutex_(), rpcClientMap_(), rpcClientMapMutex_(), rpcServerMap_(), rpcServerMapMutex_(), started_(false)
         {
         }
         ~WebSocketComponentImpl() {
+        }
+        uint32_t websocket_addSubscriptionClient(
+            ConnectionLocator const &locator,
+            std::variant<WebSocketComponent::NoTopicSelection, std::string, std::regex> const &topic,
+            std::function<void(basic::ByteDataWithTopic &&)> client,
+            std::optional<WireToUserHook> wireToUserHook,
+            TLSClientConfigurationComponent *config) 
+        {
+            uint32_t retVal = 0;
+            {
+                std::lock_guard<std::mutex> _(subscriberMapMutex_);
+                retVal = ++subscriberClientIDCounter_;
+                auto iter = subscriberMap_.find(locator);
+                if (iter == subscriberMap_.end()) {
+                    iter = subscriberMap_.insert(
+                        {
+                            locator
+                            , std::make_shared<OneSubscriber>(
+                                this
+                                , locator
+                                , (config?config->getConfigurationItem(TLSClientInfoKey {locator.host(), locator.port()}):std::nullopt)
+                            )
+                        }
+                    ).first;
+                    if (iter->second->initializationFailure()) {
+                        subscriberMap_.erase(iter);
+                        iter = subscriberMap_.end();
+                    } else {
+                        iter->second->run();
+                    }
+                }
+                if (iter != subscriberMap_.end()) {
+                    subscriberClientIDToSubscriberLocatorMap_[retVal] = locator;
+                    iter->second->addClient(retVal, topic, client, wireToUserHook);
+                }
+            }
+            return retVal;
+        }
+        void websocket_removeSubscriptionClient(uint32_t id) {
+            std::lock_guard<std::mutex> _(subscriberMapMutex_);
+            auto iter = subscriberClientIDToSubscriberLocatorMap_.find(id);
+            if (iter != subscriberClientIDToSubscriberLocatorMap_.end()) {
+                auto iter1 = subscriberMap_.find(iter->second);
+                if (iter1 != subscriberMap_.end()) {
+                    iter1->second->removeClient(id);
+                }
+                subscriberClientIDToSubscriberLocatorMap_.erase(iter);
+            }
         }
         std::function<void(basic::ByteDataWithTopic &&)> getPublisher(ConnectionLocator const &locator, std::optional<UserToWireHook> userToWireHook, TLSServerConfigurationComponent *config) {
             std::lock_guard<std::mutex> _(publisherMapMutex_);
@@ -1245,6 +1662,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                     ).first;
                     if (iter->second->initializationFailure()) {
                         rpcClientMap_.erase(iter);
+                        iter = rpcClientMap_.end();
                     } else {
                         iter->second->run();
                     }
@@ -1344,6 +1762,11 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             started_ = true;
         }
 
+        //signature forces copy
+        void removeSubscriber(ConnectionLocator locator) {
+            std::lock_guard<std::mutex> _(subscriberMapMutex_);
+            subscriberMap_.erase(locator);
+        }
         void removePublisher(int port) {
             std::lock_guard<std::mutex> _(publisherMapMutex_);
             publisherMap_.erase(port);
@@ -1359,6 +1782,12 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         }
         std::unordered_map<ConnectionLocator, std::thread::native_handle_type> threadHandles() {
             std::unordered_map<ConnectionLocator, std::thread::native_handle_type> retVal;
+            {
+                std::lock_guard<std::mutex> _(subscriberMapMutex_);
+                for (auto &item : subscriberMap_) {
+                    retVal[item.first] = item.second->getThreadHandle();
+                }
+            }
             {
                 std::lock_guard<std::mutex> _(publisherMapMutex_);
                 for (auto &item : publisherMap_) {
@@ -1387,6 +1816,21 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
     WebSocketComponent::WebSocketComponent(WebSocketComponent &&) = default;
     WebSocketComponent &WebSocketComponent::operator=(WebSocketComponent &&) = default;
     WebSocketComponent::~WebSocketComponent() = default;
+    uint32_t WebSocketComponent::websocket_addSubscriptionClient(ConnectionLocator const &locator,
+        std::variant<WebSocketComponent::NoTopicSelection, std::string, std::regex> const &topic,
+        std::function<void(basic::ByteDataWithTopic &&)> client,
+        std::optional<WireToUserHook> wireToUserHook) {
+        return impl_->websocket_addSubscriptionClient(
+            locator 
+            , topic 
+            , client 
+            , wireToUserHook 
+            , dynamic_cast<TLSClientConfigurationComponent *>(this)
+        );
+    }
+    void WebSocketComponent::websocket_removeSubscriptionClient(uint32_t id) {
+        impl_->websocket_removeSubscriptionClient(id);
+    }
     std::function<void(basic::ByteDataWithTopic &&)> WebSocketComponent::websocket_getPublisher(ConnectionLocator const &locator, std::optional<UserToWireHook> userToWireHook) {
         return impl_->getPublisher(locator, userToWireHook, dynamic_cast<TLSServerConfigurationComponent *>(this));
     }

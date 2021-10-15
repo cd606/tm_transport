@@ -582,9 +582,42 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                         }
                         break;
                     case MultiTransportBroadcastListenerConnectionType::WebSocket:
-                        {
+                        if constexpr (std::is_convertible_v<Env *, web_socket::WebSocketComponent *>) {
+                            auto *component = static_cast<web_socket::WebSocketComponent *>(env);
+                            auto actualHook = wireToUserHook_;
+                            if (!actualHook) {
+                                actualHook = DefaultHookFactory<Env>::template incomingHook<T>(env);
+                            }
+                            auto res = component->websocket_addSubscriptionClient(
+                                x.connectionLocator
+                                , MultiTransportBroadcastListenerTopicHelper<web_socket::WebSocketComponent>::parseTopic(x.topicDescription)
+                                , [this,env](basic::ByteDataWithTopic &&d) {
+                                    TM_INFRA_IMPORTER_TRACER_WITH_SUFFIX(env, ":data");
+                                    T t;
+                                    auto tRes = basic::bytedata_utils::RunDeserializer<T>::applyInPlace(t, d.content);
+                                    if (tRes) {
+                                        this->ImporterParent::publish(M::template pureInnerData<basic::TypedDataWithTopic<T>>(env, {std::move(d.topic), std::move(t)}));
+                                    }
+                                }
+                                , actualHook
+                            );
+                            {
+                                std::lock_guard<std::mutex> _(subscriptionsMutex_);
+                                subscriptions_.insert({{x.connectionType, res}, x});
+                            }
+                            this->FacilityParent::publish(
+                                env
+                                , typename M::template Key<MultiTransportBroadcastListenerOutput> {
+                                    id
+                                    , MultiTransportBroadcastListenerOutput { {
+                                        MultiTransportBroadcastListenerAddSubscriptionResponse {res}
+                                    } }
+                                }
+                                , true
+                            );
+                        } else {
                             std::ostringstream errOss;
-                            errOss << "[MultiTransportBroadcastListner::actuallyHandle] trying to set up web socket channel " << x.connectionLocator << " but web socket listener is currently unsupported";
+                            errOss << "[MultiTransportBroadcastListner::actuallyHandle] trying to set up web socket channel " << x.connectionLocator << " but web socket is unsupported in the environment";
                             env->log(infra::LogLevel::Warning, errOss.str());
                             this->FacilityParent::publish(
                                 env
@@ -685,6 +718,14 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                         }
                         break;
                     case MultiTransportBroadcastListenerConnectionType::WebSocket:
+                        if constexpr (std::is_convertible_v<Env *, web_socket::WebSocketComponent *>) {
+                            static_cast<web_socket::WebSocketComponent *>(env)
+                                ->websocket_removeSubscriptionClient(x.subscriptionID);
+                            {
+                                std::lock_guard<std::mutex> _(subscriptionsMutex_);
+                                subscriptions_.erase({x.connectionType, x.subscriptionID});
+                            }
+                        }
                         break;
                     default:
                         break;
@@ -740,6 +781,10 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                             }
                             break;
                         case MultiTransportBroadcastListenerConnectionType::WebSocket:
+                            if constexpr (std::is_convertible_v<Env *, web_socket::WebSocketComponent *>) {
+                                static_cast<web_socket::WebSocketComponent *>(env)
+                                    ->websocket_removeSubscriptionClient(std::get<1>(x.first));
+                            }
                             break;
                         default:
                             break;

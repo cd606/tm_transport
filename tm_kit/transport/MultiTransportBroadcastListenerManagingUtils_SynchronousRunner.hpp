@@ -111,7 +111,15 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                     }
                     break;
                 case MultiTransportBroadcastListenerConnectionType::WebSocket:
-                    r.environment()->log(infra::LogLevel::Warning, "[MultiTransportBroadcastListenerManagingUtils (Synchronous Runner)::oneBroadcastListenerWithTopic] Trying to create web socket listener with channel spec '"+spec.channel+"', but web socket listener is unsupported");
+                    if constexpr (std::is_convertible_v<Env *, web_socket::WebSocketComponent *>) {
+                        sub = web_socket::WebSocketImporterExporter<Env>::template createTypedImporter<DataType>(
+                            std::get<1>(*parsedSpec)
+                            , MultiTransportBroadcastListenerTopicHelper<web_socket::WebSocketComponent>::parseTopic(getTopic_internal(std::get<0>(*parsedSpec), spec.topicDescription))
+                            , hookFactory(spec.name)
+                        );
+                    } else {
+                        r.environment()->log(infra::LogLevel::Warning, "[MultiTransportBroadcastListenerManagingUtils (Synchronous Runner)::oneBroadcastListenerWithTopic] Trying to create websocket publisher with channel spec '"+spec.channel+"', but websocket is unsupported in the environment");
+                    }
                     break;
                 default:
                     r.environment()->log(infra::LogLevel::Warning, "[MultiTransportBroadcastListenerManagingUtils (Synchronous Runner)::oneBroadcastListenerWithTopic] Trying to create unknown-protocol publisher with channel spec '"+spec.channel+"'");
@@ -240,7 +248,16 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                 }
                 break;
             case MultiTransportBroadcastListenerConnectionType::WebSocket:
-                throw std::runtime_error("[MultiTransportBroadcastListenerManagingUtils (Synchronous Runner)::oneByteDataBroadcastListener] Trying to create web socket listener with channel spec '"+channelSpec+"', but web socket listener is unsupported");
+                if constexpr (std::is_convertible_v<Env *, web_socket::WebSocketComponent *>) {
+                    auto sub = web_socket::WebSocketImporterExporter<Env>::createImporter(
+                        std::get<1>(*parsed)
+                        , MultiTransportBroadcastListenerTopicHelper<web_socket::WebSocketComponent>::parseTopic(getTopic_internal(std::get<0>(*parsed), topicDescription))
+                        , hook
+                    );
+                    return sub;
+                } else {
+                    throw std::runtime_error("[MultiTransportBroadcastListenerManagingUtils (Synchronous Runner)::oneByteDataBroadcastListener] Trying to create web socket publisher with channel spec '"+channelSpec+"', but web socket is unsupported in the environment");
+                }
                 break;
             default:
                 throw std::runtime_error("[MultiTransportBroadcastListenerManagingUtils (Synchronous Runner)::oneByteDataBroadcastListener] Trying to create unknown-protocol publisher with channel spec '"+channelSpec+"'");

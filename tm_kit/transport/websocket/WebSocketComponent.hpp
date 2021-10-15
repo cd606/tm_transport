@@ -20,6 +20,12 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         WebSocketComponent &operator=(WebSocketComponent &&);
         virtual ~WebSocketComponent();
 
+        struct NoTopicSelection {};
+        uint32_t websocket_addSubscriptionClient(ConnectionLocator const &locator,
+                        std::variant<NoTopicSelection, std::string, std::regex> const &topic,
+                        std::function<void(basic::ByteDataWithTopic &&)> client,
+                        std::optional<WireToUserHook> wireToUserHook = std::nullopt);
+        void websocket_removeSubscriptionClient(uint32_t id);
         std::function<void(basic::ByteDataWithTopic &&)> websocket_getPublisher(ConnectionLocator const &locator, std::optional<UserToWireHook> userToWireHook = std::nullopt);
         std::function<void(basic::ByteDataWithID &&)> websocket_setRPCClient(ConnectionLocator const &locator,
                         std::function<void(bool, basic::ByteDataWithID &&)> client,
