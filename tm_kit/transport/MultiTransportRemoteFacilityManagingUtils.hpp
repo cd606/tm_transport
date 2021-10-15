@@ -1320,6 +1320,29 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                         throw std::runtime_error("[MultiTransportRemoteFacilityManagingUtils::setupSimpleRemoteFacility] trying to set up grpc interop facility for channel spec '"+channelSpec+"', but grpc interop is unsupported in the environment");
                     }
                     break;
+                case MultiTransportRemoteFacilityConnectionType::JsonREST:
+                    if (hooks) {
+                        throw std::runtime_error("[MultiTransportRemoteFacilityManagingUtils::setupSimpleRemoteFacility] trying to set up json rest facility for channel spec '"+channelSpec+"', but json rest does not support requests with hooks");
+                    }
+                    if constexpr(std::is_convertible_v<typename R::EnvironmentType *, json_rest::JsonRESTComponent *>) {
+                        if constexpr(DetermineClientSideIdentityForRequest<typename R::EnvironmentType, Request>::HasIdentity) {
+                            if constexpr (!std::is_same_v<typename DetermineClientSideIdentityForRequest<typename R::EnvironmentType, Request>::IdentityType, std::string>) {
+                                throw std::runtime_error("[MultiTransportRemoteFacilityManagingUtils::setupSimpleRemoteFacility] trying to set up json rest facility for channel spec '"+channelSpec+"', but json rest does not support non-string identity on request");
+                            }
+                        }
+                        if constexpr (
+                            basic::nlohmann_json_interop::JsonWrappable<Request>::value
+                            &&
+                            basic::nlohmann_json_interop::JsonWrappable<Result>::value
+                        ) {
+                            return json_rest::JsonRESTClientFacilityFactory<typename R::AppType>::template createClientFacility<Request, Result>(std::get<1>(*parsed));
+                        } else {
+                            throw std::runtime_error("[MultiTransportRemoteFacilityManagingUtils::setupSimpleRemoteFacility] trying to set up json rest facility for channel spec '"+channelSpec+"', but the data types are not json-compatible");
+                        }
+                    } else {
+                        throw std::runtime_error("[MultiTransportRemoteFacilityManagingUtils::setupSimpleRemoteFacility] trying to set up json rest facility for channel spec '"+channelSpec+"', but json rest is unsupported in the environment");
+                    }
+                    break;
                 case MultiTransportRemoteFacilityConnectionType::WebSocket:
                     if constexpr(std::is_convertible_v<typename R::EnvironmentType *, web_socket::WebSocketComponent *>) {
                         return web_socket::WebSocketOnOrderFacilityClient<typename R::EnvironmentType>::template createTypedRPCOnOrderFacility<Request,Result>(std::get<1>(*parsed), hooks);

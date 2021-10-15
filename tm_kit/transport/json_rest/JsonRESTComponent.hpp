@@ -21,6 +21,9 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         JsonRESTComponent &operator=(JsonRESTComponent &&);
         virtual ~JsonRESTComponent();
 
+        void addJsonRESTClient(ConnectionLocator const &locator, std::string &&request, std::function<
+            void(std::string &&)
+        > const &clientCallback);
         void registerHandler(ConnectionLocator const &locator, std::function<
             bool(std::string const &login, std::string const &data, std::function<void(std::string const &)> const &callback)
         > const &handler);
@@ -30,6 +33,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         void addBasicAuthentication_salted(int port, std::string const &login, std::string const &saltedPassword);
         void setDocRoot(int port, std::filesystem::path const &docRoot);
         void finalizeEnvironment();
+        std::unordered_map<ConnectionLocator, std::thread::native_handle_type> json_rest_threadHandles();
     };
 
 } } } } }

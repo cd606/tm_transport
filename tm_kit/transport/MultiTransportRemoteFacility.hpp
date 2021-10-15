@@ -16,6 +16,7 @@
 #include <tm_kit/transport/socket_rpc/SocketRPCOnOrderFacility.hpp>
 #include <tm_kit/transport/grpc_interop/GrpcInteropComponent.hpp>
 #include <tm_kit/transport/grpc_interop/GrpcClientFacility.hpp>
+#include <tm_kit/transport/json_rest/JsonRESTClientFacility.hpp>
 #include <tm_kit/transport/websocket/WebSocketClientFacility.hpp>
 #include <tm_kit/transport/AbstractIdentityCheckerComponent.hpp>
 #include <tm_kit/transport/MultiTransportBroadcastListenerManagingUtils.hpp>
@@ -591,8 +592,74 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                 return {newSize, true};
                 break;
             case MultiTransportRemoteFacilityConnectionType::JsonREST:
-                env->log(infra::LogLevel::Warning, "[MultiTransportRemoteFacility::registerFacility] Json REST client facility is currently unsupported");
-                return {0, false};
+                if constexpr (std::is_convertible_v<Env *, json_rest::JsonRESTComponent *>) {
+                    if constexpr (std::is_same_v<Identity, void> || std::is_same_v<Identity, std::string>) {
+                        //in json rest, if identity is std::string, it is treated as if there is no identity
+                        //on client side
+                        if constexpr (
+                            basic::nlohmann_json_interop::JsonWrappable<A>::value
+                            &&
+                            basic::nlohmann_json_interop::JsonWrappable<B>::value
+                        ) {
+                            try {
+                                auto req = [this,env,locator](std::string const &id, A &&data) {
+                                    nlohmann::json sendData;
+                                    basic::nlohmann_json_interop::JsonEncoder<A>::write(sendData, "request", data);
+                                    env->JsonRESTComponent::addJsonRESTClient(
+                                        locator
+                                        , sendData.dump()
+                                        , [this,env,id](std::string &&response) mutable {
+                                            nlohmann::json x = nlohmann::json::parse(response);
+                                            Output resp;
+                                            basic::nlohmann_json_interop::Json<Output *> r(&resp);
+                                            if (r.fromNlohmannJson(x["response"])) {
+                                                this->FacilityParent::publish(
+                                                    env
+                                                    , typename M::template Key<Output> {
+                                                        Env::id_from_string(id)
+                                                        , std::move(resp)
+                                                    }
+                                                    , true
+                                                );
+                                            }
+                                        }
+                                    );
+                                };
+                                {
+                                    std::lock_guard<std::mutex> _(mutex_);
+                                    underlyingSenders_.push_back({locator, std::make_unique<RequestSender>(std::move(req))});
+                                    if constexpr (DispatchStrategy == MultiTransportRemoteFacilityDispatchStrategy::Designated) {
+                                        senderMap_.insert({locator, std::get<1>(underlyingSenders_.back()).get()});
+                                    }
+                                    newSize = underlyingSenders_.size();
+                                }
+                                std::ostringstream oss;
+                                oss << "[MultiTransportRemoteFacility::registerFacility] Registered json rest facility for "
+                                    << locator;
+                                env->log(infra::LogLevel::Info, oss.str());
+                            } catch (json_rest::JsonRESTComponentException const &ex) {
+                                std::ostringstream oss;
+                                oss << "[MultiTransportRemoteFacility::registerFacility] Error registering json rest facility for "
+                                    << locator
+                                    << ": " << ex.what();
+                                env->log(infra::LogLevel::Error, oss.str());
+                            }
+                        } else {
+                            std::ostringstream errOss;
+                            errOss << "[MultiTransportRemoteFacility::registerFacility] Trying to set up grpc interop rpc facility for " << locator << ", but grpc interop requires the data structures to be protobuf compatible";
+                            env->log(infra::LogLevel::Warning, errOss.str());
+                        }
+                    } else {
+                        std::ostringstream errOss;
+                        errOss << "[MultiTransportRemoteFacility::registerFacility] Trying to set up json rest rpc facility for " << locator << ", but json rest does not support non-string identities in request";
+                        env->log(infra::LogLevel::Warning, errOss.str());
+                    }
+                } else {
+                    std::ostringstream errOss;
+                    errOss << "[MultiTransportRemoteFacility::registerFacility] Trying to set up json rest facility for " << locator << ", but json rest is unsupported in the environment";
+                    env->log(infra::LogLevel::Warning, errOss.str());
+                }
+                return {newSize, true};
                 break;
             case MultiTransportRemoteFacilityConnectionType::WebSocket:
                 if constexpr (std::is_convertible_v<Env *, web_socket::WebSocketComponent *>) {
@@ -825,8 +892,30 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                 return {newSize, true};
                 break;
             case MultiTransportRemoteFacilityConnectionType::JsonREST:
-                env->log(infra::LogLevel::Warning, "[MultiTransportRemoteFacility::registerFacility] Json REST client facility is currently unsupported");
-                return {0, false};
+                if constexpr (std::is_convertible_v<Env *, json_rest::JsonRESTComponent *>) {
+                    {
+                        std::lock_guard<std::mutex> _(mutex_);
+                        if constexpr (DispatchStrategy == MultiTransportRemoteFacilityDispatchStrategy::Designated) {
+                            senderMap_.erase(locator);
+                        }
+                        underlyingSenders_.erase(
+                            std::remove_if(
+                                underlyingSenders_.begin()
+                                , underlyingSenders_.end()
+                                , [&locator](auto const &x) {
+                                    return (std::get<0>(x) == locator);
+                                }
+                            )
+                            , underlyingSenders_.end()
+                        );
+                        newSize = underlyingSenders_.size();
+                    }
+                    std::ostringstream oss;
+                    oss << "[MultiTransportRemoteFacility::deregisterFacility] De-registered json rest facility for "
+                        << locator;
+                    env->log(infra::LogLevel::Info, oss.str());
+                }
+                return {newSize, true};
                 break;
             case MultiTransportRemoteFacilityConnectionType::WebSocket:
                 if constexpr (std::is_convertible_v<Env *, web_socket::WebSocketComponent *>) {
@@ -1031,7 +1120,24 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                     throw std::runtime_error("OneShotMultiTransportRemoteFacilityCall::call: connection type grpc interop not supported in environment");
                 }
             } else if (connType == MultiTransportRemoteFacilityConnectionType::JsonREST) {
-                throw std::runtime_error("OneShotMultiTransportRemoteFacilityCall::call: Json REST client facility is currently unsupported");
+                if constexpr (std::is_convertible_v<Env *, json_rest::JsonRESTComponent *>) {
+                    if (hooks) {
+                        throw std::runtime_error("OneShotMultiTransportRemoteFacilityCall::call: connection type json rest does not support hooks");
+                    }
+                    if constexpr (
+                        basic::nlohmann_json_interop::JsonWrappable<A>::value
+                        &&
+                        basic::nlohmann_json_interop::JsonWrappable<B>::value
+                    ) {
+                        return json_rest::JsonRESTClientFacilityFactory<infra::RealTimeApp<Env>>::template typedOneShotRemoteCall<A,B>(
+                            env, locator, std::move(request)
+                        );
+                    } else {
+                        throw std::runtime_error("OneShotMultiTransportRemoteFacilityCall::call: connection type json rest used on non-json-compatible types");
+                    }
+                } else {
+                    throw std::runtime_error("OneShotMultiTransportRemoteFacilityCall::call: connection type json rest not supported in environment");
+                }
             } else if (connType == MultiTransportRemoteFacilityConnectionType::WebSocket) {
                 if constexpr (std::is_convertible_v<Env *, web_socket::WebSocketComponent *>) {
                     return web_socket::WebSocketOnOrderFacilityClient<Env>::template typedOneShotRemoteCall<A,B>(
@@ -1169,7 +1275,24 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                     throw std::runtime_error("OneShotMultiTransportRemoteFacilityCall::callNoReply: connection type grpc interop not supported in environment");
                 }
             } else if (connType == MultiTransportRemoteFacilityConnectionType::JsonREST) {
-                throw std::runtime_error("OneShotMultiTransportRemoteFacilityCall::callNoReply: Json REST client facility is currently unsupported");
+                if constexpr (std::is_convertible_v<Env *, json_rest::JsonRESTComponent *>) {
+                    if (hooks) {
+                        throw std::runtime_error("OneShotMultiTransportRemoteFacilityCall::callNoReply: connection type json rest does not support hooks");
+                    }
+                    if constexpr (
+                        basic::nlohmann_json_interop::JsonWrappable<A>::value
+                        &&
+                        basic::nlohmann_json_interop::JsonWrappable<B>::value
+                    ) {
+                        json_rest::JsonRESTClientFacilityFactory<infra::RealTimeApp<Env>>::template typedOneShotRemoteCall<A,B>(
+                            env, locator, std::move(request)
+                        );
+                    } else {
+                        throw std::runtime_error("OneShotMultiTransportRemoteFacilityCall::callNoReply: connection type json rest used on non-json-compatible types");
+                    }
+                } else {
+                    throw std::runtime_error("OneShotMultiTransportRemoteFacilityCall::callNoReply: connection type json rest not supported in environment");
+                }
             } else if (connType == MultiTransportRemoteFacilityConnectionType::WebSocket) {
                 if constexpr (std::is_convertible_v<Env *, web_socket::WebSocketComponent *>) {
                     web_socket::WebSocketOnOrderFacilityClient<Env>::template typedOneShotRemoteCallNoReply<A,B>(
@@ -1265,7 +1388,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                     throw std::runtime_error("OneShotMultiTransportRemoteFacilityCall::removeClient: connection type grpc interop not supported in environment");
                 }
             } else if (connType == MultiTransportRemoteFacilityConnectionType::JsonREST) {
-                throw std::runtime_error("OneShotMultiTransportRemoteFacilityCall::removeClient: Json REST client facility is currently unsupported");
+                //do nothing, json rest does not need to explicitly remove connection
             } else if (connType == MultiTransportRemoteFacilityConnectionType::WebSocket) {
                 if constexpr (std::is_convertible_v<Env *, web_socket::WebSocketComponent *>) {
                     env->websocket_removeRPCClient(locator, clientNumberIfNeeded);

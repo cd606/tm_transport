@@ -70,6 +70,9 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
         if constexpr (std::is_convertible_v<Env *, web_socket::WebSocketComponent *>) {
             retVal["websocket"] = env->websocket_threadHandles();
         }
+        if constexpr (std::is_convertible_v<Env *, json_rest::JsonRESTComponent *>) {
+            retVal["json_rest"] = env->json_rest_threadHandles();
+        }
         return retVal;
     }
 

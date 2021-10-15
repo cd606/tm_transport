@@ -40,6 +40,240 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         mutable std::mutex docRootMapMutex_;
         std::atomic<bool> started_;
 
+        class OneClient : public std::enable_shared_from_this<OneClient> {
+        private:
+            JsonRESTComponentImpl *parent_;
+            ConnectionLocator locator_;
+            std::string request_;
+            std::function<void(std::string &&)> callback_;
+
+            boost::asio::io_context *svc_;
+            std::optional<boost::asio::ssl::context> sslCtx_;
+            bool initializationFailure_;
+
+            boost::asio::ip::tcp::resolver resolver_;
+            std::variant<
+                std::monostate 
+                , boost::beast::tcp_stream
+                , boost::beast::ssl_stream<boost::beast::tcp_stream>
+            > stream_;
+            boost::beast::flat_buffer buffer_; 
+            boost::beast::http::request<boost::beast::http::string_body> req_;
+            boost::beast::http::response<boost::beast::http::string_body> res_;
+            std::atomic<bool> ready_;
+        public:
+            OneClient(
+                JsonRESTComponentImpl *parent
+                , ConnectionLocator const &locator
+                , std::string &&request
+                , std::function<void(std::string &&)> const &callback
+                , boost::asio::io_context *svc
+                , std::optional<TLSClientInfo> const &sslInfo
+            )
+                : parent_(parent)
+                , locator_(locator)
+                , request_(std::move(request))
+                , callback_(callback)
+                , svc_(svc)
+                , sslCtx_(
+                    sslInfo
+                    ? std::optional<boost::asio::ssl::context>(boost::asio::ssl::context {boost::asio::ssl::context::tlsv12_client})
+                    : std::nullopt
+                )
+                , initializationFailure_(false)
+                , resolver_(boost::asio::make_strand(*svc_))
+                , stream_()
+                , buffer_()
+                , req_()
+                , res_()
+                , ready_(false)
+            {
+                if (sslInfo) {
+                    std::string caCert;
+                    if (sslInfo->caCertificateFile != "") {
+                        std::ifstream ifs(sslInfo->caCertificateFile.c_str());
+                        caCert = std::string(
+                            std::istreambuf_iterator<char>{ifs}, {}
+                        );
+                        ifs.close();
+                    }
+                    boost::system::error_code ec;
+                    sslCtx_->add_certificate_authority(
+                        boost::asio::buffer(caCert.data(), caCert.length())
+                        , ec
+                    );
+                    if (ec) {
+                        initializationFailure_ = true;
+                        return;
+                    }
+                    stream_.emplace<2>(boost::asio::make_strand(*svc_), *sslCtx_);
+                } else {
+                    stream_.emplace<1>(boost::asio::make_strand(*svc_));
+                }
+            }
+            ~OneClient() {
+            }
+            void run() {
+                req_.method(boost::beast::http::verb::post);
+                std::string target = locator_.identifier();
+                if (!boost::starts_with(target, "/")) {
+                    target = "/"+target;
+                }
+                req_.target(target);
+                req_.set(boost::beast::http::field::host, locator_.host());
+                req_.set(boost::beast::http::field::user_agent, BOOST_BEAST_VERSION_STRING);
+                if (locator_.userName() != "") {
+                    std::string authStringOrig = locator_.userName()+":"+locator_.password();
+                    std::string authString;
+                    authString.resize(boost::beast::detail::base64::encoded_size(authStringOrig.length()));
+                    authString.resize(boost::beast::detail::base64::encode(authString.data(), reinterpret_cast<uint8_t const *>(authStringOrig.data()), authStringOrig.length()));
+
+                    req_.set(boost::beast::http::field::authorization, "Basic "+authString);
+                }
+                req_.set(boost::beast::http::field::content_type, "application/json");
+                req_.body() = std::move(request_);
+                req_.prepare_payload();
+
+                resolver_.async_resolve(
+                    locator_.host()
+                    , std::to_string(locator_.port())
+                    , boost::beast::bind_front_handler(
+                        &OneClient::onResolve
+                        , shared_from_this()
+                    )
+                );
+            }
+            void onResolve(boost::beast::error_code ec, boost::asio::ip::tcp::resolver::results_type results) {
+                if (ec) {
+                    parent_->removeJsonRESTClient(shared_from_this());
+                    return;
+                }
+                if (stream_.index() == 1) {
+                    std::get<1>(stream_).expires_after(std::chrono::seconds(30));
+                    std::get<1>(stream_).async_connect(
+                        results 
+                        , boost::beast::bind_front_handler(
+                            &OneClient::onConnect 
+                            , shared_from_this()
+                        )
+                    );
+                } else {
+                    boost::beast::get_lowest_layer(std::get<2>(stream_)).expires_after(std::chrono::seconds(30));
+                    boost::beast::get_lowest_layer(std::get<2>(stream_)).async_connect(
+                        results
+                        , boost::beast::bind_front_handler(
+                            &OneClient::onConnect
+                            , shared_from_this()
+                        )
+                    );
+                }
+            }
+            void onConnect(boost::beast::error_code ec, boost::asio::ip::tcp::resolver::results_type::endpoint_type) {
+                if (ec) {
+                    parent_->removeJsonRESTClient(shared_from_this());
+                    return;
+                }
+                if (stream_.index() == 1) {
+                    std::get<1>(stream_).expires_after(std::chrono::seconds(30));
+                    boost::beast::http::async_write(
+                        std::get<1>(stream_)
+                        , req_
+                        , boost::beast::bind_front_handler(
+                            &OneClient::onWrite 
+                            , shared_from_this()
+                        )
+                    );
+                } else {
+                    std::get<2>(stream_).async_handshake(
+                        boost::asio::ssl::stream_base::client
+                        , boost::beast::bind_front_handler(
+                            &OneClient::onSSLHandshake
+                            , shared_from_this()
+                        )
+                    );
+                }
+            }
+            void onSSLHandshake(boost::beast::error_code ec) {
+                if (ec) {
+                    parent_->removeJsonRESTClient(shared_from_this());
+                    return;
+                }
+                boost::beast::get_lowest_layer(std::get<2>(stream_)).expires_after(std::chrono::seconds(30));
+                boost::beast::http::async_write(
+                    std::get<2>(stream_)
+                    , req_
+                    , boost::beast::bind_front_handler(
+                        &OneClient::onWrite 
+                        , shared_from_this()
+                    )
+                );
+            }
+            void onWrite(boost::beast::error_code ec, std::size_t bytes_transferred) {
+                boost::ignore_unused(bytes_transferred);
+                if (ec) {
+                    parent_->removeJsonRESTClient(shared_from_this());
+                    return;
+                }
+                if (stream_.index() == 1) {
+                    boost::beast::http::async_read(
+                        std::get<1>(stream_)
+                        , buffer_
+                        , res_
+                        , boost::beast::bind_front_handler(
+                            &OneClient::onRead
+                            , shared_from_this()
+                        )
+                    );
+                } else {
+                    boost::beast::http::async_read(
+                        std::get<2>(stream_)
+                        , buffer_
+                        , res_
+                        , boost::beast::bind_front_handler(
+                            &OneClient::onRead
+                            , shared_from_this()
+                        )
+                    );
+                }
+            }
+            void onRead(boost::beast::error_code ec, std::size_t bytes_transferred) {
+                boost::ignore_unused(bytes_transferred);
+                if (ec) {
+                    parent_->removeJsonRESTClient(shared_from_this());
+                    return;
+                }
+                callback_(std::move(res_.body()));
+                if (stream_.index() == 1) {
+                    try {
+                        std::get<1>(stream_).socket().shutdown(
+                            boost::asio::ip::tcp::socket::shutdown_both
+                            , ec
+                        );
+                    } catch (...) {
+                    }
+                    parent_->removeJsonRESTClient(shared_from_this());
+                } else {
+                    boost::beast::get_lowest_layer(std::get<2>(stream_)).expires_after(std::chrono::seconds(30));
+                    std::get<2>(stream_).async_shutdown(
+                        boost::beast::bind_front_handler(
+                            &OneClient::onShutdown 
+                            , shared_from_this()
+                        )
+                    );
+                }
+            }
+            void onShutdown(boost::beast::error_code ec) {
+                parent_->removeJsonRESTClient(shared_from_this());
+            }
+            bool initializationFailure() const {
+                return initializationFailure_;
+            }
+        };
+        std::unordered_set<std::shared_ptr<OneClient>> clientSet_;
+        std::mutex clientSetMutex_;
+        boost::asio::io_context clientSvc_;
+        std::thread clientThread_;
+
         class Acceptor : public std::enable_shared_from_this<Acceptor> {
         private:
             JsonRESTComponentImpl *parent_;
@@ -433,8 +667,10 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             }
             ~Acceptor() {
                 running_ = false;
-                svc_.stop();
-                th_.join();
+                try {
+                    svc_.stop();
+                    th_.join();
+                } catch (...) {}
             }
             void run() {
                 acceptor_.async_accept(
@@ -471,6 +707,9 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             std::string const &realm() const {
                 return realm_;
             }
+            std::thread::native_handle_type getThreadHandle() {
+                return th_.native_handle();
+            }
         };
 
         std::unordered_map<int, std::shared_ptr<Acceptor>> acceptorMap_;
@@ -493,9 +732,44 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             iter->second->run();
         }
     public:
-        JsonRESTComponentImpl() : handlerMap_(), handlerMapMutex_(), docRootMap_(), docRootMapMutex_(), started_(false), acceptorMap_(), acceptorMapMutex_(), allPasswords_(), allPasswordsMutex_() {
+        JsonRESTComponentImpl() : handlerMap_(), handlerMapMutex_(), docRootMap_(), docRootMapMutex_(), started_(false), clientSet_(), clientSetMutex_(), clientSvc_(), clientThread_(), acceptorMap_(), acceptorMapMutex_(), allPasswords_(), allPasswordsMutex_() {
+            clientThread_ = std::thread([this]() {
+                boost::asio::io_context::work work(clientSvc_);
+                clientSvc_.run();
+            });
+            clientThread_.detach();
         }
         ~JsonRESTComponentImpl() {
+            try {
+                clientSvc_.stop();
+                clientThread_.join();
+            } catch (...) {}
+        }
+        void addJsonRESTClient(ConnectionLocator const &locator, std::string &&request, std::function<
+            void(std::string &&)
+        > const &clientCallback
+        , TLSClientConfigurationComponent const *config) {
+            auto client = std::make_shared<OneClient>(
+                this
+                , locator
+                , std::move(request)
+                , clientCallback 
+                , &clientSvc_
+                , (config?config->getConfigurationItem(
+                    TLSClientInfoKey {locator.host(), locator.port()}
+                ):std::nullopt)
+            );
+            if (!client->initializationFailure()) {
+                {
+                    std::lock_guard<std::mutex> _(clientSetMutex_);
+                    clientSet_.insert(client);
+                }
+                client->run();
+            }
+        }
+        void removeJsonRESTClient(std::shared_ptr<OneClient> const &p) {
+            std::lock_guard<std::mutex> _(clientSetMutex_);
+            clientSet_.erase(p);
         }
         void registerHandler(ConnectionLocator const &locator, HandlerFunc const &handler, TLSServerConfigurationComponent const *tlsConfig) {
             if (locator.userName() != "") {
@@ -569,6 +843,18 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 }
             }
             started_ = true;
+        }
+        std::unordered_map<ConnectionLocator, std::thread::native_handle_type> json_rest_threadHandles() {
+            std::unordered_map<ConnectionLocator, std::thread::native_handle_type> retVal;
+            retVal[ConnectionLocator()] = clientThread_.native_handle();
+            {
+                std::lock_guard<std::mutex> _(acceptorMapMutex_);
+                for (auto &item : acceptorMap_) {
+                    ConnectionLocator l {"", item.first, "", ""};
+                    retVal[l] = item.second->getThreadHandle();
+                }
+            }
+            return retVal;
         }
         void removeAcceptor(int port) {
             std::lock_guard<std::mutex> _(acceptorMapMutex_);
@@ -668,6 +954,11 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
     JsonRESTComponent::JsonRESTComponent(JsonRESTComponent &&) = default;
     JsonRESTComponent &JsonRESTComponent::operator=(JsonRESTComponent &&) = default;
     JsonRESTComponent::~JsonRESTComponent() = default;
+    void JsonRESTComponent::addJsonRESTClient(ConnectionLocator const &locator, std::string &&request, std::function<
+        void(std::string &&)
+    > const &clientCallback) {
+        impl_->addJsonRESTClient(locator, std::move(request), clientCallback, dynamic_cast<TLSClientConfigurationComponent const *>(this));
+    }
     void JsonRESTComponent::registerHandler(ConnectionLocator const &locator, std::function<
         bool(std::string const &, std::string const &, std::function<void(std::string const &)> const &)
     > const &handler) {
@@ -684,6 +975,9 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
     }
     void JsonRESTComponent::finalizeEnvironment() {
         impl_->finalizeEnvironment(dynamic_cast<TLSServerConfigurationComponent const *>(this));
+    }
+    std::unordered_map<ConnectionLocator, std::thread::native_handle_type> JsonRESTComponent::json_rest_threadHandles() {
+        return impl_->json_rest_threadHandles();
     }
 
 } } } } }
