@@ -605,7 +605,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                                 auto req = [this,env,locator](std::string const &id, A &&data) {
                                     nlohmann::json sendData;
                                     basic::nlohmann_json_interop::JsonEncoder<A>::write(sendData, "request", data);
-                                    env->JsonRESTComponent::addJsonRESTClient(
+                                    env->json_rest::JsonRESTComponent::addJsonRESTClient(
                                         locator
                                         , sendData.dump()
                                         , [this,env,id](std::string &&response) mutable {
