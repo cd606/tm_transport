@@ -13,6 +13,7 @@
 
 #include <tm_kit/basic/CommonFlowUtils.hpp>
 #include <tm_kit/basic/AppRunnerUtils.hpp>
+#include <tm_kit/basic/WrapFacilitioidConnectorForSerialization.hpp>
 
 namespace dev { namespace cd606 { namespace tm { namespace transport {
 
@@ -332,6 +333,47 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
             }
             return std::move(*ret);
         }
+        template <template<class...> class ProtocolWrapper, class InputType>
+        static auto oneBroadcastListenerWithProtocol(
+            R &r
+            , std::string const &namePrefix
+            , std::string const &channelSpec
+            , std::optional<std::string> const &topicDescription = std::nullopt
+            , std::optional<WireToUserHook> hook = std::nullopt
+        ) -> typename R::template Source<InputType> {
+            if constexpr (std::is_same_v<basic::WrapFacilitioidConnectorForSerializationHelpers::WrappedType<
+                ProtocolWrapper, InputType
+            >, InputType>) {
+                return oneBroadcastListener<InputType>(
+                    r 
+                    , namePrefix 
+                    , channelSpec 
+                    , topicDescription
+                    , hook
+                );
+            } else {
+                auto s = oneBroadcastListener<
+                    basic::WrapFacilitioidConnectorForSerializationHelpers::WrappedType<
+                        ProtocolWrapper, InputType
+                    >
+                >(
+                    r 
+                    , namePrefix 
+                    , channelSpec 
+                    , topicDescription
+                    , hook
+                );
+                auto converter = M::template liftPure<
+                    basic::WrapFacilitioidConnectorForSerializationHelpers::WrappedType<
+                        ProtocolWrapper, InputType
+                    >
+                >(
+                    &(basic::WrapFacilitioidConnectorForSerializationHelpers::WrapperUtils<ProtocolWrapper>::template extract<InputType>)
+                );
+                r.registerAction(namePrefix+"/protocolConverter", converter);
+                return r.execute(converter, std::move(s));
+            }
+        }
         template <class InputType>
         static auto oneBroadcastListenerWithTopic(
             R &r
@@ -359,6 +401,57 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                 throw std::runtime_error("[MultiTransportBroadcastListenerManagingUtils::oneBroadcastListenerWithTopic] Cannot setup listener for channel spec '"+channelSpec+"'");
             }
             return std::move(*ret);
+        }
+        template <template<class...> class ProtocolWrapper, class InputType>
+        static auto oneBroadcastListenerWithTopicWithProtocol(
+            R &r
+            , std::string const &namePrefix
+            , std::string const &channelSpec
+            , std::optional<std::string> const &topicDescription = std::nullopt
+            , std::optional<WireToUserHook> hook = std::nullopt
+        ) -> typename R::template Source<basic::TypedDataWithTopic<InputType>>
+        {
+            if constexpr (std::is_same_v<basic::WrapFacilitioidConnectorForSerializationHelpers::WrappedType<
+                ProtocolWrapper, InputType
+            >, InputType>) {
+                return oneBroadcastListenerWithTopic<InputType>(
+                    r 
+                    , namePrefix 
+                    , channelSpec 
+                    , topicDescription
+                    , hook
+                );
+            } else {
+                auto s = oneBroadcastListenerWithTopic<
+                    basic::WrapFacilitioidConnectorForSerializationHelpers::WrappedType<
+                        ProtocolWrapper, InputType
+                    >
+                >(
+                    r 
+                    , namePrefix 
+                    , channelSpec 
+                    , topicDescription
+                    , hook
+                );
+                auto converter = M::template liftPure<
+                    basic::TypedDataWithTopic<basic::WrapFacilitioidConnectorForSerializationHelpers::WrappedType<
+                        ProtocolWrapper, InputType
+                    >>
+                >(
+                    [](basic::TypedDataWithTopic<basic::WrapFacilitioidConnectorForSerializationHelpers::WrappedType<
+                        ProtocolWrapper, InputType
+                    >> &&x) -> basic::TypedDataWithTopic<InputType> {
+                        return {
+                            std::move(x.topic)
+                            , basic::WrapFacilitioidConnectorForSerializationHelpers::WrapperUtils<ProtocolWrapper>::template extract<InputType>(
+                                std::move(x.content)
+                            )
+                        };
+                    }
+                );
+                r.registerAction(namePrefix+"/protocolConverter", converter);
+                return r.execute(converter, std::move(s));
+            }
         }
 
         static auto oneByteDataBroadcastListener(
