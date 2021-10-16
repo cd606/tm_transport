@@ -371,6 +371,25 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 wrapFacilitioidConnector_internal<Req,Resp>(
                     r, registeredNameForFacility, toBeWrapped, locator, wrapperItemsNamePrefix
                 );
+            } else if constexpr (
+                basic::proto_interop::ProtoWrappable<Req>::value
+                &&
+                basic::proto_interop::ProtoWrappable<Resp>::value
+            ) {
+                wrapFacilitioidConnector_internal<
+                    basic::proto_interop::Proto<Req> 
+                    , basic::proto_interop::Proto<Resp>
+                >(
+                    r
+                    , registeredNameForFacility
+                    , basic::WrapFacilitioidConnectorForSerialization<R>
+                        ::template wrapServerSideWithProtocol<
+                            basic::proto_interop::Proto, Req, Resp
+                        >
+                    (toBeWrapped, wrapperItemsNamePrefix+"/protocol")
+                    , locator
+                    , wrapperItemsNamePrefix
+                );
             } else {
                 throw GrpcInteropComponentException("grpc server facility wrapper only works when the data types are protobuf-encodable");
             }
@@ -451,6 +470,25 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             ) {
                 wrapFacilitioidConnectorWithStringIdentity_internal<Req,Resp>(
                     r, registeredNameForFacility, toBeWrapped, locator, wrapperItemsNamePrefix
+                );
+            } else if constexpr (
+                basic::proto_interop::ProtoWrappable<Req>::value
+                &&
+                basic::proto_interop::ProtoWrappable<Resp>::value
+            ) {
+                wrapFacilitioidConnectorWithStringIdentity_internal<
+                    basic::proto_interop::Proto<Req> 
+                    , basic::proto_interop::Proto<Resp>
+                >(
+                    r
+                    , registeredNameForFacility
+                    , basic::WrapFacilitioidConnectorForSerialization<R>
+                        ::template wrapServerSideWithProtocol<
+                            basic::proto_interop::Proto, std::string, Req, Resp
+                        >
+                    (toBeWrapped, wrapperItemsNamePrefix+"/protocol")
+                    , locator
+                    , wrapperItemsNamePrefix
                 );
             } else {
                 throw GrpcInteropComponentException("grpc server facility wrapper only works when the data types are protobuf-encodable");
