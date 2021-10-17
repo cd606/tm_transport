@@ -22,14 +22,14 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
         using R = infra::SynchronousRunner<M>;
         using Env = typename M::EnvironmentType;
         
-        template <class InputType>
+        template <class InputType, bool DontWrap = false>
         static auto oneBroadcastListenerWithTopic(
             infra::SynchronousRunner<M> &r
             , MultiTransportBroadcastListenerSpec<InputType> const &spec
             , std::function<std::optional<WireToUserHook>(std::string const &)> const &hookFactory
         ) -> typename R::template ImporterPtr<basic::TypedDataWithTopic<
                 std::conditional_t<
-                    basic::bytedata_utils::DirectlySerializableChecker<InputType>::IsDirectlySerializable()
+                    (DontWrap || basic::bytedata_utils::DirectlySerializableChecker<InputType>::IsDirectlySerializable())
                     , InputType
                     , basic::CBOR<InputType>
                 >
@@ -138,7 +138,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
         //with quasi-constant channel specification string (i.e. one that does
         //not come from network), it is preferable to have them throw when the
         //specification is unsupported
-        template <class InputType>
+        template <class InputType, bool DontWrap = false>
         static auto oneBroadcastListenerWithTopic(
             infra::SynchronousRunner<M> &r
             , std::string const &channelSpec
@@ -146,13 +146,13 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
             , std::optional<WireToUserHook> hook = std::nullopt
         ) -> typename R::template ImporterPtr<basic::TypedDataWithTopic<
                 std::conditional_t<
-                    basic::bytedata_utils::DirectlySerializableChecker<InputType>::IsDirectlySerializable()
+                    (DontWrap || basic::bytedata_utils::DirectlySerializableChecker<InputType>::IsDirectlySerializable())
                     , InputType
                     , basic::CBOR<InputType>
                 >
             >>
         {
-            return oneBroadcastListenerWithTopic<InputType>(
+            return oneBroadcastListenerWithTopic<InputType, DontWrap>(
                 r 
                 , { MultiTransportBroadcastListenerSpec<InputType> {
                     "", channelSpec, topicDescription
@@ -161,6 +161,62 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                     return hook;
                 }
             );
+        }
+
+        template <template<class...> class ProtocolWrapper, class InputType>
+        static auto oneBroadcastListenerWithTopicWithProtocol(
+            infra::SynchronousRunner<M> &r
+            , std::string const &channelSpec
+            , std::optional<std::string> const &topicDescription = std::nullopt
+            , std::optional<WireToUserHook> hook = std::nullopt
+        ) -> typename R::template ImporterPtr<basic::TypedDataWithTopic<InputType>>
+        {
+            if constexpr (std::is_same_v<basic::WrapFacilitioidConnectorForSerializationHelpers::WrappedType<
+                ProtocolWrapper, InputType
+            >, InputType>) {
+                return oneBroadcastListenerWithTopic<InputType, true>(
+                    r 
+                    , channelSpec 
+                    , topicDescription
+                    , hook
+                );
+            } else {
+                auto baseImporter = oneBroadcastListenerWithTopic<
+                    basic::WrapFacilitioidConnectorForSerializationHelpers::WrappedType<
+                        ProtocolWrapper, InputType
+                    >, true
+                >(
+                    r 
+                    , channelSpec 
+                    , topicDescription
+                    , hook
+                );
+                auto converter = M::template liftPure<
+                    basic::TypedDataWithTopic<basic::WrapFacilitioidConnectorForSerializationHelpers::WrappedType<
+                        ProtocolWrapper, InputType
+                    >>
+                >(
+                    [](basic::TypedDataWithTopic<basic::WrapFacilitioidConnectorForSerializationHelpers::WrappedType<
+                        ProtocolWrapper, InputType
+                    >> &&x) -> basic::TypedDataWithTopic<InputType> {
+                        return {
+                            std::move(x.topic)
+                            , basic::WrapFacilitioidConnectorForSerializationHelpers::WrapperUtils<ProtocolWrapper>::template extract<InputType>(
+                                std::move(x.content)
+                            )
+                        };
+                    }
+                );
+                return M::template composeImporter<
+                    basic::TypedDataWithTopic<basic::WrapFacilitioidConnectorForSerializationHelpers::WrappedType<
+                        ProtocolWrapper, InputType
+                    >>
+                    , basic::TypedDataWithTopic<InputType>
+                >(
+                    std::move(*baseImporter)
+                    , std::move(*converter)
+                );
+            }
         }
         
         static auto oneByteDataBroadcastListener(
