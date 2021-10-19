@@ -2,6 +2,8 @@
 #include <tm_kit/transport/TLSConfigurationComponent.hpp>
 #include <tm_kit/transport/HostNameUtil.hpp>
 
+#include <tm_kit/basic/LoggingComponentBase.hpp>
+
 #include <boost/beast/core.hpp>
 #include <boost/beast/http.hpp>
 #include <boost/beast/ssl.hpp>
@@ -49,6 +51,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
 
             boost::asio::io_context *svc_;
             std::optional<boost::asio::ssl::context> sslCtx_;
+            basic::LoggingComponentBase *logger_;
             bool initializationFailure_;
 
             boost::asio::ip::tcp::resolver resolver_;
@@ -69,6 +72,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 , std::function<void(std::string &&)> const &callback
                 , boost::asio::io_context *svc
                 , std::optional<TLSClientInfo> const &sslInfo
+                , basic::LoggingComponentBase *logger
             )
                 : parent_(parent)
                 , locator_(locator)
@@ -80,6 +84,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                     ? std::optional<boost::asio::ssl::context>(boost::asio::ssl::context {boost::asio::ssl::context::tlsv12_client})
                     : std::nullopt
                 )
+                , logger_(logger)
                 , initializationFailure_(false)
                 , resolver_(boost::asio::make_strand(*svc_))
                 , stream_()
@@ -103,6 +108,12 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                         , ec
                     );
                     if (ec) {
+                        if (logger_) {
+                            logger_->logThroughLoggingComponentBase(
+                                infra::LogLevel::Error
+                                , "[JsonRESTComponent::OneClient::(constructor)] ASIO error '"+ec.message()+"' for locator '"+locator_.toSerializationFormat()+"'"
+                            );
+                        }
                         initializationFailure_ = true;
                         return;
                     }
@@ -145,6 +156,12 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             }
             void onResolve(boost::beast::error_code ec, boost::asio::ip::tcp::resolver::results_type results) {
                 if (ec) {
+                    if (logger_) {
+                        logger_->logThroughLoggingComponentBase(
+                            infra::LogLevel::Error
+                            , "[JsonRESTComponent::OneClient::onResolve] ASIO error '"+ec.message()+"' for locator '"+locator_.toSerializationFormat()+"'"
+                        );
+                    }
                     parent_->removeJsonRESTClient(shared_from_this());
                     return;
                 }
@@ -170,6 +187,12 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             }
             void onConnect(boost::beast::error_code ec, boost::asio::ip::tcp::resolver::results_type::endpoint_type) {
                 if (ec) {
+                    if (logger_) {
+                        logger_->logThroughLoggingComponentBase(
+                            infra::LogLevel::Error
+                            , "[JsonRESTComponent::OneClient::onConnect] ASIO error '"+ec.message()+"' for locator '"+locator_.toSerializationFormat()+"'"
+                        );
+                    }
                     parent_->removeJsonRESTClient(shared_from_this());
                     return;
                 }
@@ -195,6 +218,12 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             }
             void onSSLHandshake(boost::beast::error_code ec) {
                 if (ec) {
+                    if (logger_) {
+                        logger_->logThroughLoggingComponentBase(
+                            infra::LogLevel::Error
+                            , "[JsonRESTComponent::OneClient::onSSLHandshake] ASIO error '"+ec.message()+"' for locator '"+locator_.toSerializationFormat()+"'"
+                        );
+                    }
                     parent_->removeJsonRESTClient(shared_from_this());
                     return;
                 }
@@ -211,6 +240,12 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             void onWrite(boost::beast::error_code ec, std::size_t bytes_transferred) {
                 boost::ignore_unused(bytes_transferred);
                 if (ec) {
+                    if (logger_) {
+                        logger_->logThroughLoggingComponentBase(
+                            infra::LogLevel::Error
+                            , "[JsonRESTComponent::OneClient::onWrite] ASIO error '"+ec.message()+"' for locator '"+locator_.toSerializationFormat()+"'"
+                        );
+                    }
                     parent_->removeJsonRESTClient(shared_from_this());
                     return;
                 }
@@ -239,6 +274,12 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             void onRead(boost::beast::error_code ec, std::size_t bytes_transferred) {
                 boost::ignore_unused(bytes_transferred);
                 if (ec) {
+                    if (logger_) {
+                        logger_->logThroughLoggingComponentBase(
+                            infra::LogLevel::Error
+                            , "[JsonRESTComponent::OneClient::onRead] ASIO error '"+ec.message()+"' for locator '"+locator_.toSerializationFormat()+"'"
+                        );
+                    }
                     parent_->removeJsonRESTClient(shared_from_this());
                     return;
                 }
@@ -279,6 +320,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             JsonRESTComponentImpl *parent_;
             boost::asio::io_context svc_;
             std::optional<boost::asio::ssl::context> sslCtx_;
+            basic::LoggingComponentBase *logger_;
             int port_;
             std::thread th_;
             std::atomic<bool> running_;
@@ -364,6 +406,10 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 }
                 void onRead(boost::beast::error_code ec, std::size_t bytes_transferred) {
                     if (ec) {
+                        parent_->log(
+                            infra::LogLevel::Error
+                            , "[JsonRESTComponent::Acceptor::OneHandler::onRead] ASIO error '"+ec.message()+"' for port "+std::to_string(parent_->port())
+                        );
                         doClose(ec);
                         return;
                     }
@@ -620,6 +666,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 JsonRESTComponentImpl *parent
                 , int port
                 , std::optional<TLSServerInfo> const &sslInfo
+                , basic::LoggingComponentBase *logger
             )
                 : parent_(parent)
                 , svc_()
@@ -628,6 +675,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                     ? std::optional<boost::asio::ssl::context>(boost::asio::ssl::context {boost::asio::ssl::context::tlsv12})
                     : std::nullopt
                 )
+                , logger_(logger)
                 , port_(port)
                 , th_()
                 , running_(true)
@@ -695,6 +743,10 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                         )
                     );
                 } else {
+                    log(
+                        infra::LogLevel::Error
+                        , "[JsonRESTComponent::Acceptor::onAccept] ASIO error '"+ec.message()+"' for port "+std::to_string(port_)
+                    );
                     parent_->removeAcceptor(port_);
                 }
             }
@@ -710,6 +762,11 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             std::thread::native_handle_type getThreadHandle() {
                 return th_.native_handle();
             }
+            void log(infra::LogLevel l, std::string const &s) {
+                if (logger_) {
+                    logger_->logThroughLoggingComponentBase(l, s);
+                }
+            }
         };
 
         std::unordered_map<int, std::shared_ptr<Acceptor>> acceptorMap_;
@@ -719,7 +776,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         std::unordered_map<int, PasswordMap> allPasswords_;
         mutable std::mutex allPasswordsMutex_;
 
-        void startAcceptor(int port, TLSServerConfigurationComponent const *tlsConfig) {
+        void startAcceptor(int port, TLSServerConfigurationComponent const *tlsConfig, basic::LoggingComponentBase *logger) {
             auto sslInfo = (tlsConfig?(tlsConfig->getConfigurationItem(
                 TLSServerInfoKey {port}
             )):std::nullopt);
@@ -728,6 +785,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 this
                 , port
                 , sslInfo
+                , logger
             )}).first;
             iter->second->run();
         }
@@ -748,7 +806,8 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         void addJsonRESTClient(ConnectionLocator const &locator, std::string &&request, std::function<
             void(std::string &&)
         > const &clientCallback
-        , TLSClientConfigurationComponent const *config) {
+        , TLSClientConfigurationComponent const *config
+        , basic::LoggingComponentBase *logger) {
             auto client = std::make_shared<OneClient>(
                 this
                 , locator
@@ -758,6 +817,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 , (config?config->getConfigurationItem(
                     TLSClientInfoKey {locator.host(), locator.port()}
                 ):std::nullopt)
+                , logger
             );
             if (!client->initializationFailure()) {
                 {
@@ -771,7 +831,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             std::lock_guard<std::mutex> _(clientSetMutex_);
             clientSet_.erase(p);
         }
-        void registerHandler(ConnectionLocator const &locator, HandlerFunc const &handler, TLSServerConfigurationComponent const *tlsConfig) {
+        void registerHandler(ConnectionLocator const &locator, HandlerFunc const &handler, TLSServerConfigurationComponent const *tlsConfig, basic::LoggingComponentBase *logger) {
             if (locator.userName() != "") {
                 if (locator.password() == "") {
                     addBasicAuthentication(locator.port(), locator.userName(), std::nullopt);
@@ -795,7 +855,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 iter->second.insert({path, handler});
             }
             if (newPort && started_) {
-                startAcceptor(iter->first, tlsConfig);
+                startAcceptor(iter->first, tlsConfig, logger);
             }
         }
         void addBasicAuthentication(int port, std::string const &login, std::optional<std::string> const &password) {
@@ -831,15 +891,15 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             docRootMap_[port] = docRoot;
         }
 
-        void finalizeEnvironment(TLSServerConfigurationComponent const *tlsConfig) {
+        void finalizeEnvironment(TLSServerConfigurationComponent const *tlsConfig, basic::LoggingComponentBase *logger) {
             std::lock_guard<std::mutex> _(handlerMapMutex_);
             for (auto const &item : handlerMap_) {
-                startAcceptor(item.first, tlsConfig);
+                startAcceptor(item.first, tlsConfig, logger);
             }
             std::lock_guard<std::mutex> _m2(docRootMapMutex_);
             for (auto const &item : docRootMap_) {
                 if (handlerMap_.find(item.first) == handlerMap_.end()) {
-                    startAcceptor(item.first, tlsConfig);
+                    startAcceptor(item.first, tlsConfig, logger);
                 }
             }
             started_ = true;
@@ -957,12 +1017,12 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
     void JsonRESTComponent::addJsonRESTClient(ConnectionLocator const &locator, std::string &&request, std::function<
         void(std::string &&)
     > const &clientCallback) {
-        impl_->addJsonRESTClient(locator, std::move(request), clientCallback, dynamic_cast<TLSClientConfigurationComponent const *>(this));
+        impl_->addJsonRESTClient(locator, std::move(request), clientCallback, dynamic_cast<TLSClientConfigurationComponent const *>(this), dynamic_cast<basic::LoggingComponentBase *>(this));
     }
     void JsonRESTComponent::registerHandler(ConnectionLocator const &locator, std::function<
         bool(std::string const &, std::string const &, std::function<void(std::string const &)> const &)
     > const &handler) {
-        impl_->registerHandler(locator, handler, dynamic_cast<TLSServerConfigurationComponent const *>(this));
+        impl_->registerHandler(locator, handler, dynamic_cast<TLSServerConfigurationComponent const *>(this), dynamic_cast<basic::LoggingComponentBase *>(this));
     }
     void JsonRESTComponent::addBasicAuthentication(int port, std::string const &login, std::optional<std::string> const &password) {
         impl_->addBasicAuthentication(port, login, password);
@@ -974,7 +1034,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         impl_->setDocRoot(port, docRoot);
     }
     void JsonRESTComponent::finalizeEnvironment() {
-        impl_->finalizeEnvironment(dynamic_cast<TLSServerConfigurationComponent const *>(this));
+        impl_->finalizeEnvironment(dynamic_cast<TLSServerConfigurationComponent const *>(this), dynamic_cast<basic::LoggingComponentBase *>(this));
     }
     std::unordered_map<ConnectionLocator, std::thread::native_handle_type> JsonRESTComponent::json_rest_threadHandles() {
         return impl_->json_rest_threadHandles();
