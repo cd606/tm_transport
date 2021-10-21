@@ -63,6 +63,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                         >()
                         , locator_(locator)
                     {
+                        this->startThread();
                     }
                     virtual void start(Env *env) override final {
                     }

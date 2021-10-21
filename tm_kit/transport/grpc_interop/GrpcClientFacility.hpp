@@ -125,16 +125,22 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                         , serviceInfoStr_()
                         , locator_(locator)
                         , channel_()
+                        , startMutex_()
+                        , startCond_()
                         , reactorMap_()
                         , reactorMapMutex_()
                     {
                         auto serviceInfo = connection_locator_utils::parseServiceInfo(locator);
                         serviceInfoStr_ = grpcServiceInfoAsEndPointString(serviceInfo);
                         isSingleCallback_ = serviceInfo.isSingleRpcCall;
+                        this->startThread();
                     }
+                    virtual ~LocalF() {}
                     virtual void start(Env *env) override final {
-                        std::lock_guard<std::mutex> _(startMutex_);
-                        channel_ = static_cast<GrpcInteropComponent *>(env)->grpc_interop_getChannel(locator_);
+                        {
+                            std::lock_guard<std::mutex> _(startMutex_);
+                            channel_ = static_cast<GrpcInteropComponent *>(env)->grpc_interop_getChannel(locator_);
+                        }
                         startCond_.notify_one();
                     }
                     void actuallyHandle(typename M::template InnerData<typename M::template Key<Req>> &&req) {
