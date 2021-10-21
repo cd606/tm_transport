@@ -406,10 +406,12 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 }
                 void onRead(boost::beast::error_code ec, std::size_t bytes_transferred) {
                     if (ec) {
-                        parent_->log(
-                            infra::LogLevel::Error
-                            , "[JsonRESTComponent::Acceptor::OneHandler::onRead] ASIO error '"+ec.message()+"' for port "+std::to_string(parent_->port())
-                        );
+                        if (ec != boost::beast::http::make_error_code(boost::beast::http::error::end_of_stream)) {
+                            parent_->log(
+                                infra::LogLevel::Error
+                                , "[JsonRESTComponent::Acceptor::OneHandler::onRead] ASIO error '"+ec.message()+"' for port "+std::to_string(parent_->port())
+                            );
+                        }
                         doClose(ec);
                         return;
                     }
