@@ -14,7 +14,10 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
     public:
         template <class R>
         static auto addExitDataSource(R &r, std::string const &sourceName, boost::asio::io_service *svcPtr = nullptr)
-        -> typename R::template Source<basic::VoidStruct>
+        -> std::tuple<
+            typename R::template Source<basic::VoidStruct>
+            , std::function<void()>
+        >
         {
             using M = typename R::AppType;
             auto importerPair = M::template constTriggerImporter<basic::VoidStruct>();
@@ -39,7 +42,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
             signals->async_wait([triggerF](const boost::system::error_code &error_code, int signal_number) {
                 triggerF();
             });
-            return r.importItem(std::get<0>(importerPair));
+            return {r.importItem(std::get<0>(importerPair)), triggerF};
         }
     };
     
