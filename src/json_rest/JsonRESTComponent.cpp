@@ -3,6 +3,7 @@
 #include <tm_kit/transport/HostNameUtil.hpp>
 
 #include <tm_kit/basic/LoggingComponentBase.hpp>
+#include <nlohmann/json.hpp>
 
 #include <boost/beast/core.hpp>
 #include <boost/beast/http.hpp>
@@ -34,7 +35,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
     class JsonRESTComponentImpl {
     private:
         using HandlerFunc = std::function<
-            bool(std::string const &, std::string const &, std::function<void(std::string const &)> const &)
+            bool(std::string const &, std::string const &, std::unordered_map<std::string, std::vector<std::string>> const &, std::function<void(std::string const &)> const &)
         >;
         std::unordered_map<int, std::unordered_map<std::string, HandlerFunc>> handlerMap_;
         mutable std::mutex handlerMapMutex_;
@@ -404,6 +405,45 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                         );
                     }
                 }
+                std::string unescape(std::string const &s) {
+                    std::ostringstream oss;
+                    for (std::size_t ii=0; ii<s.length(); ++ii) {
+                        if (s[ii] == '+') {
+                            oss << ' ';
+                        } else if (s[ii] == '%') {
+                            if (ii+2 >= s.length()) {
+                                break;
+                            }
+                            int x = 0;
+                            char c = s[ii+1];
+                            if (c >= 'a' && c <= 'f') {
+                                x += (c-'a'+10);
+                            } else if (c >= 'A' && c <= 'F') {
+                                x += (c-'A'+10);
+                            } else if (c >= '0' && c <= '9') {
+                                x += (c-'0');
+                            } else {
+                                break;
+                            }
+                            x *= 16;
+                            c = s[ii+2];
+                            if (c >= 'a' && c <= 'f') {
+                                x += (c-'a'+10);
+                            } else if (c >= 'A' && c <= 'F') {
+                                x += (c-'A'+10);
+                            } else if (c >= '0' && c <= '9') {
+                                x += (c-'0');
+                            } else {
+                                break;
+                            }
+                            ii += 2;
+                            oss << (char) x;
+                        } else {
+                            oss << s[ii];
+                        }
+                    }
+                    return oss.str();
+                }
                 void onRead(boost::beast::error_code ec, std::size_t bytes_transferred) {
                     if (ec) {
                         if (ec != boost::beast::http::make_error_code(boost::beast::http::error::end_of_stream)) {
@@ -461,10 +501,39 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                         return;
                     }
 
-                    auto path = req_.target();
-                    std::string pathStr {path.data(), path.size()};
+                    auto target = req_.target();
+                    std::string targetStr {target.data(), target.size()};
+
+                    std::string pathStr;
+                    std::unordered_map<std::string, std::vector<std::string>> queryMap;
+                    auto pathQuerySepPos = targetStr.find('?');
+                    if (pathQuerySepPos != std::string::npos) {
+                        pathStr = targetStr.substr(0, pathQuerySepPos);
+                        std::string queryStr = targetStr.substr(pathQuerySepPos+1);
+                        queryStr = queryStr.substr(0, queryStr.find('#'));
+                        std::vector<std::string> queryParts;
+                        boost::split(queryParts, queryStr, boost::is_any_of("&"));
+                        for (auto &q : queryParts) {
+                            std::vector<std::string> nv;
+                            boost::split(nv, q, boost::is_any_of("="));
+                            if (nv.size() != 2) {
+                                continue;
+                            }
+                            std::string n = unescape(nv[0]);
+                            std::string v = unescape(nv[1]);
+                            auto iter = queryMap.find(n);
+                            if (iter == queryMap.end()) {
+                                queryMap.insert({n, {v}});
+                            } else {
+                                iter->second.push_back(v);
+                            }
+                        }
+                    } else {
+                        pathStr = targetStr;
+                    }
+
                     HandlerFunc handler;
-                    if (req_.method() == boost::beast::http::verb::post) {
+                    if (req_.method() == boost::beast::http::verb::post || req_.method() == boost::beast::http::verb::get) {
                         handler = parent_->parent()->getHandler(parent_->port(), pathStr);
                     }
                     if (!handler) {
@@ -598,6 +667,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                         if (!handler(
                             login
                             , req_.body()
+                            , queryMap
                             , [res,x=shared_from_this()](std::string const &resp) {
                                 x->writeResp(res, resp);
                             }
@@ -1022,7 +1092,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         impl_->addJsonRESTClient(locator, std::move(request), clientCallback, dynamic_cast<TLSClientConfigurationComponent const *>(this), dynamic_cast<basic::LoggingComponentBase *>(this));
     }
     void JsonRESTComponent::registerHandler(ConnectionLocator const &locator, std::function<
-        bool(std::string const &, std::string const &, std::function<void(std::string const &)> const &)
+        bool(std::string const &, std::string const &, std::unordered_map<std::string, std::vector<std::string>> const &, std::function<void(std::string const &)> const &)
     > const &handler) {
         impl_->registerHandler(locator, handler, dynamic_cast<TLSServerConfigurationComponent const *>(this), dynamic_cast<basic::LoggingComponentBase *>(this));
     }

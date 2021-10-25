@@ -5,6 +5,7 @@
 #include <tm_kit/infra/AppClassifier.hpp>
 
 #include <tm_kit/basic/NlohmannJsonInterop.hpp>
+#include <tm_kit/basic/StructFieldInfoBasedCsvUtils.hpp>
 
 #include <tm_kit/transport/json_rest/JsonRESTComponent.hpp>
 #include <tm_kit/transport/HeartbeatAndAlertComponent.hpp>
@@ -59,13 +60,59 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 bool handleRequest(
                     std::string const &login
                     , std::string const &requestBody
+                    , std::unordered_map<std::string, std::vector<std::string>> const &queryMap
                     , std::function<void(std::string const &)> const &cb
                 ) {
-                    try {
-                        auto incomingJson = nlohmann::json::parse(requestBody);
-                        Req req;
-                        basic::nlohmann_json_interop::Json<Req *> j(&req);
-                        if (j.fromNlohmannJson(incomingJson["request"])) {
+                    if (requestBody != "") {
+                        try {
+                            auto incomingJson = nlohmann::json::parse(requestBody);
+                            Req req;
+                            basic::nlohmann_json_interop::Json<Req *> j(&req);
+                            if (j.fromNlohmannJson(incomingJson["request"])) {
+                                if constexpr (basic::struct_field_info_utils::IsStructFieldInfoBasedCsvCompatibleStruct<Req>) {
+                                    for (auto const &item : queryMap) {
+                                        if (item.second.size() == 1) {
+                                            basic::struct_field_info_utils::StructFieldInfoBasedSimpleCsvInput<Req>
+                                                ::readOneNameValuePair(req, item.first, item.second[0]);
+                                        } else {
+                                            for (std::size_t ii=0; ii<item.second.size(); ++ii) {
+                                                basic::struct_field_info_utils::StructFieldInfoBasedSimpleCsvInput<Req>
+                                                    ::readOneNameValuePair(req, item.first+"["+std::to_string(ii)+"]", item.second[ii]);
+                                            }
+                                        }
+                                    }
+                                }
+                                typename Env::IDType id = env_->new_id();
+                                std::lock_guard<std::mutex> _(mutex_);
+                                cbMap_[id] = cb;
+                                triggerFunc_(typename M::template Key<Req> {
+                                    id, std::move(req)
+                                });
+                                return true;
+                            } else {
+                                return false;
+                            }
+                        } catch (std::exception const &ex) {
+                            std::ostringstream oss;
+                            oss << "[JsonRESTFacilityWrapper::LocalHandler::handleRequest] Parsing error for '" << requestBody << "'";
+                            env_->log(infra::LogLevel::Warning, oss.str());
+                            return false;
+                        }
+                    } else {
+                        if constexpr (basic::struct_field_info_utils::IsStructFieldInfoBasedCsvCompatibleStruct<Req>) {
+                            Req req;
+                            basic::struct_field_info_utils::StructFieldInfoBasedInitializer<Req>::initialize(req);
+                            for (auto const &item : queryMap) {
+                                if (item.second.size() == 1) {
+                                    basic::struct_field_info_utils::StructFieldInfoBasedSimpleCsvInput<Req>
+                                        ::readOneNameValuePair(req, item.first, item.second[0]);
+                                } else {
+                                    for (std::size_t ii=0; ii<item.second.size(); ++ii) {
+                                        basic::struct_field_info_utils::StructFieldInfoBasedSimpleCsvInput<Req>
+                                            ::readOneNameValuePair(req, item.first+"["+std::to_string(ii)+"]", item.second[ii]);
+                                    }
+                                }
+                            }
                             typename Env::IDType id = env_->new_id();
                             std::lock_guard<std::mutex> _(mutex_);
                             cbMap_[id] = cb;
@@ -74,13 +121,11 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                             });
                             return true;
                         } else {
+                            std::ostringstream oss;
+                            oss << "[JsonRESTFacilityWrapper::LocalHandler::handleRequest] No support for url parameter for type " << typeid(Req).name();
+                            env_->log(infra::LogLevel::Warning, oss.str());
                             return false;
                         }
-                    } catch (std::exception const &ex) {
-                        std::ostringstream oss;
-                        oss << "[JsonRESTFacilityWrapper::LocalHandler::handleRequest] Parsing error for '" << requestBody << "'";
-                        env_->log(infra::LogLevel::Warning, oss.str());
-                        return false;
                     }
                 }
                 void handleResponse(
@@ -111,8 +156,8 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             r.registerExporter(wrapperItemsNamePrefix+"/exporter", exporter);
             toBeWrapped(r, r.importItem(importer), r.exporterAsSink(exporter));
             static_cast<JsonRESTComponent *>(r.environment())->registerHandler(
-                locator, [handler](std::string const &login, std::string const &reqBody, std::function<void(std::string const &)> const &cb) {
-                    return handler->handleRequest(login, reqBody, cb);
+                locator, [handler](std::string const &login, std::string const &reqBody, std::unordered_map<std::string, std::vector<std::string>> const &queryMap, std::function<void(std::string const &)> const &cb) {
+                    return handler->handleRequest(login, reqBody, queryMap, cb);
                 }
             );
 
@@ -164,13 +209,59 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 bool handleRequest(
                     std::string const &login
                     , std::string const &requestBody
+                    , std::unordered_map<std::string, std::vector<std::string>> const &queryMap
                     , std::function<void(std::string const &)> const &cb
                 ) {
-                    try {
-                        auto incomingJson = nlohmann::json::parse(requestBody);
-                        Req req;
-                        basic::nlohmann_json_interop::Json<Req *> j(&req);
-                        if (j.fromNlohmannJson(incomingJson["request"])) {
+                    if (requestBody != "") {
+                        try {
+                            auto incomingJson = nlohmann::json::parse(requestBody);
+                            Req req;
+                            basic::nlohmann_json_interop::Json<Req *> j(&req);
+                            if (j.fromNlohmannJson(incomingJson["request"])) {
+                                if constexpr (basic::struct_field_info_utils::IsStructFieldInfoBasedCsvCompatibleStruct<Req>) {
+                                    for (auto const &item : queryMap) {
+                                        if (item.second.size() == 1) {
+                                            basic::struct_field_info_utils::StructFieldInfoBasedSimpleCsvInput<Req>
+                                                ::readOneNameValuePair(req, item.first, item.second[0]);
+                                        } else {
+                                            for (std::size_t ii=0; ii<item.second.size(); ++ii) {
+                                                basic::struct_field_info_utils::StructFieldInfoBasedSimpleCsvInput<Req>
+                                                    ::readOneNameValuePair(req, item.first+"["+std::to_string(ii)+"]", item.second[ii]);
+                                            }
+                                        }
+                                    }
+                                }
+                                typename Env::IDType id = env_->new_id();
+                                std::lock_guard<std::mutex> _(mutex_);
+                                cbMap_[id] = cb;
+                                triggerFunc_(typename M::template Key<std::tuple<std::string,Req>> {
+                                    id, {login, std::move(req)}
+                                });
+                                return true;
+                            } else {
+                                return false;
+                            }
+                        } catch (std::exception const &ex) {
+                            std::ostringstream oss;
+                            oss << "[JsonRESTFacilityWrapper::LocalHandler (with identity)::handleRequest] Parsing error for '" << requestBody << "'";
+                            env_->log(infra::LogLevel::Warning, oss.str());
+                            return false;
+                        }
+                    } else {
+                        if constexpr (basic::struct_field_info_utils::IsStructFieldInfoBasedCsvCompatibleStruct<Req>) {
+                            Req req;
+                            basic::struct_field_info_utils::StructFieldInfoBasedInitializer<Req>::initialize(req);
+                            for (auto const &item : queryMap) {
+                                if (item.second.size() == 1) {
+                                    basic::struct_field_info_utils::StructFieldInfoBasedSimpleCsvInput<Req>
+                                        ::readOneNameValuePair(req, item.first, item.second[0]);
+                                } else {
+                                    for (std::size_t ii=0; ii<item.second.size(); ++ii) {
+                                        basic::struct_field_info_utils::StructFieldInfoBasedSimpleCsvInput<Req>
+                                            ::readOneNameValuePair(req, item.first+"["+std::to_string(ii)+"]", item.second[ii]);
+                                    }
+                                }
+                            }
                             typename Env::IDType id = env_->new_id();
                             std::lock_guard<std::mutex> _(mutex_);
                             cbMap_[id] = cb;
@@ -179,13 +270,11 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                             });
                             return true;
                         } else {
+                            std::ostringstream oss;
+                            oss << "[JsonRESTFacilityWrapper::LocalHandler (with identity)::handleRequest] No support for url parameter for type " << typeid(Req).name();
+                            env_->log(infra::LogLevel::Warning, oss.str());
                             return false;
                         }
-                    } catch (std::exception const &ex) {
-                        std::ostringstream oss;
-                        oss << "[JsonRESTFacilityWrapper::LocalHandler::handleRequest] Parsing error for '" << requestBody << "'";
-                        env_->log(infra::LogLevel::Warning, oss.str());
-                        return false;
                     }
                 }
                 void handleResponse(
@@ -216,8 +305,8 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             r.registerExporter(wrapperItemsNamePrefix+"/exporter", exporter);
             toBeWrapped(r, r.importItem(importer), r.exporterAsSink(exporter));
             static_cast<JsonRESTComponent *>(r.environment())->registerHandler(
-                locator, [handler](std::string const &login, std::string const &reqBody, std::function<void(std::string const &)> const &cb) {
-                    return handler->handleRequest(login, reqBody, cb);
+                locator, [handler](std::string const &login, std::string const &reqBody, std::unordered_map<std::string, std::vector<std::string>> const &queryMap, std::function<void(std::string const &)> const &cb) {
+                    return handler->handleRequest(login, reqBody, queryMap, cb);
                 }
             );
 

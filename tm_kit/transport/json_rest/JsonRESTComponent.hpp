@@ -25,7 +25,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             void(std::string &&)
         > const &clientCallback);
         void registerHandler(ConnectionLocator const &locator, std::function<
-            bool(std::string const &login, std::string const &data, std::function<void(std::string const &)> const &callback)
+            bool(std::string const &login, std::string const &data, std::unordered_map<std::string, std::vector<std::string>> const &queryMap, std::function<void(std::string const &)> const &callback)
         > const &handler);
         //if password is std::nullopt, this login will be accepted with any password
         void addBasicAuthentication(int port, std::string const &login, std::optional<std::string> const &password);
