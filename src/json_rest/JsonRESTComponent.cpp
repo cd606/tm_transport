@@ -29,6 +29,8 @@
 #endif
 
 #include <sodium/crypto_pwhash.h>
+#include <sodium/crypto_generichash.h>
+#include <sodium/randombytes.h>
 
 namespace dev { namespace cd606 { namespace tm { namespace transport { namespace json_rest {
 
@@ -134,7 +136,10 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 req_.target(target);
                 req_.set(boost::beast::http::field::host, locator_.host());
                 req_.set(boost::beast::http::field::user_agent, BOOST_BEAST_VERSION_STRING);
-                if (locator_.userName() != "") {
+                auto tokenStr = locator_.query("auth_token", "");
+                if (tokenStr != "") {
+                    req_.set(boost::beast::http::field::authorization, "Bearer "+tokenStr);
+                } else if (locator_.userName() != "") {
                     std::string authStringOrig = locator_.userName()+":"+locator_.password();
                     std::string authString;
                     authString.resize(boost::beast::detail::base64::encoded_size(authStringOrig.length()));
@@ -456,51 +461,6 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                         return;
                     }
 
-                    auto auth = req_[boost::beast::http::field::authorization];
-                    std::string authStr {auth.data(), auth.size()};
-                    
-                    std::string login, password;
-                    if (boost::starts_with(authStr, "Basic ")) {
-                        std::string inputAuthStr = boost::trim_copy(authStr.substr(std::string_view("Basic ").length()));
-                        std::string basicAuthStr;
-                        basicAuthStr.resize(boost::beast::detail::base64::decoded_size(inputAuthStr.length()));
-                        auto decodeRes = boost::beast::detail::base64::decode(
-                            basicAuthStr.data(), inputAuthStr.data(), inputAuthStr.length()
-                        );
-                        basicAuthStr.resize(decodeRes.first);
-                        auto colonPos = basicAuthStr.find(':');
-                        login = basicAuthStr.substr(0, colonPos);
-                        if (colonPos != std::string::npos) {
-                            password = basicAuthStr.substr(colonPos+1);
-                        }
-                    }
-                    if (!parent_->parent()->checkBasicAuthentication(parent_->port(), login, password)) {
-                        auto *res = new boost::beast::http::response<boost::beast::http::string_body> {boost::beast::http::status::unauthorized, req_.version()};
-                        res->set(boost::beast::http::field::server, BOOST_BEAST_VERSION_STRING);
-                        res->set(boost::beast::http::field::www_authenticate, "Basic realm=\""+parent_->realm()+"\"");
-                        res->prepare_payload();
-                        if (stream_.index() == 1) {
-                            boost::beast::http::async_write(
-                                std::get<1>(stream_)
-                                , *res
-                                , [x=shared_from_this(),res](boost::system::error_code const &write_ec, std::size_t bytes_written) {
-                                    delete res;
-                                    x->doRead();
-                                }
-                            );
-                        } else {
-                            boost::beast::http::async_write(
-                                std::get<2>(stream_)
-                                , *res
-                                , [x=shared_from_this(),res](boost::system::error_code const &write_ec, std::size_t bytes_written) {
-                                    delete res;
-                                    x->doRead();
-                                }
-                            );
-                        }
-                        return;
-                    }
-
                     auto target = req_.target();
                     std::string targetStr {target.data(), target.size()};
 
@@ -530,6 +490,188 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                         }
                     } else {
                         pathStr = targetStr;
+                    }
+
+                    if (pathStr == "/__API_AUTHENTICATION") {
+                        if (req_.method() != boost::beast::http::verb::post) {
+                            auto *res = new boost::beast::http::response<boost::beast::http::string_body> {boost::beast::http::status::bad_request, req_.version()};
+                            res->set(boost::beast::http::field::server, BOOST_BEAST_VERSION_STRING);
+                            res->prepare_payload();
+                            if (stream_.index() == 1) {
+                                boost::beast::http::async_write(
+                                    std::get<1>(stream_)
+                                    , *res
+                                    , [x=shared_from_this(),res](boost::system::error_code const &write_ec, std::size_t bytes_written) {
+                                        delete res;
+                                        x->doRead();
+                                    }
+                                );
+                            } else {
+                                boost::beast::http::async_write(
+                                    std::get<2>(stream_)
+                                    , *res
+                                    , [x=shared_from_this(),res](boost::system::error_code const &write_ec, std::size_t bytes_written) {
+                                        delete res;
+                                        x->doRead();
+                                    }
+                                );
+                            }
+                            return;
+                        }
+                        auto authResult = parent_->parent()->createAuthToken(parent_->port(), req_.body());
+                        if (!authResult) {
+                            auto *res = new boost::beast::http::response<boost::beast::http::string_body> {boost::beast::http::status::bad_request, req_.version()};
+                            res->set(boost::beast::http::field::server, BOOST_BEAST_VERSION_STRING);
+                            res->prepare_payload();
+                            if (stream_.index() == 1) {
+                                boost::beast::http::async_write(
+                                    std::get<1>(stream_)
+                                    , *res
+                                    , [x=shared_from_this(),res](boost::system::error_code const &write_ec, std::size_t bytes_written) {
+                                        delete res;
+                                        x->doRead();
+                                    }
+                                );
+                            } else {
+                                boost::beast::http::async_write(
+                                    std::get<2>(stream_)
+                                    , *res
+                                    , [x=shared_from_this(),res](boost::system::error_code const &write_ec, std::size_t bytes_written) {
+                                        delete res;
+                                        x->doRead();
+                                    }
+                                );
+                            }
+                            return;
+                        }
+                        auto *res = new boost::beast::http::response<boost::beast::http::string_body> {boost::beast::http::status::ok, req_.version()};
+                        res->set(boost::beast::http::field::server, BOOST_BEAST_VERSION_STRING);
+                        res->set(boost::beast::http::field::content_type, "application/jwt");
+                        res->keep_alive(req_.keep_alive());
+                        res->body() = *authResult;
+                        res->prepare_payload();
+                        if (stream_.index() == 1) {
+                            boost::beast::http::async_write(
+                                std::get<1>(stream_)
+                                , *res
+                                , [x=shared_from_this(),res](boost::system::error_code const &write_ec, std::size_t bytes_written) {
+                                    delete res;
+                                    x->doClose(boost::beast::error_code());
+                                }
+                            );
+                        } else {
+                            boost::beast::http::async_write(
+                                std::get<2>(stream_)
+                                , *res
+                                , [x=shared_from_this(),res](boost::system::error_code const &write_ec, std::size_t bytes_written) {
+                                    delete res;
+                                    x->doClose(boost::beast::error_code());
+                                }
+                            );
+                        }
+                        return;
+                    }
+
+                    auto auth = req_[boost::beast::http::field::authorization];
+                    std::string authStr {auth.data(), auth.size()};
+                    
+                    std::string login, password;
+                    std::string authToken;
+                    if (boost::starts_with(authStr, "Basic ")) {
+                        std::string inputAuthStr = boost::trim_copy(authStr.substr(std::string_view("Basic ").length()));
+                        std::string basicAuthStr;
+                        basicAuthStr.resize(boost::beast::detail::base64::decoded_size(inputAuthStr.length()));
+                        auto decodeRes = boost::beast::detail::base64::decode(
+                            basicAuthStr.data(), inputAuthStr.data(), inputAuthStr.length()
+                        );
+                        basicAuthStr.resize(decodeRes.first);
+                        auto colonPos = basicAuthStr.find(':');
+                        login = basicAuthStr.substr(0, colonPos);
+                        if (colonPos != std::string::npos) {
+                            password = basicAuthStr.substr(colonPos+1);
+                        }
+                    } else if (boost::starts_with(authStr, "Bearer ")) {
+                        authToken = boost::trim_copy(authStr.substr(std::string_view("Bearer ").length()));
+                    }
+                    if (authToken != "") {
+                        auto checkResLogin = parent_->parent()->checkTokenAuthentication(parent_->port(), authToken);
+                        if (!checkResLogin) {
+                            auto *res = new boost::beast::http::response<boost::beast::http::string_body> {boost::beast::http::status::unauthorized, req_.version()};
+                            res->set(boost::beast::http::field::server, BOOST_BEAST_VERSION_STRING);
+                            res->set(boost::beast::http::field::www_authenticate, "Bearer realm=\""+parent_->realm()+"\"");
+                            res->prepare_payload();
+                            if (stream_.index() == 1) {
+                                boost::beast::http::async_write(
+                                    std::get<1>(stream_)
+                                    , *res
+                                    , [x=shared_from_this(),res](boost::system::error_code const &write_ec, std::size_t bytes_written) {
+                                        delete res;
+                                        x->doRead();
+                                    }
+                                );
+                            } else {
+                                boost::beast::http::async_write(
+                                    std::get<2>(stream_)
+                                    , *res
+                                    , [x=shared_from_this(),res](boost::system::error_code const &write_ec, std::size_t bytes_written) {
+                                        delete res;
+                                        x->doRead();
+                                    }
+                                );
+                            }
+                            return;
+                        }
+                        login = *checkResLogin;
+                    } else if (parent_->parent()->requiresTokenAuthentication(parent_->port())) {
+                        auto *res = new boost::beast::http::response<boost::beast::http::string_body> {boost::beast::http::status::unauthorized, req_.version()};
+                        res->set(boost::beast::http::field::server, BOOST_BEAST_VERSION_STRING);
+                        res->set(boost::beast::http::field::www_authenticate, "Bearer realm=\""+parent_->realm()+"\"");
+                        res->prepare_payload();
+                        if (stream_.index() == 1) {
+                            boost::beast::http::async_write(
+                                std::get<1>(stream_)
+                                , *res
+                                , [x=shared_from_this(),res](boost::system::error_code const &write_ec, std::size_t bytes_written) {
+                                    delete res;
+                                    x->doRead();
+                                }
+                            );
+                        } else {
+                            boost::beast::http::async_write(
+                                std::get<2>(stream_)
+                                , *res
+                                , [x=shared_from_this(),res](boost::system::error_code const &write_ec, std::size_t bytes_written) {
+                                    delete res;
+                                    x->doRead();
+                                }
+                            );
+                        }
+                        return;
+                    } else if (!parent_->parent()->checkBasicAuthentication(parent_->port(), login, password)) {
+                        auto *res = new boost::beast::http::response<boost::beast::http::string_body> {boost::beast::http::status::unauthorized, req_.version()};
+                        res->set(boost::beast::http::field::server, BOOST_BEAST_VERSION_STRING);
+                        res->set(boost::beast::http::field::www_authenticate, "Basic realm=\""+parent_->realm()+"\"");
+                        res->prepare_payload();
+                        if (stream_.index() == 1) {
+                            boost::beast::http::async_write(
+                                std::get<1>(stream_)
+                                , *res
+                                , [x=shared_from_this(),res](boost::system::error_code const &write_ec, std::size_t bytes_written) {
+                                    delete res;
+                                    x->doRead();
+                                }
+                            );
+                        } else {
+                            boost::beast::http::async_write(
+                                std::get<2>(stream_)
+                                , *res
+                                , [x=shared_from_this(),res](boost::system::error_code const &write_ec, std::size_t bytes_written) {
+                                    delete res;
+                                    x->doRead();
+                                }
+                            );
+                        }
+                        return;
                     }
 
                     HandlerFunc handler;
@@ -846,6 +988,15 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
 
         using PasswordMap = std::unordered_map<std::string, std::optional<std::string>>;
         std::unordered_map<int, PasswordMap> allPasswords_;
+        struct TokenPasswordInfo {
+            uint8_t secret[64];
+            std::unordered_map<std::string, std::string> saltedPasswords;
+
+            TokenPasswordInfo() : secret(), saltedPasswords() {
+                randombytes_buf(secret, 64);
+            }
+        };
+        std::unordered_map<int, TokenPasswordInfo> tokenPasswords_;
         mutable std::mutex allPasswordsMutex_;
 
         void startAcceptor(int port, TLSServerConfigurationComponent const *tlsConfig, basic::LoggingComponentBase *logger) {
@@ -862,7 +1013,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             iter->second->run();
         }
     public:
-        JsonRESTComponentImpl() : handlerMap_(), handlerMapMutex_(), docRootMap_(), docRootMapMutex_(), started_(false), clientSet_(), clientSetMutex_(), clientSvc_(), clientThread_(), acceptorMap_(), acceptorMapMutex_(), allPasswords_(), allPasswordsMutex_() {
+        JsonRESTComponentImpl() : handlerMap_(), handlerMapMutex_(), docRootMap_(), docRootMapMutex_(), started_(false), clientSet_(), clientSetMutex_(), clientSvc_(), clientThread_(), acceptorMap_(), acceptorMapMutex_(), allPasswords_(), tokenPasswords_(), allPasswordsMutex_() {
             clientThread_ = std::thread([this]() {
                 boost::asio::io_context::work work(clientSvc_);
                 clientSvc_.run();
@@ -958,6 +1109,30 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             }
             iter->second[login] = std::optional<std::string> {saltedPassword};
         }
+        void addTokenAuthentication(int port, std::string const &login, std::string const &password) {
+            std::lock_guard<std::mutex> _(allPasswordsMutex_);
+            auto iter = tokenPasswords_.find(port);
+            if (iter == tokenPasswords_.end()) {
+                iter = tokenPasswords_.insert({port, TokenPasswordInfo{}}).first;
+            }
+            std::string hashed;
+            hashed.resize(crypto_pwhash_STRBYTES);
+            if (crypto_pwhash_str(
+                hashed.data(), password.data(), password.length()
+                , crypto_pwhash_OPSLIMIT_SENSITIVE, crypto_pwhash_MEMLIMIT_SENSITIVE
+            ) != 0) {
+                throw JsonRESTComponentException("Error hashing password for login '"+login+"' on port "+std::to_string(port));
+            }
+            iter->second.saltedPasswords[login] = hashed;
+        }
+        void addTokenAuthentication_salted(int port, std::string const &login, std::string const &saltedPassword) {
+            std::lock_guard<std::mutex> _(allPasswordsMutex_);
+            auto iter = tokenPasswords_.find(port);
+            if (iter == tokenPasswords_.end()) {
+                iter = tokenPasswords_.insert({port, TokenPasswordInfo{}}).first;
+            }
+            iter->second.saltedPasswords[login] = saltedPassword;
+        }
         void setDocRoot(int port, std::filesystem::path const &docRoot) {
             std::lock_guard<std::mutex> _(docRootMapMutex_);
             docRootMap_[port] = docRoot;
@@ -1020,6 +1195,165 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             return (crypto_pwhash_str_verify(
                 innerIter->second->c_str(), password.c_str(), password.length()
             ) == 0);
+        }
+        static std::string base64URLEnc(std::string const &input) {
+            std::string ret;
+            ret.resize(boost::beast::detail::base64::encoded_size(input.length()));
+            ret.resize(boost::beast::detail::base64::encode(ret.data(), reinterpret_cast<uint8_t const *>(input.data()), input.length()));
+            if (ret.length() > 0) {
+                boost::replace_all(ret, "+", "-");
+                boost::replace_all(ret, "/", "_");
+                auto s = ret.length()-1;
+                for (int ii=0; ii<4 && s>=0; ++ii,--s) {
+                    if (ret[s] != '=') {
+                        break;
+                    }
+                }
+                ++s;
+                if (s != ret.length()) {
+                    ret = ret.substr(0, s);
+                }
+            }
+            return ret;
+        }
+        static std::string base64URLDec(std::string const &input) {
+            std::string inputCopy = input;
+            if (inputCopy.length() > 0) {
+                boost::replace_all(inputCopy, "-", "+");
+                boost::replace_all(inputCopy, "_", "/");
+                if (inputCopy.length()%4 != 0) {
+                    inputCopy = inputCopy+std::string(4-inputCopy.length()%4, '=');
+                }
+            }
+            std::string ret;
+            ret.resize(boost::beast::detail::base64::decoded_size(inputCopy.length()));
+            auto decodeRes = boost::beast::detail::base64::decode(
+                ret.data(), inputCopy.data(), inputCopy.length()
+            );
+            ret.resize(decodeRes.first);
+            return ret;
+        }
+        std::optional<std::string> createAuthToken(int port, std::string const &authReqBody) {
+            nlohmann::json parsedBody = nlohmann::json::parse(authReqBody);
+            if (parsedBody.is_null()) {
+                return std::nullopt;
+            }
+            if (!parsedBody["username"].is_string() || !parsedBody["password"].is_string()) {
+                return std::nullopt;
+            }
+            std::string login;
+            std::string password;
+            parsedBody["username"].get_to(login);
+            parsedBody["password"].get_to(password);
+
+            uint8_t secret[64];
+            std::string saltedPassword;
+
+            {
+                std::lock_guard<std::mutex> _(allPasswordsMutex_);
+                auto iter = tokenPasswords_.find(port);
+                if (iter == tokenPasswords_.end()) {
+                    return std::nullopt;
+                }
+                auto innerIter = iter->second.saltedPasswords.find(login);
+                if (innerIter == iter->second.saltedPasswords.end()) {
+                    return std::nullopt;
+                }
+                memcpy(secret, iter->second.secret, 64);
+                saltedPassword = innerIter->second;
+            }
+
+            if (crypto_pwhash_str_verify(
+                saltedPassword.c_str(), password.c_str(), password.length()
+            ) != 0) {
+                return std::nullopt;
+            }
+            nlohmann::json respHead, respPayload;
+            respHead["alg"] = "BLAKE2b";
+            respHead["typ"] = "JWT";
+            respPayload["login"] = login;
+            respPayload["expiration"] = infra::withtime_utils::sinceEpoch<std::chrono::seconds>(std::chrono::system_clock::now())+600;
+
+            auto respHeadStr = base64URLEnc(respHead.dump());
+            auto respPayloadStr = base64URLEnc(respPayload.dump());
+
+            auto respFrontPart = respHeadStr+"."+respPayloadStr;
+
+            uint8_t hash[32];
+            if (crypto_generichash(
+                hash
+                , 32
+                , reinterpret_cast<const unsigned char *>(respFrontPart.data())
+                , respFrontPart.length()
+                , secret
+                , 64
+            ) != 0) {
+                return std::nullopt;
+            }
+            char hashStr[65];
+            for (int ii=0; ii<32; ++ii) {
+                sprintf(&hashStr[ii*2], "%02X", hash[ii]);
+            }
+            return respFrontPart+"."+hashStr;
+        }
+        std::optional<std::string> checkTokenAuthentication(int port, std::string const &authToken) {
+            uint8_t secret[64];
+            {
+                std::lock_guard<std::mutex> _(allPasswordsMutex_);
+                
+                auto iter = tokenPasswords_.find(port);
+                if (iter == tokenPasswords_.end()) {
+                    return std::nullopt;
+                }
+                memcpy(secret, iter->second.secret, 64);
+            }
+            
+            std::vector<std::string> parts;
+            boost::split(parts, authToken, boost::is_any_of("."));
+            if (parts.size() != 3) {
+                return std::nullopt;
+            }
+            auto toHash = parts[0]+"."+parts[1];
+            uint8_t hash[32];
+
+            if (crypto_generichash(
+                hash
+                , 32
+                , reinterpret_cast<const unsigned char *>(toHash.data())
+                , toHash.length()
+                , secret
+                , 64
+            ) != 0) {
+                return std::nullopt;
+            }
+            char hashStr[65];
+            for (int ii=0; ii<32; ++ii) {
+                sprintf(&hashStr[ii*2], "%02X", hash[ii]);
+            }
+            if (hashStr != parts[2]) {
+                return std::nullopt;
+            }
+
+            auto payload = base64URLDec(parts[1]);
+            nlohmann::json parsedPayload = nlohmann::json::parse(payload);
+            if (parsedPayload.is_null()) {
+                return std::nullopt;
+            }
+            if (!parsedPayload["login"].is_string() || !parsedPayload["expiration"].is_number()) {
+                return std::nullopt;
+            }
+            int64_t expiration;
+            parsedPayload["expiration"].get_to(expiration);
+            if (expiration < infra::withtime_utils::sinceEpoch<std::chrono::seconds>(std::chrono::system_clock::now())) {
+                return std::nullopt;
+            }
+            std::string login;
+            parsedPayload["login"].get_to(login);
+            return login;
+        }
+        bool requiresTokenAuthentication(int port) {
+            std::lock_guard<std::mutex> _(allPasswordsMutex_);
+            return (tokenPasswords_.find(port) != tokenPasswords_.end());
         }
         std::optional<std::tuple<std::filesystem::path, std::string>> getDoc(int port, std::string const &path) const {
             static const std::unordered_map<std::string, std::string> mimeMap {
@@ -1101,6 +1435,12 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
     }
     void JsonRESTComponent::addBasicAuthentication_salted(int port, std::string const &login, std::string const &saltedPassword) {
         impl_->addBasicAuthentication_salted(port, login, saltedPassword);
+    }
+    void JsonRESTComponent::addTokenAuthentication(int port, std::string const &login, std::string const &password) {
+        impl_->addTokenAuthentication(port, login, password);
+    }
+    void JsonRESTComponent::addTokenAuthentication_salted(int port, std::string const &login, std::string const &saltedPassword) {
+        impl_->addTokenAuthentication_salted(port, login, saltedPassword);
     }
     void JsonRESTComponent::setDocRoot(int port, std::filesystem::path const &docRoot) {
         impl_->setDocRoot(port, docRoot);

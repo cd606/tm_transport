@@ -31,6 +31,8 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         void addBasicAuthentication(int port, std::string const &login, std::optional<std::string> const &password);
         //for this API, the password is already salted and hashed
         void addBasicAuthentication_salted(int port, std::string const &login, std::string const &saltedPassword);
+        void addTokenAuthentication(int port, std::string const &login, std::string const &password);
+        void addTokenAuthentication_salted(int port, std::string const &login, std::string const &saltedPassword);
         void setDocRoot(int port, std::filesystem::path const &docRoot);
         void finalizeEnvironment();
         std::unordered_map<ConnectionLocator, std::thread::native_handle_type> json_rest_threadHandles();
