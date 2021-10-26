@@ -16,6 +16,9 @@
 
 namespace dev { namespace cd606 { namespace tm { namespace transport { namespace json_rest {
 
+    struct RawStringMark {};
+    using RawString = basic::SingleLayerWrapperWithTypeMark<RawStringMark, std::string>;
+
     template <class M, typename=std::enable_if_t<
         infra::app_classification_v<M> == infra::AppClassification::RealTime
         &&
@@ -78,18 +81,33 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                             locator_
                             , sendData.dump()
                             , [this,env,id=std::move(id)](std::string &&response) mutable {
-                                nlohmann::json x = nlohmann::json::parse(response);
-                                Resp resp;
-                                basic::nlohmann_json_interop::Json<Resp *> r(&resp);
-                                if (r.fromNlohmannJson(x["response"])) {
+                                if constexpr (std::is_same_v<Resp, RawString>) {
                                     this->publish(
                                         env 
                                         , typename M::template Key<Resp> {
                                             std::move(id)
-                                            , std::move(resp)
+                                            , {std::move(response)}
                                         }
                                         , true
                                     );
+                                } else {
+                                    try {
+                                        nlohmann::json x = nlohmann::json::parse(response);
+                                        Resp resp;
+                                        basic::nlohmann_json_interop::Json<Resp *> r(&resp);
+                                        if (r.fromNlohmannJson(x["response"])) {
+                                            this->publish(
+                                                env 
+                                                , typename M::template Key<Resp> {
+                                                    std::move(id)
+                                                    , std::move(resp)
+                                                }
+                                                , true
+                                            );
+                                        }
+                                    } catch (...) {
+                                        env->log(infra::LogLevel::Error, "Cannot parse reply string '"+response+"' as json");
+                                    }
                                 }
                             }
                         );
@@ -121,12 +139,20 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 env->JsonRESTComponent::addJsonRESTClient(
                     rpcQueueLocator
                     , sendData.dump()
-                    , [ret](std::string &&response) mutable {
-                        nlohmann::json x = nlohmann::json::parse(response);
-                        Resp resp;
-                        basic::nlohmann_json_interop::Json<Resp *> r(&resp);
-                        if (r.fromNlohmannJson(x["response"])) {
-                            ret->set_value(std::move(resp));
+                    , [ret,env](std::string &&response) mutable {
+                        if constexpr (std::is_same_v<Resp, RawString>) {
+                            ret->set_value({std::move(response)});
+                        } else {
+                            try {
+                                nlohmann::json x = nlohmann::json::parse(response);
+                                Resp resp;
+                                basic::nlohmann_json_interop::Json<Resp *> r(&resp);
+                                if (r.fromNlohmannJson(x["response"])) {
+                                    ret->set_value(std::move(resp));
+                                }
+                            } catch (...) {
+                                env->log(infra::LogLevel::Error, "Cannot parse reply string '"+response+"' as json");
+                            }
                         }
                     }
                 );

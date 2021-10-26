@@ -492,7 +492,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                         pathStr = targetStr;
                     }
 
-                    if (pathStr == "/__API_AUTHENTICATION") {
+                    if (pathStr == JsonRESTComponent::TOKEN_AUTHENTICATION_REQUEST) {
                         if (req_.method() != boost::beast::http::verb::post) {
                             auto *res = new boost::beast::http::response<boost::beast::http::string_body> {boost::beast::http::status::bad_request, req_.version()};
                             res->set(boost::beast::http::field::server, BOOST_BEAST_VERSION_STRING);
@@ -1234,122 +1234,140 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             return ret;
         }
         std::optional<std::string> createAuthToken(int port, std::string const &authReqBody) {
-            nlohmann::json parsedBody = nlohmann::json::parse(authReqBody);
-            if (parsedBody.is_null()) {
-                return std::nullopt;
-            }
-            if (!parsedBody["username"].is_string() || !parsedBody["password"].is_string()) {
-                return std::nullopt;
-            }
-            std::string login;
-            std::string password;
-            parsedBody["username"].get_to(login);
-            parsedBody["password"].get_to(password);
-
-            uint8_t secret[64];
-            std::string saltedPassword;
-
-            {
-                std::lock_guard<std::mutex> _(allPasswordsMutex_);
-                auto iter = tokenPasswords_.find(port);
-                if (iter == tokenPasswords_.end()) {
+            try {
+                nlohmann::json parsedBody = nlohmann::json::parse(authReqBody);
+                if (parsedBody.is_null()) {
                     return std::nullopt;
                 }
-                auto innerIter = iter->second.saltedPasswords.find(login);
-                if (innerIter == iter->second.saltedPasswords.end()) {
+
+                std::string login;
+                std::string password;
+                if (parsedBody["request"].is_null()) {
+                    if (!parsedBody["username"].is_string() || !parsedBody["password"].is_string()) {
+                        return std::nullopt;
+                    }
+                    parsedBody["username"].get_to(login);
+                    parsedBody["password"].get_to(password);
+                } else {
+                    auto const &part = parsedBody["request"];
+                    if (!part["username"].is_string() || !part["password"].is_string()) {
+                        return std::nullopt;
+                    }
+                    part["username"].get_to(login);
+                    part["password"].get_to(password);
+                }
+
+                uint8_t secret[64];
+                std::string saltedPassword;
+
+                {
+                    std::lock_guard<std::mutex> _(allPasswordsMutex_);
+                    auto iter = tokenPasswords_.find(port);
+                    if (iter == tokenPasswords_.end()) {
+                        return std::nullopt;
+                    }
+                    auto innerIter = iter->second.saltedPasswords.find(login);
+                    if (innerIter == iter->second.saltedPasswords.end()) {
+                        return std::nullopt;
+                    }
+                    memcpy(secret, iter->second.secret, 64);
+                    saltedPassword = innerIter->second;
+                }
+
+                if (crypto_pwhash_str_verify(
+                    saltedPassword.c_str(), password.c_str(), password.length()
+                ) != 0) {
                     return std::nullopt;
                 }
-                memcpy(secret, iter->second.secret, 64);
-                saltedPassword = innerIter->second;
-            }
+                nlohmann::json respHead, respPayload;
+                respHead["alg"] = "BLAKE2b";
+                respHead["typ"] = "JWT";
+                respPayload["login"] = login;
+                respPayload["expiration"] = infra::withtime_utils::sinceEpoch<std::chrono::seconds>(std::chrono::system_clock::now())+600;
 
-            if (crypto_pwhash_str_verify(
-                saltedPassword.c_str(), password.c_str(), password.length()
-            ) != 0) {
+                auto respHeadStr = base64URLEnc(respHead.dump());
+                auto respPayloadStr = base64URLEnc(respPayload.dump());
+
+                auto respFrontPart = respHeadStr+"."+respPayloadStr;
+
+                uint8_t hash[32];
+                if (crypto_generichash(
+                    hash
+                    , 32
+                    , reinterpret_cast<const unsigned char *>(respFrontPart.data())
+                    , respFrontPart.length()
+                    , secret
+                    , 64
+                ) != 0) {
+                    return std::nullopt;
+                }
+                char hashStr[65];
+                for (int ii=0; ii<32; ++ii) {
+                    sprintf(&hashStr[ii*2], "%02X", hash[ii]);
+                }
+                return respFrontPart+"."+hashStr;
+            } catch (...) {
                 return std::nullopt;
             }
-            nlohmann::json respHead, respPayload;
-            respHead["alg"] = "BLAKE2b";
-            respHead["typ"] = "JWT";
-            respPayload["login"] = login;
-            respPayload["expiration"] = infra::withtime_utils::sinceEpoch<std::chrono::seconds>(std::chrono::system_clock::now())+600;
-
-            auto respHeadStr = base64URLEnc(respHead.dump());
-            auto respPayloadStr = base64URLEnc(respPayload.dump());
-
-            auto respFrontPart = respHeadStr+"."+respPayloadStr;
-
-            uint8_t hash[32];
-            if (crypto_generichash(
-                hash
-                , 32
-                , reinterpret_cast<const unsigned char *>(respFrontPart.data())
-                , respFrontPart.length()
-                , secret
-                , 64
-            ) != 0) {
-                return std::nullopt;
-            }
-            char hashStr[65];
-            for (int ii=0; ii<32; ++ii) {
-                sprintf(&hashStr[ii*2], "%02X", hash[ii]);
-            }
-            return respFrontPart+"."+hashStr;
         }
         std::optional<std::string> checkTokenAuthentication(int port, std::string const &authToken) {
-            uint8_t secret[64];
-            {
-                std::lock_guard<std::mutex> _(allPasswordsMutex_);
+            try {
+                uint8_t secret[64];
+                {
+                    std::lock_guard<std::mutex> _(allPasswordsMutex_);
+                    
+                    auto iter = tokenPasswords_.find(port);
+                    if (iter == tokenPasswords_.end()) {
+                        return std::nullopt;
+                    }
+                    memcpy(secret, iter->second.secret, 64);
+                }
                 
-                auto iter = tokenPasswords_.find(port);
-                if (iter == tokenPasswords_.end()) {
+                std::vector<std::string> parts;
+                boost::split(parts, authToken, boost::is_any_of("."));
+                if (parts.size() != 3) {
                     return std::nullopt;
                 }
-                memcpy(secret, iter->second.secret, 64);
-            }
-            
-            std::vector<std::string> parts;
-            boost::split(parts, authToken, boost::is_any_of("."));
-            if (parts.size() != 3) {
-                return std::nullopt;
-            }
-            auto toHash = parts[0]+"."+parts[1];
-            uint8_t hash[32];
+                auto toHash = parts[0]+"."+parts[1];
+                uint8_t hash[32];
 
-            if (crypto_generichash(
-                hash
-                , 32
-                , reinterpret_cast<const unsigned char *>(toHash.data())
-                , toHash.length()
-                , secret
-                , 64
-            ) != 0) {
-                return std::nullopt;
-            }
-            char hashStr[65];
-            for (int ii=0; ii<32; ++ii) {
-                sprintf(&hashStr[ii*2], "%02X", hash[ii]);
-            }
-            if (hashStr != parts[2]) {
-                return std::nullopt;
-            }
+                if (crypto_generichash(
+                    hash
+                    , 32
+                    , reinterpret_cast<const unsigned char *>(toHash.data())
+                    , toHash.length()
+                    , secret
+                    , 64
+                ) != 0) {
+                    return std::nullopt;
+                }
+                char hashStr[65];
+                for (int ii=0; ii<32; ++ii) {
+                    sprintf(&hashStr[ii*2], "%02X", hash[ii]);
+                }
+                if (hashStr != parts[2]) {
+                    return std::nullopt;
+                }
 
-            auto payload = base64URLDec(parts[1]);
-            nlohmann::json parsedPayload = nlohmann::json::parse(payload);
-            if (parsedPayload.is_null()) {
+                auto payload = base64URLDec(parts[1]);
+                nlohmann::json parsedPayload = nlohmann::json::parse(payload);
+                if (parsedPayload.is_null()) {
+                    return std::nullopt;
+                }
+                if (!parsedPayload["login"].is_string() || !parsedPayload["expiration"].is_number()) {
+                    return std::nullopt;
+                }
+                int64_t expiration;
+                parsedPayload["expiration"].get_to(expiration);
+                if (expiration < infra::withtime_utils::sinceEpoch<std::chrono::seconds>(std::chrono::system_clock::now())) {
+                    return std::nullopt;
+                }
+                std::string login;
+                parsedPayload["login"].get_to(login);
+                return login;
+            } catch (...) {
                 return std::nullopt;
             }
-            if (!parsedPayload["login"].is_string() || !parsedPayload["expiration"].is_number()) {
-                return std::nullopt;
-            }
-            int64_t expiration;
-            parsedPayload["expiration"].get_to(expiration);
-            if (expiration < infra::withtime_utils::sinceEpoch<std::chrono::seconds>(std::chrono::system_clock::now())) {
-                return std::nullopt;
-            }
-            std::string login;
-            parsedPayload["login"].get_to(login);
-            return login;
         }
         bool requiresTokenAuthentication(int port) {
             std::lock_guard<std::mutex> _(allPasswordsMutex_);
@@ -1451,5 +1469,6 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
     std::unordered_map<ConnectionLocator, std::thread::native_handle_type> JsonRESTComponent::json_rest_threadHandles() {
         return impl_->json_rest_threadHandles();
     }
+    const std::string JsonRESTComponent::TOKEN_AUTHENTICATION_REQUEST = "/__API_AUTHENTICATION";
 
 } } } } }

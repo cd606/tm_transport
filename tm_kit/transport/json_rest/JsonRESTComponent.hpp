@@ -4,10 +4,18 @@
 #include <tm_kit/transport/json_rest/JsonRESTComponentException.hpp>
 #include <tm_kit/transport/ConnectionLocator.hpp>
 
+#include <tm_kit/basic/SerializationHelperMacros.hpp>
+
 #include <filesystem>
+
+#define JSON_REST_COMPONENT_TOKEN_AUTHENTICATION_REQUEST_FIELDS \
+    ((std::string, username)) \
+    ((std::string, password))
 
 namespace dev { namespace cd606 { namespace tm { namespace transport { namespace json_rest {
 
+    TM_BASIC_CBOR_CAPABLE_STRUCT(TokenAuthenticationRequest, JSON_REST_COMPONENT_TOKEN_AUTHENTICATION_REQUEST_FIELDS);
+    
     class JsonRESTComponentImpl;
 
     class JsonRESTComponent {
@@ -36,8 +44,14 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         void setDocRoot(int port, std::filesystem::path const &docRoot);
         void finalizeEnvironment();
         std::unordered_map<ConnectionLocator, std::thread::native_handle_type> json_rest_threadHandles();
+
+        static const std::string TOKEN_AUTHENTICATION_REQUEST;
     };
 
 } } } } }
+
+TM_BASIC_CBOR_CAPABLE_STRUCT_SERIALIZE(dev::cd606::tm::transport::json_rest::TokenAuthenticationRequest, JSON_REST_COMPONENT_TOKEN_AUTHENTICATION_REQUEST_FIELDS);
+
+#undef JSON_REST_COMPONENT_TOKEN_AUTHENTICATION_REQUEST_FIELDS
 
 #endif
