@@ -1291,7 +1291,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 respHead["alg"] = "BLAKE2b";
                 respHead["typ"] = "JWT";
                 respPayload["login"] = login;
-                respPayload["expiration"] = infra::withtime_utils::sinceEpoch<std::chrono::seconds>(std::chrono::system_clock::now())+600;
+                respPayload["expiration"] = infra::withtime_utils::sinceEpoch<std::chrono::seconds>(std::chrono::system_clock::now())+3600;
 
                 auto respHeadStr = base64URLEnc(respHead.dump());
                 auto respPayloadStr = base64URLEnc(respPayload.dump());
