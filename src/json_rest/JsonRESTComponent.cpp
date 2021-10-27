@@ -518,57 +518,20 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                             }
                             return;
                         }
-                        auto authResult = parent_->parent()->createAuthToken(parent_->port(), req_.body());
-                        if (!authResult) {
-                            auto *res = new boost::beast::http::response<boost::beast::http::string_body> {boost::beast::http::status::bad_request, req_.version()};
-                            res->set(boost::beast::http::field::server, BOOST_BEAST_VERSION_STRING);
-                            res->prepare_payload();
-                            if (stream_.index() == 1) {
-                                boost::beast::http::async_write(
-                                    std::get<1>(stream_)
-                                    , *res
-                                    , [x=shared_from_this(),res](boost::system::error_code const &write_ec, std::size_t bytes_written) {
-                                        delete res;
-                                        x->doRead();
-                                    }
-                                );
-                            } else {
-                                boost::beast::http::async_write(
-                                    std::get<2>(stream_)
-                                    , *res
-                                    , [x=shared_from_this(),res](boost::system::error_code const &write_ec, std::size_t bytes_written) {
-                                        delete res;
-                                        x->doRead();
-                                    }
-                                );
+                        
+                        parent_->parent()->createAuthToken(
+                            parent_->port()
+                            , req_.body()
+                            , req_.version()
+                            , req_.keep_alive()
+                            , [x=shared_from_this()](boost::beast::http::response<boost::beast::http::string_body> *p, std::string const &resp) {
+                                if (resp == "") {
+                                    x->writeEmptyRespWithoutClose(p);
+                                } else {
+                                    x->writeResp(p, resp);
+                                }
                             }
-                            return;
-                        }
-                        auto *res = new boost::beast::http::response<boost::beast::http::string_body> {boost::beast::http::status::ok, req_.version()};
-                        res->set(boost::beast::http::field::server, BOOST_BEAST_VERSION_STRING);
-                        res->set(boost::beast::http::field::content_type, "application/jwt");
-                        res->keep_alive(req_.keep_alive());
-                        res->body() = *authResult;
-                        res->prepare_payload();
-                        if (stream_.index() == 1) {
-                            boost::beast::http::async_write(
-                                std::get<1>(stream_)
-                                , *res
-                                , [x=shared_from_this(),res](boost::system::error_code const &write_ec, std::size_t bytes_written) {
-                                    delete res;
-                                    x->doClose(boost::beast::error_code());
-                                }
-                            );
-                        } else {
-                            boost::beast::http::async_write(
-                                std::get<2>(stream_)
-                                , *res
-                                , [x=shared_from_this(),res](boost::system::error_code const &write_ec, std::size_t bytes_written) {
-                                    delete res;
-                                    x->doClose(boost::beast::error_code());
-                                }
-                            );
-                        }
+                        );
                         return;
                     }
 
@@ -865,6 +828,28 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                             , [x=shared_from_this(),res](boost::system::error_code const &write_ec, std::size_t bytes_written) {
                                 delete res;
                                 x->doClose(boost::beast::error_code());
+                            }
+                        );
+                    }
+                }
+                void writeEmptyRespWithoutClose(boost::beast::http::response<boost::beast::http::string_body> *res) {
+                    res->prepare_payload();
+                    if (stream_.index() == 1) {
+                        boost::beast::http::async_write(
+                            std::get<1>(stream_)
+                            , *res
+                            , [x=shared_from_this(),res](boost::system::error_code const &write_ec, std::size_t bytes_written) {
+                                delete res;
+                                x->doRead();
+                            }
+                        );
+                    } else {
+                        boost::beast::http::async_write(
+                            std::get<2>(stream_)
+                            , *res
+                            , [x=shared_from_this(),res](boost::system::error_code const &write_ec, std::size_t bytes_written) {
+                                delete res;
+                                x->doRead();
                             }
                         );
                     }
@@ -1241,7 +1226,10 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             ret.resize(decodeRes.first);
             return ret;
         }
-        std::optional<std::string> createAuthToken(int port, std::string const &authReqBody) {
+        std::optional<std::string> createAuthToken_internal(
+            int port
+            , std::string const &authReqBody
+        ) {
             try {
                 nlohmann::json parsedBody = nlohmann::json::parse(authReqBody);
                 if (parsedBody.is_null()) {
@@ -1317,6 +1305,34 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             } catch (...) {
                 return std::nullopt;
             }
+        }
+        void createAuthToken(
+            int port
+            , std::string const &authReqBody
+            , unsigned version
+            , bool keepAlive
+            , std::function<void(
+                boost::beast::http::response<boost::beast::http::string_body> *
+                , std::string const &
+            )> const &writer
+        ) {
+            std::thread th([this,port,authReqBody,version,keepAlive,writer]() {
+                auto token = createAuthToken_internal(port, authReqBody);
+                if (!token) {
+                    auto *res = new boost::beast::http::response<boost::beast::http::string_body> {boost::beast::http::status::bad_request, version};
+                    res->set(boost::beast::http::field::server, BOOST_BEAST_VERSION_STRING);
+                    res->keep_alive(keepAlive);
+                    writer(res, "");
+                    return;
+                } else {
+                    auto *res = new boost::beast::http::response<boost::beast::http::string_body> {boost::beast::http::status::ok, version};
+                    res->set(boost::beast::http::field::server, BOOST_BEAST_VERSION_STRING);
+                    res->set(boost::beast::http::field::content_type, "application/jwt");
+                    res->keep_alive(keepAlive);
+                    writer(res, *token);
+                }
+            });
+            th.detach();
         }
         std::optional<std::string> checkTokenAuthentication(int port, std::string const &authToken) {
             try {
