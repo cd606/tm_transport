@@ -572,6 +572,11 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                         return;
                     }
 
+                    HandlerFunc handler;
+                    if (req_.method() == boost::beast::http::verb::post || req_.method() == boost::beast::http::verb::get) {
+                        handler = parent_->parent()->getHandler(parent_->port(), pathStr);
+                    }
+
                     auto auth = req_[boost::beast::http::field::authorization];
                     std::string authStr {auth.data(), auth.size()};
                     
@@ -623,31 +628,38 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                         }
                         login = *checkResLogin;
                     } else if (parent_->parent()->requiresTokenAuthentication(parent_->port())) {
-                        auto *res = new boost::beast::http::response<boost::beast::http::string_body> {boost::beast::http::status::unauthorized, req_.version()};
-                        res->set(boost::beast::http::field::server, BOOST_BEAST_VERSION_STRING);
-                        res->set(boost::beast::http::field::www_authenticate, "Bearer realm=\""+parent_->realm()+"\"");
-                        res->prepare_payload();
-                        if (stream_.index() == 1) {
-                            boost::beast::http::async_write(
-                                std::get<1>(stream_)
-                                , *res
-                                , [x=shared_from_this(),res](boost::system::error_code const &write_ec, std::size_t bytes_written) {
-                                    delete res;
-                                    x->doRead();
-                                }
-                            );
-                        } else {
-                            boost::beast::http::async_write(
-                                std::get<2>(stream_)
-                                , *res
-                                , [x=shared_from_this(),res](boost::system::error_code const &write_ec, std::size_t bytes_written) {
-                                    delete res;
-                                    x->doRead();
-                                }
-                            );
+                        //if token authentication is needed, but the request is for a static file
+                        //, we don't enforce authentication.
+                        //on the other hand, for dynamic content, we do enforce that.
+                        if (handler) {
+                            auto *res = new boost::beast::http::response<boost::beast::http::string_body> {boost::beast::http::status::unauthorized, req_.version()};
+                            res->set(boost::beast::http::field::server, BOOST_BEAST_VERSION_STRING);
+                            res->set(boost::beast::http::field::www_authenticate, "Bearer realm=\""+parent_->realm()+"\"");
+                            res->prepare_payload();
+                            if (stream_.index() == 1) {
+                                boost::beast::http::async_write(
+                                    std::get<1>(stream_)
+                                    , *res
+                                    , [x=shared_from_this(),res](boost::system::error_code const &write_ec, std::size_t bytes_written) {
+                                        delete res;
+                                        x->doRead();
+                                    }
+                                );
+                            } else {
+                                boost::beast::http::async_write(
+                                    std::get<2>(stream_)
+                                    , *res
+                                    , [x=shared_from_this(),res](boost::system::error_code const &write_ec, std::size_t bytes_written) {
+                                        delete res;
+                                        x->doRead();
+                                    }
+                                );
+                            }
+                            return;
                         }
-                        return;
                     } else if (!parent_->parent()->checkBasicAuthentication(parent_->port(), login, password)) {
+                        //if basic authentication is needed, then we want it even for
+                        //static files
                         auto *res = new boost::beast::http::response<boost::beast::http::string_body> {boost::beast::http::status::unauthorized, req_.version()};
                         res->set(boost::beast::http::field::server, BOOST_BEAST_VERSION_STRING);
                         res->set(boost::beast::http::field::www_authenticate, "Basic realm=\""+parent_->realm()+"\"");
@@ -674,10 +686,6 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                         return;
                     }
 
-                    HandlerFunc handler;
-                    if (req_.method() == boost::beast::http::verb::post || req_.method() == boost::beast::http::verb::get) {
-                        handler = parent_->parent()->getHandler(parent_->port(), pathStr);
-                    }
                     if (!handler) {
                         std::optional<std::tuple<std::filesystem::path,std::string>> fileMappingRes = std::nullopt;
                         if (req_.method() == boost::beast::http::verb::get || req_.method() == boost::beast::http::verb::head) {
