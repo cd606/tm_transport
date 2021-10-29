@@ -4,6 +4,8 @@
 #include <tm_kit/infra/RealTimeApp.hpp>
 #include <tm_kit/infra/AppClassifier.hpp>
 
+#include <tm_kit/basic/StructFieldInfoBasedCsvUtils.hpp>
+
 #include <tm_kit/transport/json_rest/JsonRESTComponent.hpp>
 #include <tm_kit/transport/AbstractIdentityCheckerComponent.hpp>
 
@@ -13,11 +15,39 @@
 #include <sstream>
 #include <mutex>
 #include <condition_variable>
+#include <iomanip>
 
 namespace dev { namespace cd606 { namespace tm { namespace transport { namespace json_rest {
 
     struct RawStringMark {};
     using RawString = basic::SingleLayerWrapperWithTypeMark<RawStringMark, std::string>;
+
+    class JsonRESTClientFacilityFactoryUtils {
+    private:
+        static std::array<bool, 128> createUnreservedCharactersArray() {
+            std::array<bool, 128> ret;
+            for (int ii=0; ii<128; ++ii) {
+                char c = (char) ii;
+                ret[ii] = std::isalnum(c) || (c == '-') || (c == '.') || (c == '_') || (c == '~');
+            }
+            return ret;
+        }
+    public:
+        static void urlEscape(std::ostream &os, std::string const &input) {
+            static std::array<bool,128> unreservedCharacters = createUnreservedCharactersArray();
+            for (char c : input) {
+                if (c == ' ') {
+                    os << '+';
+                } else if ((int) c < 0 || (int) c >= 128) {
+                    os << '%' << std::setw(2) << std::setfill('0') << std::hex << std::uppercase << (unsigned) c;
+                } else if (!unreservedCharacters[(int) c]) {
+                    os << '%' << std::setw(2) << std::setfill('0') << std::hex << std::uppercase << (unsigned) c;
+                } else {
+                    os << c;
+                }
+            }
+        }
+    };
 
     template <class M, typename=std::enable_if_t<
         infra::app_classification_v<M> == infra::AppClassification::RealTime
@@ -56,6 +86,8 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 {
                 private:
                     ConnectionLocator locator_;
+                    bool useGet_;
+                    bool noRequestResponseWrap_;
                 public:
                     LocalF(ConnectionLocator const &locator)
                         : M::IExternalComponent()
@@ -65,6 +97,14 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                             , LocalF 
                         >()
                         , locator_(locator)
+                        , useGet_(
+                            (locator.query("use_get", "false") == "true")
+                            && 
+                            basic::struct_field_info_utils::IsStructFieldInfoBasedCsvCompatibleStruct<Req>
+                        )
+                        , noRequestResponseWrap_(
+                            locator.query("no_wrap", "false") == "true"
+                        )
                     {
                         this->startThread();
                     }
@@ -72,14 +112,37 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                     }
                     void actuallyHandle(typename M::template InnerData<typename M::template Key<Req>> &&req) {
                         auto id = req.timedData.value.id();
-                        
+
                         nlohmann::json sendData;
-                        basic::nlohmann_json_interop::JsonEncoder<Req>::write(sendData, "request", req.timedData.value.key());
+                        std::ostringstream oss;
+                        if constexpr (basic::struct_field_info_utils::IsStructFieldInfoBasedCsvCompatibleStruct<Req>) {
+                            if (useGet_) {
+                                bool start = true;
+                                basic::struct_field_info_utils::StructFieldInfoBasedSimpleCsvOutput<Req>
+                                    ::outputNameValuePairs(
+                                        req.timedData.value.key()
+                                        , [&start,&oss](std::string const &name, std::string const &value) {
+                                            if (!start) {
+                                                oss << '&';
+                                            }
+                                            JsonRESTClientFacilityFactoryUtils::urlEscape(oss, name);
+                                            oss << '=';
+                                            JsonRESTClientFacilityFactoryUtils::urlEscape(oss, value);
+                                            start = false;
+                                        }
+                                    );
+                            } else {
+                                basic::nlohmann_json_interop::JsonEncoder<Req>::write(sendData, (noRequestResponseWrap_?std::nullopt:std::optional<std::string> {"request"}), req.timedData.value.key());
+                            }
+                        } else {
+                            basic::nlohmann_json_interop::JsonEncoder<Req>::write(sendData, (noRequestResponseWrap_?std::nullopt:std::optional<std::string> {"request"}), req.timedData.value.key());
+                        }
 
                         auto *env = req.environment;
                         env->JsonRESTComponent::addJsonRESTClient(
                             locator_
-                            , sendData.dump()
+                            , (useGet_?oss.str():"")
+                            , (useGet_?"":sendData.dump())
                             , [this,env,id=std::move(id)](std::string &&response) mutable {
                                 if constexpr (std::is_same_v<Resp, RawString>) {
                                     this->publish(
@@ -95,7 +158,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                                         nlohmann::json x = nlohmann::json::parse(response);
                                         Resp resp;
                                         basic::nlohmann_json_interop::Json<Resp *> r(&resp);
-                                        if (r.fromNlohmannJson(x["response"])) {
+                                        if (r.fromNlohmannJson(noRequestResponseWrap_?x:x["response"])) {
                                             this->publish(
                                                 env 
                                                 , typename M::template Key<Resp> {
@@ -133,13 +196,44 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                         throw JsonRESTComponentException("json rest typed one shot remote call does not work when the request has non-string identity");
                     }
                 } 
+                bool useGet = (
+                    (rpcQueueLocator.query("use_get", "false") == "true")
+                    && 
+                    basic::struct_field_info_utils::IsStructFieldInfoBasedCsvCompatibleStruct<Req>
+                );
+                bool noRequestResponseWrap = (
+                    rpcQueueLocator.query("no_wrap", "false") == "true"
+                );
                 auto ret = std::make_shared<std::promise<Resp>>();
                 nlohmann::json sendData;
-                basic::nlohmann_json_interop::JsonEncoder<Req>::write(sendData, "request", request);
+                std::ostringstream oss;
+                if constexpr (basic::struct_field_info_utils::IsStructFieldInfoBasedCsvCompatibleStruct<Req>) {
+                    if (useGet) {
+                        bool start = true;
+                        basic::struct_field_info_utils::StructFieldInfoBasedSimpleCsvOutput<Req>
+                            ::outputNameValuePairs(
+                                request
+                                , [&start,&oss](std::string const &name, std::string const &value) {
+                                    if (!start) {
+                                        oss << '&';
+                                    }
+                                    JsonRESTClientFacilityFactoryUtils::urlEscape(oss, name);
+                                    oss << '=';
+                                    JsonRESTClientFacilityFactoryUtils::urlEscape(oss, value);
+                                    start = false;
+                                }
+                            );
+                    } else {
+                        basic::nlohmann_json_interop::JsonEncoder<Req>::write(sendData, (noRequestResponseWrap?std::nullopt:std::optional<std::string> {"request"}), request);
+                    }
+                } else {
+                    basic::nlohmann_json_interop::JsonEncoder<Req>::write(sendData, (noRequestResponseWrap?std::nullopt:std::optional<std::string> {"request"}), request);
+                }
                 env->JsonRESTComponent::addJsonRESTClient(
                     rpcQueueLocator
-                    , sendData.dump()
-                    , [ret,env](std::string &&response) mutable {
+                    , (useGet?oss.str():"")
+                    , (useGet?"":sendData.dump())
+                    , [ret,env,noRequestResponseWrap](std::string &&response) mutable {
                         if constexpr (std::is_same_v<Resp, RawString>) {
                             ret->set_value({std::move(response)});
                         } else {
@@ -147,7 +241,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                                 nlohmann::json x = nlohmann::json::parse(response);
                                 Resp resp;
                                 basic::nlohmann_json_interop::Json<Resp *> r(&resp);
-                                if (r.fromNlohmannJson(x["response"])) {
+                                if (r.fromNlohmannJson(noRequestResponseWrap?x:x["response"])) {
                                     ret->set_value(std::move(resp));
                                 }
                             } catch (...) {

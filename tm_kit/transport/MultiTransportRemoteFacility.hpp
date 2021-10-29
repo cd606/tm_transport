@@ -602,25 +602,67 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                             basic::nlohmann_json_interop::JsonWrappable<B>::value
                         ) {
                             try {
-                                auto req = [this,env,locator](std::string const &id, A &&data) {
+                                bool useGet = (
+                                    (locator.query("use_get", "false") == "true")
+                                    && 
+                                    basic::struct_field_info_utils::IsStructFieldInfoBasedCsvCompatibleStruct<A>
+                                );
+                                bool noRequestResponseWrap = (
+                                    locator.query("no_wrap", "false") == "true"
+                                );
+                                auto req = [this,env,locator,useGet,noRequestResponseWrap](std::string const &id, A &&data) {
                                     nlohmann::json sendData;
-                                    basic::nlohmann_json_interop::JsonEncoder<A>::write(sendData, "request", data);
+                                    std::ostringstream oss;
+                                    if constexpr (basic::struct_field_info_utils::IsStructFieldInfoBasedCsvCompatibleStruct<A>) {
+                                        if (useGet) {
+                                            bool start = true;
+                                            basic::struct_field_info_utils::StructFieldInfoBasedSimpleCsvOutput<A>
+                                                ::outputNameValuePairs(
+                                                    data
+                                                    , [&start,&oss](std::string const &name, std::string const &value) {
+                                                        if (!start) {
+                                                            oss << '&';
+                                                        }
+                                                        json_rest::JsonRESTClientFacilityFactoryUtils::urlEscape(oss, name);
+                                                        oss << '=';
+                                                        json_rest::JsonRESTClientFacilityFactoryUtils::urlEscape(oss, value);
+                                                        start = false;
+                                                    }
+                                                );
+                                        } else {
+                                            basic::nlohmann_json_interop::JsonEncoder<A>::write(sendData, (noRequestResponseWrap?std::nullopt:std::optional<std::string> {"request"}), data);
+                                        }
+                                    } else {
+                                        basic::nlohmann_json_interop::JsonEncoder<A>::write(sendData, (noRequestResponseWrap?std::nullopt:std::optional<std::string> {"request"}), data);
+                                    }
                                     env->json_rest::JsonRESTComponent::addJsonRESTClient(
                                         locator
-                                        , sendData.dump()
-                                        , [this,env,id](std::string &&response) mutable {
-                                            nlohmann::json x = nlohmann::json::parse(response);
-                                            Output resp;
-                                            basic::nlohmann_json_interop::Json<Output *> r(&resp);
-                                            if (r.fromNlohmannJson(x["response"])) {
+                                        , (useGet?oss.str():"")
+                                        , (useGet?"":sendData.dump())
+                                        , [this,env,id,noRequestResponseWrap](std::string &&response) mutable {
+                                            if constexpr (std::is_same_v<B, json_rest::RawString>) {
                                                 this->FacilityParent::publish(
                                                     env
                                                     , typename M::template Key<Output> {
                                                         Env::id_from_string(id)
-                                                        , std::move(resp)
+                                                        , Output {std::move(response)}
                                                     }
                                                     , true
                                                 );
+                                            } else {
+                                                nlohmann::json x = nlohmann::json::parse(response);
+                                                Output resp;
+                                                basic::nlohmann_json_interop::Json<Output *> r(&resp);
+                                                if (r.fromNlohmannJson(noRequestResponseWrap?x:x["response"])) {
+                                                    this->FacilityParent::publish(
+                                                        env
+                                                        , typename M::template Key<Output> {
+                                                            Env::id_from_string(id)
+                                                            , std::move(resp)
+                                                        }
+                                                        , true
+                                                    );
+                                                }
                                             }
                                         }
                                     );

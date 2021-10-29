@@ -49,6 +49,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         private:
             JsonRESTComponentImpl *parent_;
             ConnectionLocator locator_;
+            std::string urlQueryPart_;
             std::string request_;
             std::function<void(std::string &&)> callback_;
 
@@ -71,6 +72,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             OneClient(
                 JsonRESTComponentImpl *parent
                 , ConnectionLocator const &locator
+                , std::string &&urlQueryPart
                 , std::string &&request
                 , std::function<void(std::string &&)> const &callback
                 , boost::asio::io_context *svc
@@ -79,6 +81,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             )
                 : parent_(parent)
                 , locator_(locator)
+                , urlQueryPart_(std::move(urlQueryPart))
                 , request_(std::move(request))
                 , callback_(callback)
                 , svc_(svc)
@@ -128,10 +131,20 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             ~OneClient() {
             }
             void run() {
-                req_.method(boost::beast::http::verb::post);
+                bool useGet = (urlQueryPart_.length() > 0 && request_.length() == 0);
+                req_.method(
+                    useGet
+                    ?
+                    boost::beast::http::verb::get
+                    :
+                    boost::beast::http::verb::post
+                );
                 std::string target = locator_.identifier();
                 if (!boost::starts_with(target, "/")) {
                     target = "/"+target;
+                }
+                if (urlQueryPart_.length() > 0) {
+                    target = target+"?"+urlQueryPart_;
                 }
                 req_.target(target);
                 req_.set(boost::beast::http::field::host, locator_.host());
@@ -1019,7 +1032,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 clientThread_.join();
             } catch (...) {}
         }
-        void addJsonRESTClient(ConnectionLocator const &locator, std::string &&request, std::function<
+        void addJsonRESTClient(ConnectionLocator const &locator, std::string &&urlQueryPart, std::string &&request, std::function<
             void(std::string &&)
         > const &clientCallback
         , TLSClientConfigurationComponent const *config
@@ -1027,6 +1040,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             auto client = std::make_shared<OneClient>(
                 this
                 , locator
+                , std::move(urlQueryPart)
                 , std::move(request)
                 , clientCallback 
                 , &clientSvc_
@@ -1462,10 +1476,10 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
     JsonRESTComponent::JsonRESTComponent(JsonRESTComponent &&) = default;
     JsonRESTComponent &JsonRESTComponent::operator=(JsonRESTComponent &&) = default;
     JsonRESTComponent::~JsonRESTComponent() = default;
-    void JsonRESTComponent::addJsonRESTClient(ConnectionLocator const &locator, std::string &&request, std::function<
+    void JsonRESTComponent::addJsonRESTClient(ConnectionLocator const &locator, std::string &&urlQueryPart, std::string &&request, std::function<
         void(std::string &&)
     > const &clientCallback) {
-        impl_->addJsonRESTClient(locator, std::move(request), clientCallback, dynamic_cast<TLSClientConfigurationComponent const *>(this), dynamic_cast<basic::LoggingComponentBase *>(this));
+        impl_->addJsonRESTClient(locator, std::move(urlQueryPart), std::move(request), clientCallback, dynamic_cast<TLSClientConfigurationComponent const *>(this), dynamic_cast<basic::LoggingComponentBase *>(this));
     }
     void JsonRESTComponent::registerHandler(ConnectionLocator const &locator, std::function<
         bool(std::string const &, std::string const &, std::unordered_map<std::string, std::vector<std::string>> const &, std::function<void(std::string const &)> const &)

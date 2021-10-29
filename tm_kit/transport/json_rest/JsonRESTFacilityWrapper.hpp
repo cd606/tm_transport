@@ -44,9 +44,14 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             auto importer = std::get<0>(triggerImporterPair);
             r.registerImporter(wrapperItemsNamePrefix+"/importer", importer);
 
+            bool noRequestResponseWrap = (
+                locator.query("no_wrap", "false") == "true"
+            );
+
             class LocalHandler {
             private:
                 Env *env_;
+                bool noRequestResponseWrap_;
                 std::function<void(typename M::template Key<Req> &&)> triggerFunc_;
                 std::unordered_map<
                     typename Env::IDType
@@ -55,8 +60,8 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 > cbMap_;
                 std::mutex mutex_;
             public:
-                LocalHandler(Env *env, std::function<void(typename M::template Key<Req> &&)> const &triggerFunc) 
-                    : env_(env), triggerFunc_(triggerFunc), cbMap_(), mutex_() {}
+                LocalHandler(Env *env, bool noRequestResponseWrap, std::function<void(typename M::template Key<Req> &&)> const &triggerFunc) 
+                    : env_(env), noRequestResponseWrap_(noRequestResponseWrap), triggerFunc_(triggerFunc), cbMap_(), mutex_() {}
                 bool handleRequest(
                     std::string const &login
                     , std::string const &requestBody
@@ -68,7 +73,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                             auto incomingJson = nlohmann::json::parse(requestBody);
                             Req req;
                             basic::nlohmann_json_interop::Json<Req *> j(&req);
-                            if (j.fromNlohmannJson(incomingJson["request"])) {
+                            if (j.fromNlohmannJson(noRequestResponseWrap_?incomingJson:incomingJson["request"])) {
                                 if constexpr (basic::struct_field_info_utils::IsStructFieldInfoBasedCsvCompatibleStruct<Req>) {
                                     for (auto const &item : queryMap) {
                                         if (item.second.size() == 1) {
@@ -138,14 +143,14 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                     }
                     basic::nlohmann_json_interop::Json<Resp *> j(&(resp.data));
                     nlohmann::json respObj;
-                    j.toNlohmannJson(respObj["response"]);
+                    j.toNlohmannJson(noRequestResponseWrap_?respObj:respObj["response"]);
                     (iter->second)(respObj.dump());
                     cbMap_.erase(iter);
                 }
             };
 
             auto handler = std::make_shared<LocalHandler>(
-                r.environment(), std::get<1>(triggerImporterPair)
+                r.environment(), noRequestResponseWrap, std::get<1>(triggerImporterPair)
             );
             r.preservePointer(handler);
             auto exporter = M::template pureExporter<
@@ -193,9 +198,14 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             auto importer = std::get<0>(triggerImporterPair);
             r.registerImporter(wrapperItemsNamePrefix+"/importer", importer);
 
+            bool noRequestResponseWrap = (
+                locator.query("no_wrap", "false") == "true"
+            );
+
             class LocalHandler {
             private:
                 Env *env_;
+                bool noRequestResponseWrap_;
                 std::function<void(typename M::template Key<std::tuple<std::string,Req>> &&)> triggerFunc_;
                 std::unordered_map<
                     typename Env::IDType
@@ -204,8 +214,8 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 > cbMap_;
                 std::mutex mutex_;
             public:
-                LocalHandler(Env *env, std::function<void(typename M::template Key<std::tuple<std::string,Req>> &&)> const &triggerFunc) 
-                    : env_(env), triggerFunc_(triggerFunc), cbMap_(), mutex_() {}
+                LocalHandler(Env *env, bool noRequestResponseWrap, std::function<void(typename M::template Key<std::tuple<std::string,Req>> &&)> const &triggerFunc) 
+                    : env_(env), noRequestResponseWrap_(noRequestResponseWrap), triggerFunc_(triggerFunc), cbMap_(), mutex_() {}
                 bool handleRequest(
                     std::string const &login
                     , std::string const &requestBody
@@ -217,7 +227,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                             auto incomingJson = nlohmann::json::parse(requestBody);
                             Req req;
                             basic::nlohmann_json_interop::Json<Req *> j(&req);
-                            if (j.fromNlohmannJson(incomingJson["request"])) {
+                            if (j.fromNlohmannJson(noRequestResponseWrap_?incomingJson:incomingJson["request"])) {
                                 if constexpr (basic::struct_field_info_utils::IsStructFieldInfoBasedCsvCompatibleStruct<Req>) {
                                     for (auto const &item : queryMap) {
                                         if (item.second.size() == 1) {
@@ -287,14 +297,14 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                     }
                     basic::nlohmann_json_interop::Json<Resp *> j(&(resp.data));
                     nlohmann::json respObj;
-                    j.toNlohmannJson(respObj["response"]);
+                    j.toNlohmannJson(noRequestResponseWrap_?respObj:respObj["response"]);
                     (iter->second)(respObj.dump());
                     cbMap_.erase(iter);
                 }
             };
 
             auto handler = std::make_shared<LocalHandler>(
-                r.environment(), std::get<1>(triggerImporterPair)
+                r.environment(), noRequestResponseWrap, std::get<1>(triggerImporterPair)
             );
             r.preservePointer(handler);
             auto exporter = M::template pureExporter<
