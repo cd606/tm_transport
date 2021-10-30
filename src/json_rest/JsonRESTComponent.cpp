@@ -532,7 +532,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                             return;
                         }
                         
-                        parent_->parent()->createAuthToken(
+                        parent_->parent()->scheduleCreateAuthToken(
                             parent_->port()
                             , req_.body()
                             , req_.version()
@@ -1018,8 +1018,79 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             )}).first;
             iter->second->run();
         }
+
+        struct OneTokenReq {
+            std::string authReqBody;
+            unsigned version;
+            bool keepAlive;
+            std::function<void(
+                boost::beast::http::response<boost::beast::http::string_body> *
+                , std::string const &
+            )> writer;
+        };
+
+        class OneTokenThreadData {
+        private:
+            JsonRESTComponentImpl *parent_;
+            int port_;
+            std::thread th_;
+            std::atomic<bool> running_;
+            std::list<std::unique_ptr<OneTokenReq>> incoming_, processing_;
+            std::condition_variable cond_;
+            std::mutex mutex_;
+
+            void run() {
+                running_ = true;
+                while (running_) {
+                    std::unique_lock<std::mutex> lock(mutex_);
+                    cond_.wait_for(lock, std::chrono::milliseconds(10));
+                    if (!running_) {
+                        lock.unlock();
+                        break;
+                    }
+                    if (incoming_.empty()) {
+                        lock.unlock();
+                        continue;
+                    }
+                    processing_.splice(processing_.end(), incoming_);
+                    lock.unlock();
+                    while (!processing_.empty()) {
+                        auto &x = processing_.front();
+                        parent_->createAuthToken(
+                            port_, x->authReqBody, x->version, x->keepAlive, x->writer
+                        );
+                        processing_.pop_front();
+                    }
+                }
+            }
+        public:
+            OneTokenThreadData(JsonRESTComponentImpl *parent, int port) : parent_(parent), port_(port), th_(), running_(false), incoming_(), processing_(), cond_(), mutex_() {
+                th_ = std::thread([this]() {
+                    run();
+                });
+                th_.detach();
+            }
+            ~OneTokenThreadData() {
+                running_ = false;
+                try {
+                    if (th_.joinable()) {
+                        th_.join();
+                    }
+                } catch (...) {}
+            }
+            void addRequest(OneTokenReq &&request) {
+                {
+                    std::lock_guard<std::mutex> _(mutex_);
+                    incoming_.push_back(std::make_unique<OneTokenReq>(std::move(request)));
+                }
+                cond_.notify_one();
+            }
+        };
+        std::unordered_map<int, std::unique_ptr<OneTokenThreadData>> tokenThreads_;
+        std::mutex tokenThreadMutex_;
+        
     public:
-        JsonRESTComponentImpl() : handlerMap_(), handlerMapMutex_(), docRootMap_(), docRootMapMutex_(), started_(false), clientSet_(), clientSetMutex_(), clientSvc_(), clientThread_(), acceptorMap_(), acceptorMapMutex_(), allPasswords_(), tokenPasswords_(), allPasswordsMutex_() {
+        JsonRESTComponentImpl() : handlerMap_(), handlerMapMutex_(), docRootMap_(), docRootMapMutex_(), started_(false), clientSet_(), clientSetMutex_(), clientSvc_(), clientThread_(), acceptorMap_(), acceptorMapMutex_(), allPasswords_(), tokenPasswords_(), allPasswordsMutex_(), tokenThreads_(), tokenThreadMutex_() {
             clientThread_ = std::thread([this]() {
                 boost::asio::io_context::work work(clientSvc_);
                 clientSvc_.run();
@@ -1330,23 +1401,46 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 , std::string const &
             )> const &writer
         ) {
-            std::thread th([this,port,authReqBody,version,keepAlive,writer]() {
-                auto token = createAuthToken_internal(port, authReqBody);
-                if (!token) {
-                    auto *res = new boost::beast::http::response<boost::beast::http::string_body> {boost::beast::http::status::bad_request, version};
-                    res->set(boost::beast::http::field::server, BOOST_BEAST_VERSION_STRING);
-                    res->keep_alive(keepAlive);
-                    writer(res, "");
-                    return;
-                } else {
-                    auto *res = new boost::beast::http::response<boost::beast::http::string_body> {boost::beast::http::status::ok, version};
-                    res->set(boost::beast::http::field::server, BOOST_BEAST_VERSION_STRING);
-                    res->set(boost::beast::http::field::content_type, "application/jwt");
-                    res->keep_alive(keepAlive);
-                    writer(res, *token);
+            auto token = createAuthToken_internal(port, authReqBody);
+            if (!token) {
+                auto *res = new boost::beast::http::response<boost::beast::http::string_body> {boost::beast::http::status::bad_request, version};
+                res->set(boost::beast::http::field::server, BOOST_BEAST_VERSION_STRING);
+                res->keep_alive(keepAlive);
+                writer(res, "");
+                return;
+            } else {
+                auto *res = new boost::beast::http::response<boost::beast::http::string_body> {boost::beast::http::status::ok, version};
+                res->set(boost::beast::http::field::server, BOOST_BEAST_VERSION_STRING);
+                res->set(boost::beast::http::field::content_type, "application/jwt");
+                res->keep_alive(keepAlive);
+                writer(res, *token);
+            }
+        }
+        void scheduleCreateAuthToken(
+            int port
+            , std::string const &authReqBody
+            , unsigned version
+            , bool keepAlive
+            , std::function<void(
+                boost::beast::http::response<boost::beast::http::string_body> *
+                , std::string const &
+            )> const &writer
+        ) {
+            OneTokenThreadData *p = nullptr;
+            {
+                std::lock_guard<std::mutex> _(tokenThreadMutex_);
+                auto iter = tokenThreads_.find(port);
+                if (iter == tokenThreads_.end()) {
+                    iter = tokenThreads_.insert({port, std::make_unique<OneTokenThreadData>(this, port)}).first;
                 }
+                p = iter->second.get();
+            }
+            p->addRequest(OneTokenReq {
+                authReqBody 
+                , version 
+                , keepAlive
+                , writer
             });
-            th.detach();
         }
         std::optional<std::string> checkTokenAuthentication(int port, std::string const &authToken) {
             try {
