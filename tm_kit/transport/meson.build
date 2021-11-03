@@ -25,6 +25,7 @@ tm_transport_headers = [
       , 'MultiTransportTouchups.hpp'
       , 'TLSConfigurationComponent.hpp'
       , 'HostNameUtil.hpp'
+      , 'ConvertChainIDStringToGroup.hpp'
     ]
   
 install_headers(tm_transport_headers, subdir : 'tm_kit/transport')
