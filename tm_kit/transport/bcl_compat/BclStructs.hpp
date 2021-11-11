@@ -3,6 +3,7 @@
 
 #include <tm_kit/basic/ProtoInterop.hpp>
 #include <tm_kit/basic/SerializationHelperMacros.hpp>
+#include <tm_kit/basic/ConvertibleWithString.hpp>
 #include <tm_kit/basic/PrintHelper.hpp>
 
 #include <tm_kit/transport/bcl_compat/Guid.hpp>
@@ -139,6 +140,9 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         BclDecimal() : value_(0) {}
         BclDecimal(boost::multiprecision::cpp_dec_float_100 const &value) : value_(value) {}
         BclDecimal(boost::multiprecision::cpp_dec_float_100 &&value) : value_(std::move(value)) {}
+        BclDecimal(std::string const &valueInStringFormat) : value_(valueInStringFormat) {}
+        template <class T, typename=std::enable_if_t<std::is_arithmetic_v<T>>>
+        BclDecimal(T const &t) : value_(boost::lexical_cast<std::string>(t)) {}
         BclDecimal(BclDecimal const &) = default;
         BclDecimal(BclDecimal &&) = default;
         BclDecimal &operator=(BclDecimal const &) = default;
@@ -151,6 +155,15 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         }
         BclDecimal &operator=(boost::multiprecision::cpp_dec_float_100 &&value) {
             value_ = std::move(value);
+            return *this;
+        }
+        BclDecimal &operator=(std::string const &s) {
+            value_ = boost::multiprecision::cpp_dec_float_100(s);
+            return *this;
+        }
+        template <class T, typename=std::enable_if_t<std::is_arithmetic_v<T>>>
+        BclDecimal &operator=(T const &t) {
+            value_ = boost::multiprecision::cpp_dec_float_100(boost::lexical_cast<std::string>(t));
             return *this;
         }
         bool operator==(BclDecimal const &d) const {
@@ -167,6 +180,43 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         }
         typename boost::multiprecision::cpp_dec_float_100 const *operator->() const {
             return &value_;
+        }
+        BclDecimal &operator+=(BclDecimal const &other) {
+            value_ += other.value_;
+            return *this;
+        }
+        BclDecimal &operator-=(BclDecimal const &other) {
+            value_ -= other.value_;
+            return *this;
+        }
+        BclDecimal &operator*=(BclDecimal const &other) {
+            value_ *= other.value_;
+            return *this;
+        }
+        BclDecimal &operator/=(BclDecimal const &other) {
+            value_ /= other.value_;
+            return *this;
+        }
+        BclDecimal &operator++() {
+            ++value_;
+            return *this;
+        }
+        BclDecimal operator+(BclDecimal const &other) const {
+            return BclDecimal(value_+other.value_);
+        }
+        BclDecimal operator-(BclDecimal const &other) const {
+            return BclDecimal(value_-other.value_);
+        }
+        BclDecimal operator*(BclDecimal const &other) const {
+            return BclDecimal(value_*other.value_);
+        }
+        BclDecimal operator/(BclDecimal const &other) const {
+            return BclDecimal(value_/other.value_);
+        }
+        BclDecimal operator++(int) const {
+            BclDecimal x(*this);
+            ++x;
+            return x;
         }
         BclDecimalProto toProto() const {
             BclDecimalProtoWrapper w;
@@ -229,6 +279,28 @@ namespace dev { namespace cd606 { namespace tm { namespace basic {
     public:
         static void print(std::ostream &os, transport::bcl_compat::BclDecimal const &value) {
             os << *value;
+        }
+    };
+    template <class Env>
+    class ConvertibleWithString<transport::bcl_compat::BclGuid<Env>> {
+    public:
+        static constexpr bool value = true; 
+        static std::string toString(transport::bcl_compat::BclGuid<Env> const &id) {
+            return Env::id_to_string(*id);
+        }
+        static transport::bcl_compat::BclGuid<Env> fromString(std::string_view const &s) {
+            return Env::id_from_string(std::string(s));
+        }
+    };
+    template <>
+    class ConvertibleWithString<transport::bcl_compat::BclDecimal> {
+    public:
+        static constexpr bool value = true; 
+        static std::string toString(transport::bcl_compat::BclDecimal const &data) {
+            return data->convert_to<std::string>();
+        }
+        static transport::bcl_compat::BclDecimal fromString(std::string_view const &s) {
+            return transport::bcl_compat::BclDecimal(std::string(s));
         }
     };
     namespace bytedata_utils {

@@ -146,6 +146,8 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         std::atomic<bool> watchThreadRunning_;
         std::thread watchThread_;
 
+        std::condition_variable notificationCond_;
+
         redisContext *redisCtx_;
         std::mutex redisMutex_;
 
@@ -203,6 +205,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                         if (updateTriggerFunc_) {
                             updateTriggerFunc_();
                         }
+                        notificationCond_.notify_all();
                     }
                     watchStream->Read(&watchResponse, (void *)3);  
                     break;
@@ -284,6 +287,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             , channel_(config.etcdChannel?config.etcdChannel:(EtcdChainConfiguration().InsecureEtcdServerAddr().etcdChannel))
             , stub_(etcdserverpb::KV::NewStub(channel_))
             , latestModRevision_(0), watchThreadRunning_(false), watchThread_()
+            , notificationCond_()
             , redisCtx_(nullptr), redisMutex_()
             , hookPair_(hookPair)
         {
@@ -789,6 +793,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                     auto rev = txnResp.responses(2).response_put().header().revision();
                     if (configuration_.useWatchThread) {
                         latestModRevision_.store(rev, std::memory_order_release);
+                        notificationCond_.notify_all();
                     }
                     if (configuration_.automaticallyDuplicateToRedis) {
                         duplicateToRedis(rev, current.id, (current.data?*(current.data):T{}), toBeWritten.id);     
@@ -826,6 +831,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                     auto rev = txnResp.responses(1).response_put().header().revision();
                     if (configuration_.useWatchThread) {
                         latestModRevision_.store(rev, std::memory_order_release);
+                        notificationCond_.notify_all();
                     }
                     if (configuration_.automaticallyDuplicateToRedis) {
                         duplicateToRedis(rev, current.id, (current.data?*(current.data):T{}), toBeWritten.id);     
@@ -913,6 +919,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                     auto rev = txnResp.responses(txnResp.responses_size()-1).response_put().header().revision();
                     if (configuration_.useWatchThread) {
                         latestModRevision_.store(rev, std::memory_order_release);
+                        notificationCond_.notify_all();
                     }
                     if (configuration_.automaticallyDuplicateToRedis) {
                         duplicateToRedis(rev, current.id, (current.data?*(current.data):T{}), toBeWritten[0].id);     
@@ -967,6 +974,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                     auto rev = txnResp.responses(txnResp.responses_size()-1).response_put().header().revision();
                     if (configuration_.useWatchThread) {
                         latestModRevision_.store(rev, std::memory_order_release);
+                        notificationCond_.notify_all();
                     }
                     if (configuration_.automaticallyDuplicateToRedis) {
                         duplicateToRedis(rev, current.id, (current.data?*(current.data):T{}), toBeWritten[0].id);     
@@ -1087,6 +1095,16 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         }
         static std::string_view extractStorageIDStringView(ItemType const &p) {
             return std::string_view {p.id};
+        }
+        void waitForUpdate(std::chrono::system_clock::duration const &duration) {
+            if (configuration_.useWatchThread) {
+                std::mutex mut;
+                std::unique_lock<std::mutex> lock(mut);
+                notificationCond_.wait_for(lock, duration);
+                lock.unlock();
+            } else {
+                std::this_thread::sleep_for(duration);
+            }
         }
     };
 

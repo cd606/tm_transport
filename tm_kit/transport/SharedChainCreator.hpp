@@ -312,13 +312,14 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
             , std::optional<ByteDataHookPair> hookPair
             , std::string const &memoryName
             , std::size_t memorySize
+            , bool useNotification
         ) {
             return getChain<T>(
                 name 
-                , [env,hookPair,memoryName,memorySize]() {
+                , [env,hookPair,memoryName,memorySize,useNotification]() {
                     return new T(memoryName, memorySize, DefaultHookFactory<typename App::EnvironmentType>::template supplyFacilityHookPair_SingleType<typename T::DataType>(
                         env, hookPair
-                    ));
+                    ), useNotification);
                 }
             );
         }
@@ -414,6 +415,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                         bool useName = (locator.query("useName", "false") == "true");                       
                         bool dataLockIsNamedMutex = (locator.query("dataLock", "named") == "named");
                         std::string extraDataLockType = locator.query("extraDataLock", "named");
+                        bool useNotification = (locator.query("useNotification", "false") == "true");
                         if (useName) {
                             if (dataLockIsNamedMutex) {
                                 if (extraDataLockType == "spin") {
@@ -445,6 +447,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                                         , hookPair
                                         , memoryName
                                         , memorySize
+                                        , useNotification
                                     );
                                     if constexpr (std::is_same_v<typename Action::Result, void>) {
                                         std::move(action).template invoke<std::remove_pointer_t<decltype(chain)>>(env, chain);
@@ -480,6 +483,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                                         , hookPair
                                         , memoryName
                                         , memorySize
+                                        , useNotification
                                     );
                                     if constexpr (std::is_same_v<typename Action::Result, void>) {
                                         std::move(action).template invoke<std::remove_pointer_t<decltype(chain)>>(env, chain);
@@ -515,6 +519,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                                         , hookPair
                                         , memoryName
                                         , memorySize
+                                        , useNotification
                                     );
                                     if constexpr (std::is_same_v<typename Action::Result, void>) {
                                         std::move(action).template invoke<std::remove_pointer_t<decltype(chain)>>(env, chain);
@@ -552,6 +557,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                                         , hookPair
                                         , memoryName
                                         , memorySize
+                                        , useNotification
                                     );
                                     if constexpr (std::is_same_v<typename Action::Result, void>) {
                                         std::move(action).template invoke<std::remove_pointer_t<decltype(chain)>>(env, chain);
@@ -587,6 +593,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                                         , hookPair
                                         , memoryName
                                         , memorySize
+                                        , useNotification
                                     );
                                     if constexpr (std::is_same_v<typename Action::Result, void>) {
                                         std::move(action).template invoke<std::remove_pointer_t<decltype(chain)>>(env, chain);
@@ -622,6 +629,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                                         , hookPair
                                         , memoryName
                                         , memorySize
+                                        , useNotification
                                     );
                                     if constexpr (std::is_same_v<typename Action::Result, void>) {
                                         std::move(action).template invoke<std::remove_pointer_t<decltype(chain)>>(env, chain);
@@ -661,6 +669,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                                         , hookPair
                                         , memoryName
                                         , memorySize
+                                        , useNotification
                                     );
                                     if constexpr (std::is_same_v<typename Action::Result, void>) {
                                         std::move(action).template invoke<std::remove_pointer_t<decltype(chain)>>(env, chain);
@@ -696,6 +705,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                                         , hookPair
                                         , memoryName
                                         , memorySize
+                                        , useNotification
                                     );
                                     if constexpr (std::is_same_v<typename Action::Result, void>) {
                                         std::move(action).template invoke<std::remove_pointer_t<decltype(chain)>>(env, chain);
@@ -731,6 +741,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                                         , hookPair
                                         , memoryName
                                         , memorySize
+                                        , useNotification
                                     );
                                     if constexpr (std::is_same_v<typename Action::Result, void>) {
                                         std::move(action).template invoke<std::remove_pointer_t<decltype(chain)>>(env, chain);
@@ -768,6 +779,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                                         , hookPair
                                         , memoryName
                                         , memorySize
+                                        , useNotification
                                     );
                                     if constexpr (std::is_same_v<typename Action::Result, void>) {
                                         std::move(action).template invoke<std::remove_pointer_t<decltype(chain)>>(env, chain);
@@ -803,6 +815,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                                         , hookPair
                                         , memoryName
                                         , memorySize
+                                        , useNotification
                                     );
                                     if constexpr (std::is_same_v<typename Action::Result, void>) {
                                         std::move(action).template invoke<std::remove_pointer_t<decltype(chain)>>(env, chain);
@@ -838,6 +851,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                                         , hookPair
                                         , memoryName
                                         , memorySize
+                                        , useNotification
                                     );
                                     if constexpr (std::is_same_v<typename Action::Result, void>) {
                                         std::move(action).template invoke<std::remove_pointer_t<decltype(chain)>>(env, chain);
@@ -861,7 +875,8 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                         if (sizeStr != "") {
                             memorySize = static_cast<std::size_t>(std::stoull(sizeStr));
                         }
-                        bool useName = (locator.query("useName", "false") == "true");                       
+                        bool useName = (locator.query("useName", "false") == "true");  
+                        bool useNotification = (locator.query("useNotification", "false") == "true");                     
                         if (useName) {
                             using C = lock_free_in_memory_shared_chain::LockFreeInBoostSharedMemoryChain<
                                 ChainData
@@ -885,6 +900,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                                 , hookPair
                                 , memoryName
                                 , memorySize
+                                , useNotification
                             );
                             if constexpr (std::is_same_v<typename Action::Result, void>) {
                                 std::move(action).template invoke<std::remove_pointer_t<decltype(chain)>>(env, chain);
@@ -914,6 +930,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                                 , hookPair
                                 , memoryName
                                 , memorySize
+                                , useNotification
                             );
                             if constexpr (std::is_same_v<typename Action::Result, void>) {
                                 std::move(action).template invoke<std::remove_pointer_t<decltype(chain)>>(env, chain);

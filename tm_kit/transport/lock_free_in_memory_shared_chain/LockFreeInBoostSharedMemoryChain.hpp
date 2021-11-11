@@ -14,6 +14,9 @@
 #include <boost/interprocess/managed_shared_memory.hpp>
 #endif
 #include <boost/interprocess/sync/named_mutex.hpp>
+#include <boost/interprocess/sync/interprocess_condition.hpp>
+#include <boost/interprocess/sync/interprocess_mutex.hpp>
+#include <boost/date_time/posix_time/posix_time.hpp>
 
 namespace dev { namespace cd606 { namespace tm { namespace transport { namespace lock_free_in_memory_shared_chain {
     struct SharedMemoryChainComponent {};
@@ -328,6 +331,8 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         BoostSharedMemoryStorageItem<T, ForceSeparate> *head_;
         std::optional<ByteDataHookPair> hookPair_;
         BoostSharedMemoryChainDataLock<DLS> dataLock_;
+
+        boost::interprocess::interprocess_condition *notificationCond_;
     public:
         using StorageIDType = std::string;
         using DataType = T;
@@ -423,7 +428,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             };
         }
     public:
-        LockFreeInBoostSharedMemoryChain(std::string const &name, std::size_t sharedMemorySize, std::optional<ByteDataHookPair> hookPair=std::nullopt) :
+        LockFreeInBoostSharedMemoryChain(std::string const &name, std::size_t sharedMemorySize, std::optional<ByteDataHookPair> hookPair=std::nullopt, bool useNotification=false) :
             mem_(
                 boost::interprocess::open_or_create
                 , name.c_str()
@@ -433,12 +438,16 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             , head_(nullptr)
             , hookPair_(ForceSeparate?hookPair:std::nullopt)
             , dataLock_(name, "chain_data", &mem_)
+            , notificationCond_(nullptr)
         {
             if constexpr (ForceSeparate || !std::is_trivially_copyable_v<T>) {
                 head_ = mem_.find_or_construct<BoostSharedMemoryStorageItem<T, ForceSeparate>>("head")();
                 head_->data = 0;
             } else {
                 head_ = mem_.find_or_construct<BoostSharedMemoryStorageItem<T, ForceSeparate>>(boost::interprocess::unique_instance)();
+            }
+            if (useNotification) {
+                notificationCond_ = mem_.find_or_construct<boost::interprocess::interprocess_condition>(boost::interprocess::unique_instance)();
             }
         }
         ItemType head(void *) {
@@ -486,6 +495,9 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             if (!ret) {
                 destroyItem(std::move(toBeWritten));
             }
+            if (notificationCond_) {
+                notificationCond_->notify_all();
+            }
             return ret;
         }
         bool appendAfter(ItemType const &current, std::vector<ItemType> &&toBeWritten) {
@@ -512,6 +524,9 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             );
             if (!ret) {
                 destroyItem(std::move(toBeWritten[0]));
+            }
+            if (notificationCond_) {
+                notificationCond_->notify_all();
             }
             return ret;
         }
@@ -789,6 +804,21 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         void releaseLock() {
             dataLock_.unlock();
         }
+        void waitForUpdate(std::chrono::system_clock::duration const &d) {
+            if (notificationCond_) {
+                boost::interprocess::interprocess_mutex mut;
+                boost::interprocess::scoped_lock<boost::interprocess::interprocess_mutex> lock(mut);
+                notificationCond_->timed_wait(
+                    lock
+                    , boost::posix_time::microsec_clock::universal_time()
+                      +boost::posix_time::microseconds(
+                          std::chrono::duration_cast<std::chrono::microseconds>(d).count()
+                      )
+                );
+            } else {
+                std::this_thread::sleep_for(d);
+            }
+        }
     };
 
     template <class T, BoostSharedMemoryChainExtraDataProtectionStrategy EDPS, bool ForceSeparate, BoostSharedMemoryChainDataLockStrategy DLS>
@@ -809,6 +839,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         BoostSharedMemoryStorageItem<T, ForceSeparate> *head_;
         std::optional<ByteDataHookPair> hookPair_;
         BoostSharedMemoryChainDataLock<DLS> dataLock_;
+        boost::interprocess::interprocess_condition *notificationCond_;
     public:
         using StorageIDType = std::ptrdiff_t;
         using DataType = T;
@@ -904,7 +935,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             }
         }
     public:
-        LockFreeInBoostSharedMemoryChain(std::string const &name, std::size_t sharedMemorySize, std::optional<ByteDataHookPair> hookPair=std::nullopt) :
+        LockFreeInBoostSharedMemoryChain(std::string const &name, std::size_t sharedMemorySize, std::optional<ByteDataHookPair> hookPair=std::nullopt, bool useNotification=false) :
             mem_(
                 boost::interprocess::open_or_create
                 , name.c_str()
@@ -914,12 +945,16 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             , head_(nullptr)
             , hookPair_(ForceSeparate?hookPair:std::nullopt)
             , dataLock_(name, "chain_data", &mem_)
+            , notificationCond_(nullptr)
         {
             if constexpr (ForceSeparate || !std::is_trivially_copyable_v<T>) {
                 head_ = mem_.find_or_construct<BoostSharedMemoryStorageItem<T, ForceSeparate>>("head")();
                 head_->data = 0;
             } else {
                 head_ = mem_.find_or_construct<BoostSharedMemoryStorageItem<T, ForceSeparate>>(boost::interprocess::unique_instance)();
+            }
+            if (useNotification) {
+                notificationCond_ = mem_.find_or_construct<boost::interprocess::interprocess_condition>(boost::interprocess::unique_instance)();
             }
         }
         ItemType head(void *) {
@@ -975,6 +1010,9 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             if (!ret) {
                 destroyItem(std::move(toBeWritten));
             }
+            if (notificationCond_) {
+                notificationCond_->notify_all();
+            }
             return ret;
         }
         bool appendAfter(ItemType const &current, std::vector<ItemType> &&toBeWritten) {
@@ -1001,6 +1039,9 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             );
             if (!ret) {
                 destroyItem(std::move(toBeWritten[0]));
+            }
+            if (notificationCond_) {
+                notificationCond_->notify_all();
             }
             return ret;
         }
@@ -1282,6 +1323,21 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         }
         void releaseLock() {
             dataLock_.unlock();
+        }
+        void waitForUpdate(std::chrono::system_clock::duration const &d) {
+            if (notificationCond_) {
+                boost::interprocess::interprocess_mutex mut;
+                boost::interprocess::scoped_lock<boost::interprocess::interprocess_mutex> lock(mut);
+                notificationCond_->timed_wait(
+                    lock
+                    , boost::posix_time::microsec_clock::universal_time()
+                      +boost::posix_time::microseconds(
+                          std::chrono::duration_cast<std::chrono::microseconds>(d).count()
+                      )
+                );
+            } else {
+                std::this_thread::sleep_for(d);
+            }
         }
     };
 
