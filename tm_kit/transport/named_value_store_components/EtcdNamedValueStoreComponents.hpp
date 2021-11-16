@@ -54,6 +54,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                     return std::nullopt;
                 } else if (kv.key() == storagePrefix_+":"+lockNumberKey_) {
                     //do nothing
+                    return std::nullopt;
                 } else if (boost::starts_with(kv.key(), storagePrefix_+":")) {
                     std::string realKey = kv.key().substr(storagePrefix_.length()+1);
                     if (eventType == mvccpb::Event::PUT) {
