@@ -122,25 +122,25 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                             , this
                         )
                     ));
-                    if constexpr (GRPC_VERSION_STRING < "1.41.0") {
-                        experimental().MarkMethodCallback(
-                            0
-                            , new grpc::internal::CallbackServerStreamingHandler<Req, Resp>(
-                                [this](grpc::CallbackServerContext *ctx, const Req *req) {
-                                    return this->serviceFunc(ctx, req);
-                                }
-                            )
-                        );
-                    } else {
-                        MarkMethodCallback(
-                            0
-                            , new grpc::internal::CallbackServerStreamingHandler<Req, Resp>(
-                                [this](grpc::CallbackServerContext *ctx, const Req *req) {
-                                    return this->serviceFunc(ctx, req);
-                                }
-                            )
-                        );
-                    }
+                #if (TM_KIT_TRANSPORT_GRPC_INTEROP_GRPC_VERSION_INFO_MAJOR_VERSION <= 1 && TM_KIT_TRANSPORT_GRPC_INTEROP_GRPC_VERSION_INFO_MINOR_VERSION < 41)
+                    experimental().MarkMethodCallback(
+                        0
+                        , new grpc::internal::CallbackServerStreamingHandler<Req, Resp>(
+                            [this](grpc::CallbackServerContext *ctx, const Req *req) {
+                                return this->serviceFunc(ctx, req);
+                            }
+                        )
+                    );
+                #else
+                    MarkMethodCallback(
+                        0
+                        , new grpc::internal::CallbackServerStreamingHandler<Req, Resp>(
+                            [this](grpc::CallbackServerContext *ctx, const Req *req) {
+                                return this->serviceFunc(ctx, req);
+                            }
+                        )
+                    );
+                #endif
                 }
                 grpc::ServerWriteReactor<Resp> *serviceFunc(grpc::CallbackServerContext *ctx, const Req *req) {
                     std::lock_guard<std::mutex> _(mutex_);
@@ -290,25 +290,25 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                             , this
                         )
                     ));
-                    if constexpr (GRPC_VERSION_STRING < "1.41.0") {
-                        experimental().MarkMethodCallback(
-                            0
-                            , new grpc::internal::CallbackServerStreamingHandler<Req, Resp>(
-                                [this](grpc::CallbackServerContext *ctx, const Req *req) {
-                                    return this->serviceFunc(ctx, req);
-                                }
-                            )
-                        );
-                    } else {
-                        MarkMethodCallback(
-                            0
-                            , new grpc::internal::CallbackServerStreamingHandler<Req, Resp>(
-                                [this](grpc::CallbackServerContext *ctx, const Req *req) {
-                                    return this->serviceFunc(ctx, req);
-                                }
-                            )
-                        );
-                    }
+                #if (TM_KIT_TRANSPORT_GRPC_INTEROP_GRPC_VERSION_INFO_MAJOR_VERSION <= 1 && TM_KIT_TRANSPORT_GRPC_INTEROP_GRPC_VERSION_INFO_MINOR_VERSION < 41)
+                    experimental().MarkMethodCallback(
+                        0
+                        , new grpc::internal::CallbackServerStreamingHandler<Req, Resp>(
+                            [this](grpc::CallbackServerContext *ctx, const Req *req) {
+                                return this->serviceFunc(ctx, req);
+                            }
+                        )
+                    );
+                #else
+                    MarkMethodCallback(
+                        0
+                        , new grpc::internal::CallbackServerStreamingHandler<Req, Resp>(
+                            [this](grpc::CallbackServerContext *ctx, const Req *req) {
+                                return this->serviceFunc(ctx, req);
+                            }
+                        )
+                    );
+                #endif
                 }
                 grpc::ServerWriteReactor<Resp> *serviceFunc(grpc::CallbackServerContext *ctx, const Req *req) {
                     auto auth = ctx->auth_context();
