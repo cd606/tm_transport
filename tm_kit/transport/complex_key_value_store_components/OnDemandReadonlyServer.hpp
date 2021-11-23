@@ -122,6 +122,40 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 }
             );
         }
+
+        template <class ItemKey, class ItemData, class QueryType>
+        static auto dynamicDataQueryFacility(
+            std::shared_ptr<soci::session> const &session
+            , std::string const &selectMainPart
+            , std::function<std::string(QueryType &&)> dynamicWhereFunc
+        ) -> std::shared_ptr<typename M::template OnOrderFacility<QueryType, basic::transaction::complex_key_value_store::FullDataResult<ItemKey,ItemData>>>
+        {
+            using KF = basic::struct_field_info_utils::StructFieldInfoBasedDataFiller<ItemKey>;
+            using DF = basic::struct_field_info_utils::StructFieldInfoBasedDataFiller<ItemData>;
+            auto x = selectMainPart;
+            if (!boost::starts_with(boost::to_upper_copy(boost::trim_copy(x)), "FROM ")) {
+                x = "FROM "+x;
+            }
+            std::string query = ("SELECT "+KF::commaSeparatedFieldNames()+", "+DF::commaSeparatedFieldNames()+" "+x);
+            return M::template liftPureOnOrderFacility<QueryType>(
+                [query,session,dynamicWhereFunc](QueryType &&q) 
+                    -> basic::transaction::complex_key_value_store::FullDataResult<ItemKey,ItemData>
+                {
+                    try {
+                        std::string fullQuery = query+" WHERE "+dynamicWhereFunc(std::move(q));
+                        soci::rowset<soci::row> res = 
+                            session->prepare << fullQuery;
+                        basic::transaction::complex_key_value_store::FullDataResult<ItemKey,ItemData> ret;
+                        for (auto const &r : res) {
+                            ret.insert({KF::retrieveData(r,0), DF::retrieveData(r,KF::FieldCount)});
+                        }
+                        return ret;
+                    } catch (soci::soci_error const &) {
+                        return {};
+                    }
+                }
+            );
+        }
     };
 
 }}}}}
