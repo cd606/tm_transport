@@ -54,10 +54,10 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         }
     public:
         template <class ItemKey, class ItemData>
-        static auto keyBasedQueryFacility(
+        static auto keyBasedQueryFunc(
             std::shared_ptr<soci::session> const &session
             , std::function<std::string(std::string const &)> selectMainPartFromCriteria
-        ) -> std::shared_ptr<typename M::template OnOrderFacility<ItemKey, basic::transaction::complex_key_value_store::KeyBasedQueryResult<ItemData>>>
+        )
         {
             using DBDataStorage = basic::transaction::complex_key_value_store::as_collection::Collection<ItemKey,ItemData>;
             using KF = basic::struct_field_info_utils::StructFieldInfoBasedDataFiller<ItemKey>;
@@ -67,35 +67,46 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 x = "FROM "+x;
             }
             std::string query = "SELECT "+DF::commaSeparatedFieldNames()+" "+x;
-            return M::template liftPureOnOrderFacility<ItemKey>(
-                [query,session](ItemKey &&k) -> basic::transaction::complex_key_value_store::KeyBasedQueryResult<ItemData>
-                {
-                    try {
-                        soci::row r;
-                        soci::statement stmt(*session);
-                        stmt.alloc();
-                        stmt.prepare(query);
-                        stmt.exchange(soci::into(r));
-                        OnDemandReadonlyServer<M>::template sociBindWhereClause<ItemKey>(stmt, k);
-                        stmt.define_and_bind();
-                        stmt.execute(false);
-                        if (stmt.fetch()) {
-                            return {DF::retrieveData(r)};
-                        } else {
-                            return {std::nullopt};
-                        }
-                    } catch (soci::soci_error const &) {
+            return [query,session](ItemKey &&k) -> basic::transaction::complex_key_value_store::KeyBasedQueryResult<ItemData>
+            {
+                try {
+                    soci::row r;
+                    soci::statement stmt(*session);
+                    stmt.alloc();
+                    stmt.prepare(query);
+                    stmt.exchange(soci::into(r));
+                    OnDemandReadonlyServer<M>::template sociBindWhereClause<ItemKey>(stmt, k);
+                    stmt.define_and_bind();
+                    stmt.execute(false);
+                    if (stmt.fetch()) {
+                        return {DF::retrieveData(r)};
+                    } else {
                         return {std::nullopt};
                     }
+                } catch (soci::soci_error const &) {
+                    return {std::nullopt};
                 }
+            };
+        }
+
+        template <class ItemKey, class ItemData>
+        static auto keyBasedQueryFacility(
+            std::shared_ptr<soci::session> const &session
+            , std::function<std::string(std::string const &)> selectMainPartFromCriteria
+        ) -> std::shared_ptr<typename M::template OnOrderFacility<ItemKey, basic::transaction::complex_key_value_store::KeyBasedQueryResult<ItemData>>>
+        {
+            return M::template liftPureOnOrderFacility<ItemKey>(
+                keyBasedQueryFunc<ItemKey,ItemData>(
+                    session, selectMainPartFromCriteria
+                )
             );
         }
 
         template <class ItemKey, class ItemData, class QueryType=basic::VoidStruct>
-        static auto fullDataQueryFacility(
+        static auto fullDataQueryFunc(
             std::shared_ptr<soci::session> const &session
             , std::string const &selectMainPart
-        ) -> std::shared_ptr<typename M::template OnOrderFacility<QueryType, basic::transaction::complex_key_value_store::FullDataResult<ItemKey,ItemData>>>
+        ) 
         {
             using KF = basic::struct_field_info_utils::StructFieldInfoBasedDataFiller<ItemKey>;
             using DF = basic::struct_field_info_utils::StructFieldInfoBasedDataFiller<ItemData>;
@@ -104,23 +115,66 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 x = "FROM "+x;
             }
             std::string query = ("SELECT "+KF::commaSeparatedFieldNames()+", "+DF::commaSeparatedFieldNames()+" "+x);
-            return M::template liftPureOnOrderFacility<QueryType>(
-                [query,session](QueryType &&) 
-                    -> basic::transaction::complex_key_value_store::FullDataResult<ItemKey,ItemData>
-                {
-                    try {
-                        soci::rowset<soci::row> res = 
-                            session->prepare << query;
-                        basic::transaction::complex_key_value_store::FullDataResult<ItemKey,ItemData> ret;
-                        for (auto const &r : res) {
-                            ret.insert({KF::retrieveData(r,0), DF::retrieveData(r,KF::FieldCount)});
-                        }
-                        return ret;
-                    } catch (soci::soci_error const &) {
-                        return {};
+            return [query,session](QueryType &&) 
+                -> basic::transaction::complex_key_value_store::FullDataResult<ItemKey,ItemData>
+            {
+                try {
+                    soci::rowset<soci::row> res = 
+                        session->prepare << query;
+                    basic::transaction::complex_key_value_store::FullDataResult<ItemKey,ItemData> ret;
+                    for (auto const &r : res) {
+                        ret.insert({KF::retrieveData(r,0), DF::retrieveData(r,KF::FieldCount)});
                     }
+                    return ret;
+                } catch (soci::soci_error const &) {
+                    return {};
                 }
+            };
+        }
+
+        template <class ItemKey, class ItemData, class QueryType=basic::VoidStruct>
+        static auto fullDataQueryFacility(
+            std::shared_ptr<soci::session> const &session
+            , std::string const &selectMainPart
+        ) -> std::shared_ptr<typename M::template OnOrderFacility<QueryType, basic::transaction::complex_key_value_store::FullDataResult<ItemKey,ItemData>>>
+        {
+            return M::template liftPureOnOrderFacility<QueryType>(
+                fullDataQueryFunc<ItemKey,ItemData,QueryType>(
+                    session, selectMainPart
+                )
             );
+        }
+
+        template <class ItemKey, class ItemData, class QueryType>
+        static auto dynamicDataQueryFunc(
+            std::shared_ptr<soci::session> const &session
+            , std::string const &selectMainPart
+            , std::function<std::string(QueryType &&)> dynamicWhereFunc
+        ) 
+        {
+            using KF = basic::struct_field_info_utils::StructFieldInfoBasedDataFiller<ItemKey>;
+            using DF = basic::struct_field_info_utils::StructFieldInfoBasedDataFiller<ItemData>;
+            auto x = selectMainPart;
+            if (!boost::starts_with(boost::to_upper_copy(boost::trim_copy(x)), "FROM ")) {
+                x = "FROM "+x;
+            }
+            std::string query = ("SELECT "+KF::commaSeparatedFieldNames()+", "+DF::commaSeparatedFieldNames()+" "+x);
+            return [query,session,dynamicWhereFunc](QueryType &&q) 
+                -> basic::transaction::complex_key_value_store::FullDataResult<ItemKey,ItemData>
+            {
+                try {
+                    std::string fullQuery = query+" WHERE "+dynamicWhereFunc(std::move(q));
+                    soci::rowset<soci::row> res = 
+                        session->prepare << fullQuery;
+                    basic::transaction::complex_key_value_store::FullDataResult<ItemKey,ItemData> ret;
+                    for (auto const &r : res) {
+                        ret.insert({KF::retrieveData(r,0), DF::retrieveData(r,KF::FieldCount)});
+                    }
+                    return ret;
+                } catch (soci::soci_error const &) {
+                    return {};
+                }
+            };
         }
 
         template <class ItemKey, class ItemData, class QueryType>
@@ -130,30 +184,10 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             , std::function<std::string(QueryType &&)> dynamicWhereFunc
         ) -> std::shared_ptr<typename M::template OnOrderFacility<QueryType, basic::transaction::complex_key_value_store::FullDataResult<ItemKey,ItemData>>>
         {
-            using KF = basic::struct_field_info_utils::StructFieldInfoBasedDataFiller<ItemKey>;
-            using DF = basic::struct_field_info_utils::StructFieldInfoBasedDataFiller<ItemData>;
-            auto x = selectMainPart;
-            if (!boost::starts_with(boost::to_upper_copy(boost::trim_copy(x)), "FROM ")) {
-                x = "FROM "+x;
-            }
-            std::string query = ("SELECT "+KF::commaSeparatedFieldNames()+", "+DF::commaSeparatedFieldNames()+" "+x);
             return M::template liftPureOnOrderFacility<QueryType>(
-                [query,session,dynamicWhereFunc](QueryType &&q) 
-                    -> basic::transaction::complex_key_value_store::FullDataResult<ItemKey,ItemData>
-                {
-                    try {
-                        std::string fullQuery = query+" WHERE "+dynamicWhereFunc(std::move(q));
-                        soci::rowset<soci::row> res = 
-                            session->prepare << fullQuery;
-                        basic::transaction::complex_key_value_store::FullDataResult<ItemKey,ItemData> ret;
-                        for (auto const &r : res) {
-                            ret.insert({KF::retrieveData(r,0), DF::retrieveData(r,KF::FieldCount)});
-                        }
-                        return ret;
-                    } catch (soci::soci_error const &) {
-                        return {};
-                    }
-                }
+                dynamicDataQueryFunc<ItemKey,ItemData,QueryType>(
+                    session, selectMainPart, dynamicWhereFunc
+                )
             );
         }
     };
