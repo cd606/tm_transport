@@ -196,6 +196,57 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 )
             );
         }
+
+        template <class RowType, class QueryType>
+        static auto dynamicDataQueryFunc_VectorVersion(
+            std::shared_ptr<soci::session> const &session
+            , std::string const &selectMainPart
+            , std::function<std::string(QueryType &&)> dynamicWhereFunc
+        ) 
+        {
+            using DF = basic::struct_field_info_utils::StructFieldInfoBasedDataFiller<RowType>;
+            auto x = selectMainPart;
+            
+            std::string query;
+            if (boost::starts_with(boost::to_upper_copy(boost::trim_copy(x)), "SELECT ")) {
+                query = x;
+            } else {
+                if (!boost::starts_with(boost::to_upper_copy(boost::trim_copy(x)), "FROM ")) {
+                    x = "FROM "+x;
+                }
+                query = ("SELECT "+DF::commaSeparatedFieldNames()+" "+x);
+            }
+            return [query,session,dynamicWhereFunc](QueryType &&q) 
+                -> std::vector<RowType>
+            {
+                try {
+                    std::string fullQuery = query+" WHERE "+dynamicWhereFunc(std::move(q));
+                    soci::rowset<soci::row> res = 
+                        session->prepare << fullQuery;
+                    std::vector<RowType> ret;
+                    for (auto const &r : res) {
+                        ret.push_back(DF::retrieveData(r,0));
+                    }
+                    return ret;
+                } catch (soci::soci_error const &) {
+                    return {};
+                }
+            };
+        }
+
+        template <class RowType, class QueryType>
+        static auto dynamicDataQueryFacility_VectorVersion(
+            std::shared_ptr<soci::session> const &session
+            , std::string const &selectMainPart
+            , std::function<std::string(QueryType &&)> dynamicWhereFunc
+        ) -> std::shared_ptr<typename M::template OnOrderFacility<QueryType, std::vector<RowType>>>
+        {
+            return M::template liftPureOnOrderFacility<QueryType>(
+                dynamicDataQueryFunc_VectorVersion<RowType,QueryType>(
+                    session, selectMainPart, dynamicWhereFunc
+                )
+            );
+        }
     };
 
 }}}}}
