@@ -155,10 +155,16 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             using KF = basic::struct_field_info_utils::StructFieldInfoBasedDataFiller<ItemKey>;
             using DF = basic::struct_field_info_utils::StructFieldInfoBasedDataFiller<ItemData>;
             auto x = selectMainPart;
-            if (!boost::starts_with(boost::to_upper_copy(boost::trim_copy(x)), "FROM ")) {
-                x = "FROM "+x;
+            
+            std::string query;
+            if (boost::starts_with(boost::to_upper_copy(boost::trim_copy(x)), "SELECT ")) {
+                query = x;
+            } else {
+                if (!boost::starts_with(boost::to_upper_copy(boost::trim_copy(x)), "FROM ")) {
+                    x = "FROM "+x;
+                }
+                query = ("SELECT "+KF::commaSeparatedFieldNames()+", "+DF::commaSeparatedFieldNames()+" "+x);
             }
-            std::string query = ("SELECT "+KF::commaSeparatedFieldNames()+", "+DF::commaSeparatedFieldNames()+" "+x);
             return [query,session,dynamicWhereFunc](QueryType &&q) 
                 -> basic::transaction::complex_key_value_store::FullDataResult<ItemKey,ItemData>
             {
