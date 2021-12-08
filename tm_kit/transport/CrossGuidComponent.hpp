@@ -88,7 +88,7 @@ namespace dev { namespace cd606 { namespace tm { namespace basic { namespace pro
         static constexpr uint64_t nextFieldNumber(uint64_t inputFieldNumber) {
             return inputFieldNumber+1;
         }
-        static void write(std::optional<uint64_t> fieldNumber, xg::Guid const &id, std::ostream &os, bool writeDefaultValue) {
+        static void write(std::optional<uint64_t> fieldNumber, xg::Guid const &id, std::ostream &os, bool /*writeDefaultValue*/) {
             ProtoEncoder<std::string>::write(fieldNumber, (std::string) id, os, false);
         }
     };
@@ -138,7 +138,7 @@ namespace dev { namespace cd606 { namespace tm { namespace basic { namespace nlo
     template <>
     class JsonDecoder<xg::Guid, void> {
     public:
-        static bool read(nlohmann::json const &input, std::optional<std::string> const &key, xg::Guid &data, JsonFieldMapping const &mapping=JsonFieldMapping {}) {
+        static bool read(nlohmann::json const &input, std::optional<std::string> const &key, xg::Guid &data, JsonFieldMapping const &/*mapping*/=JsonFieldMapping {}) {
             auto const &i = (key?input.at(*key):input);
             if (i.is_null()) {
                 data = xg::Guid {};

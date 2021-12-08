@@ -164,7 +164,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
     }
     struct MultiTransportBroadcastListenerRemoveAllSubscriptions {
     };
-    inline std::ostream &operator<<(std::ostream &os, MultiTransportBroadcastListenerRemoveAllSubscriptions const &x) {
+    inline std::ostream &operator<<(std::ostream &os, MultiTransportBroadcastListenerRemoveAllSubscriptions const &/*x*/) {
         os << "MultiTransportBroadcastListenerRemoveAllSubscriptions{"
             << '}';
         return os;
@@ -180,13 +180,13 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
     }
     struct MultiTransportBroadcastListenerRemoveSubscriptionResponse {
     };
-    inline std::ostream &operator<<(std::ostream &os, MultiTransportBroadcastListenerRemoveSubscriptionResponse const &x) {
+    inline std::ostream &operator<<(std::ostream &os, MultiTransportBroadcastListenerRemoveSubscriptionResponse const &/*x*/) {
         os << "MultiTransportBroadcastListenerRemoveSubscriptionResponse{}";
         return os;
     }
     struct MultiTransportBroadcastListenerRemoveAllSubscriptionsResponse {
     };
-    inline std::ostream &operator<<(std::ostream &os, MultiTransportBroadcastListenerRemoveAllSubscriptionsResponse const &x) {
+    inline std::ostream &operator<<(std::ostream &os, MultiTransportBroadcastListenerRemoveAllSubscriptionsResponse const &/*x*/) {
         os << "MultiTransportBroadcastListenerRemoveAllSubscriptionsResponse{}";
         return os;
     }
@@ -1182,13 +1182,13 @@ namespace dev { namespace cd606 { namespace tm { namespace basic { namespace byt
     };
     template <>
     struct RunCBORSerializer<transport::MultiTransportBroadcastListenerRemoveSubscriptionResponse, void> {
-        static std::string apply(transport::MultiTransportBroadcastListenerRemoveSubscriptionResponse const &x) {
+        static std::string apply(transport::MultiTransportBroadcastListenerRemoveSubscriptionResponse const &/*x*/) {
             return RunCBORSerializer<VoidStruct>::apply(VoidStruct {});
         }
-        static std::size_t apply(transport::MultiTransportBroadcastListenerRemoveSubscriptionResponse const &x, char *output) {
+        static std::size_t apply(transport::MultiTransportBroadcastListenerRemoveSubscriptionResponse const &/*x*/, char *output) {
             return RunCBORSerializer<VoidStruct>::apply(VoidStruct {}, output);
         }
-        static std::size_t calculateSize(transport::MultiTransportBroadcastListenerRemoveSubscriptionResponse const &x) {
+        static std::size_t calculateSize(transport::MultiTransportBroadcastListenerRemoveSubscriptionResponse const &/*x*/) {
             return RunCBORSerializer<VoidStruct>::calculateSize(VoidStruct {});
         }   
     };
@@ -1205,7 +1205,7 @@ namespace dev { namespace cd606 { namespace tm { namespace basic { namespace byt
                 return std::nullopt;
             }
         }
-        static std::optional<size_t> applyInPlace(transport::MultiTransportBroadcastListenerRemoveSubscriptionResponse &output, std::string_view const &data, size_t start) {
+        static std::optional<size_t> applyInPlace(transport::MultiTransportBroadcastListenerRemoveSubscriptionResponse &/*output*/, std::string_view const &data, size_t start) {
             auto t = RunCBORDeserializer<VoidStruct>::apply(data, start);
             if (t) {
                 return std::get<1>(*t);
