@@ -97,7 +97,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                         );
                     }
                 }
-                virtual void control(Env *env, std::string const &command, std::vector<std::string> const &params) override final {
+                virtual void control(Env *env, std::string const &command, std::vector<std::string> const &/*params*/) override final {
                     std::thread th([this,env,command]() {
                         if (command == "stop") {
                             std::lock_guard<std::mutex> _(mutex_);

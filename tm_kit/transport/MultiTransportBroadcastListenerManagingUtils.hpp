@@ -51,11 +51,11 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
     private:
         template <bool RemoveTopic, int CurrentIdx, class Input, class Output>
         static void setupBroadcastListeners_internal(
-             R &r
-            , Input const &specs
-            , std::string const &prefix
-            , std::function<std::optional<WireToUserHook>(std::string const &)> const &hookFactory
-            , Output &output
+             R &/*r*/
+            , Input const &/*specs*/
+            , std::string const &/*prefix*/
+            , std::function<std::optional<WireToUserHook>(std::string const &)> const &/*hookFactory*/
+            , Output &/*output*/
         )
         {}
         template <bool RemoveTopic, class FirstInputType>

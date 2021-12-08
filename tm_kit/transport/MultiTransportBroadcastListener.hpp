@@ -825,12 +825,12 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
         }
         ~MultiTransportBroadcastListener() {
         }
-        void start(Env *env) override final {
+        void start(Env */*env*/) override final {
         }
         void handle(typename M::template InnerData<typename M::template Key<MultiTransportBroadcastListenerInput>> &&input) override final {
             actuallyHandle(std::move(input));
         } 
-        void control(Env *env, std::string const &command, std::vector<std::string> const &params) override final {
+        void control(Env *env, std::string const &command, std::vector<std::string> const &/*params*/) override final {
             if (command == "stop") {
                 std::lock_guard<std::mutex> _(controlMutex_);
                 if (!stopped_) {
