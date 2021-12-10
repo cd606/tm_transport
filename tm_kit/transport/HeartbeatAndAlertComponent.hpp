@@ -36,7 +36,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
         HeartbeatAndAlertComponent();
         HeartbeatAndAlertComponent(basic::real_time_clock::ClockComponent *clock, std::string const &identity);
         HeartbeatAndAlertComponent(basic::real_time_clock::ClockComponent *clock, std::string const &identity, std::function<void(basic::ByteDataWithTopic &&)> pub);
-        ~HeartbeatAndAlertComponent();
+        virtual ~HeartbeatAndAlertComponent();
         HeartbeatAndAlertComponent(HeartbeatAndAlertComponent &&);
         HeartbeatAndAlertComponent &operator=(HeartbeatAndAlertComponent &&);
         void assignIdentity(HeartbeatAndAlertComponent &&);

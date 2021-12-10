@@ -26,6 +26,7 @@ tm_transport_headers = [
       , 'TLSConfigurationComponent.hpp'
       , 'HostNameUtil.hpp'
       , 'ConvertChainIDStringToGroup.hpp'
+      , 'AlertEnhancedLoggingComponent.hpp'
     ]
   
 install_headers(tm_transport_headers, subdir : 'tm_kit/transport')
