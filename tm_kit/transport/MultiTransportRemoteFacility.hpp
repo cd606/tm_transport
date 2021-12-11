@@ -1046,7 +1046,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                 if (underlyingSenders_.empty()) {
                     return;
                 }
-                int sz = underlyingSenders_.size();
+                int sz = (int) underlyingSenders_.size();
                 int idx = ((sz==1)?0:(std::rand()%sz));
                 (*(std::get<1>(underlyingSenders_[idx])))(
                     Env::id_to_string(input.timedData.value.id())

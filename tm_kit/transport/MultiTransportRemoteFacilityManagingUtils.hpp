@@ -78,14 +78,14 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
             , class Output
         >
         static void setupNonDistinguishedRemoteFacilitiesInternal(
-            R &r
+            R &/*r*/
             , typename R::template Source<
                 std::array<MultiTransportRemoteFacilityAction, CurrentIdx>
-            > &&actionSource
-            , std::array<std::string, CurrentIdx> const &names
-            , std::string const &prefix
-            , std::function<std::optional<ByteDataHookPair>(std::string const &, ConnectionLocator const &)> const &hookPairFactory
-            , Output &output
+            > &&/*actionSource*/
+            , std::array<std::string, CurrentIdx> const &/*names*/
+            , std::string const &/*prefix*/
+            , std::function<std::optional<ByteDataHookPair>(std::string const &, ConnectionLocator const &)> const &/*hookPairFactory*/
+            , Output &/*output*/
         ) 
         {}
 
