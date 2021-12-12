@@ -59,6 +59,47 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
 
         bool operator==(ConnectionLocator const &) const;
         bool operator<(ConnectionLocator const &) const;
+
+        ConnectionLocator modifyHost(std::string const &h) const {
+            ConnectionLocator l(*this);
+            l.host_ = h;
+            return l;
+        }
+        ConnectionLocator modifyPort(int p) const {
+            ConnectionLocator l(*this);
+            l.port_ = p;
+            return l;
+        }
+        ConnectionLocator modifyUserName(std::string const &u) const {
+            ConnectionLocator l(*this);
+            l.userName_ = u;
+            return l;
+        }
+        ConnectionLocator modifyPassword(std::string const &p) const {
+            ConnectionLocator l(*this);
+            l.password_ = p;
+            return l;
+        }
+        ConnectionLocator modifyIdentifier(std::string const &s) const {
+            ConnectionLocator l(*this);
+            l.identifier_ = s;
+            return l;
+        }
+        ConnectionLocator clearProperties() const {
+            ConnectionLocator l(*this);
+            l.properties_.clear();
+            return l;
+        }
+        ConnectionLocator removeProperty(std::string const &name) const {
+            ConnectionLocator l(*this);
+            l.properties_.erase(name);
+            return l;
+        }
+        ConnectionLocator addProperty(std::string const &name, std::string const &value) const {
+            ConnectionLocator l(*this);
+            l.properties_[name] = value;
+            return l;
+        }
     };
 
     inline std::ostream &operator<<(std::ostream &os, ConnectionLocator const &d) {
