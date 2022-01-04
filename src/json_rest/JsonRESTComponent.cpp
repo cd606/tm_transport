@@ -1477,7 +1477,18 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 for (int ii=0; ii<32; ++ii) {
                     sprintf(&hashStr[ii*2], "%02X", hash[ii]);
                 }
-                if (hashStr != parts[2]) {
+                //When comparing, do not exit early
+                int diffs = 0;
+                char *parts2Ptr = parts[2].data();
+                std::size_t parts2Length = parts[2].length();
+                for (int ii=0; ii<64; ++ii) {
+                    if (parts2Length <= ii) {
+                        diffs += 1;
+                    } else {
+                        diffs += ((parts2Ptr[ii]==hashStr[ii])?0:1);
+                    }
+                }
+                if (diffs != 0) {
                     return std::nullopt;
                 }
 
