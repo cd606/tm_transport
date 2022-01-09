@@ -27,6 +27,7 @@ tm_transport_headers = [
       , 'HostNameUtil.hpp'
       , 'ConvertChainIDStringToGroup.hpp'
       , 'AlertEnhancedLoggingComponent.hpp'
+      , 'SyntheticMultiTransportFacility.hpp'
     ]
   
 install_headers(tm_transport_headers, subdir : 'tm_kit/transport')
