@@ -5,6 +5,7 @@
 
 #include <tm_kit/basic/AppRunnerUtils.hpp>
 #include <tm_kit/basic/ByteData.hpp>
+#include <tm_kit/basic/EncodeKeyThroughProxy.hpp>
 
 #include <tm_kit/transport/MultiTransportBroadcastListenerManagingUtils.hpp>
 #include <tm_kit/transport/MultiTransportBroadcastPublisherManagingUtils.hpp>
