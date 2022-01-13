@@ -25,6 +25,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
             , template<class... Xs> class IncomingProtocolWrapper
             , class A 
             , class B 
+            , bool MultiCallback = false
         >
         static auto client(
             R &r 
@@ -33,7 +34,6 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
             , std::string const &outgoingTopic
             , std::string const &incomingSpec 
             , std::optional<std::string> const &incomingTopic
-            , bool multiCallback = false
             , std::optional<ByteDataHookPair> hookPair = std::nullopt
         ) -> typename R::template FacilitioidConnector<A,B>
         {
@@ -60,15 +60,16 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
             r.connect(r.actionAsSource(addTopic), sink);
             auto source = MultiTransportBroadcastListenerManagingUtils<R>::template oneBroadcastListenerWithProtocol<
                 IncomingProtocolWrapper
-                , typename M::template Key<B>
+                , typename M::template Key<
+                    std::conditional_t<MultiCallback, std::tuple<B,bool>, B>
+                >
             >(
                 r, prefix+"/importer", incomingSpec, incomingTopic, incomingHook
             );
-            return basic::AppRunnerUtilComponents<R>::template syntheticRemoteFacility<A,B>(
+            return basic::AppRunnerUtilComponents<R>::template syntheticRemoteFacility<A,B,MultiCallback>(
                 prefix
                 , r.sinkAsSinkoid(r.actionAsSink(addTopic))
                 , r.sourceAsSourceoid(std::move(source))
-                , multiCallback
             );
         }
 
@@ -77,6 +78,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
             , template<class... Xs> class OutgoingProtocolWrapper
             , class A 
             , class B 
+            , bool MultiCallback = false
         >
         static void serverWithFacility(
             R &r 
@@ -97,15 +99,40 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                 r.environment()
                 , hookPair?hookPair->userToWire:std::nullopt
             );
-            auto createOutgoingKey = M::template liftPure<typename M::template KeyedData<A,B>>(
-                [outgoingTopic](typename M::template KeyedData<A,B> &&x) -> basic::TypedDataWithTopic<typename M::template Key<B>> {
-                    return {outgoingTopic, {x.key.id(), std::move(x.data)}};
+            auto createOutgoingKey = M::template kleisli<typename M::template KeyedData<A,B>>(
+                [outgoingTopic](typename M::template InnerData<typename M::template KeyedData<A,B>> &&x) 
+                    -> typename M::template Data<basic::TypedDataWithTopic<typename M::template Key<
+                        std::conditional_t<MultiCallback, std::tuple<B,bool>, B>
+                    >>> {
+                    if constexpr (MultiCallback) {
+                        return typename M::template InnerData<basic::TypedDataWithTopic<typename M::template Key<std::tuple<B,bool>>>> {
+                            x.environment
+                            , {
+                                x.environment->resolveTime()
+                                , {
+                                    outgoingTopic, {x.timedData.value.key.id(), {std::move(x.timedData.value.data), x.timedData.finalFlag}}
+                                }
+                                , false
+                            }
+                        };
+                    } else {
+                        return typename M::template InnerData<basic::TypedDataWithTopic<typename M::template Key<B>>> {
+                            x.environment
+                            , {
+                                x.environment->resolveTime()
+                                , {
+                                    outgoingTopic, {x.timedData.value.key.id(), std::move(x.timedData.value.data)}
+                                }
+                                , false
+                            }
+                        };
+                    }
                 }                
             );
             r.registerAction(prefix+"/createOutgoingKey", createOutgoingKey);
             auto sink = MultiTransportBroadcastPublisherManagingUtils<R>::template oneBroadcastPublisherWithProtocol<
                 OutgoingProtocolWrapper
-                , typename M::template Key<B>
+                , typename M::template Key<std::conditional_t<MultiCallback,std::tuple<B,bool>,B>>
             >(
                 r, prefix+"/exporter", outgoingSpec, outgoingHook
             );
@@ -126,6 +153,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
             , template<class... Xs> class OutgoingProtocolWrapper
             , class A 
             , class B 
+            , bool MultiCallback = false
         >
         static void serverWithPathway(
             R &r 
@@ -134,7 +162,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
             , std::optional<std::string> const &incomingTopic
             , std::string const &outgoingSpec 
             , std::string const &outgoingTopic
-            , typename R::template Pathway<typename M::template Key<A>,typename M::template Key<B>> const &pathway
+            , typename R::template Pathway<typename M::template Key<A>,typename M::template Key<std::conditional_t<MultiCallback, std::tuple<B, bool>, B>>> const &pathway
             , std::optional<ByteDataHookPair> hookPair = std::nullopt
         ) 
         {
@@ -146,15 +174,15 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                 r.environment()
                 , hookPair?hookPair->userToWire:std::nullopt
             );
-            auto addTopic = M::template liftPure<typename M::template Key<B>>(
-                [outgoingTopic](typename M::template Key<B> &&x) -> basic::TypedDataWithTopic<typename M::template Key<B>> {
+            auto addTopic = M::template liftPure<typename M::template Key<std::conditional_t<MultiCallback, std::tuple<B, bool>, B>>>(
+                [outgoingTopic](typename M::template Key<std::conditional_t<MultiCallback, std::tuple<B, bool>, B>> &&x) -> basic::TypedDataWithTopic<typename M::template Key<std::conditional_t<MultiCallback, std::tuple<B, bool>, B>>> {
                     return {outgoingTopic, std::move(x)};
                 }
             );
             r.registerAction(prefix+"/addTopic", addTopic);
             auto sink = MultiTransportBroadcastPublisherManagingUtils<R>::template oneBroadcastPublisherWithProtocol<
                 OutgoingProtocolWrapper
-                , typename M::template Key<B>
+                , typename M::template Key<std::conditional_t<MultiCallback, std::tuple<B, bool>, B>>
             >(
                 r, prefix+"/exporter", outgoingSpec, outgoingHook
             );
