@@ -26,7 +26,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
             , template<class... Xs> class IncomingProtocolWrapper
             , class A 
             , class B 
-            , bool MultiCallback = false
+            , bool MultiCallback
         >
         static auto client(
             R &r 
