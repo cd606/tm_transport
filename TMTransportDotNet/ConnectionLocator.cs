@@ -78,6 +78,22 @@ namespace Dev.CD606.TM.Transport
             }
             this.properties = properties;
         }
+        public ConnectionLocator(ConnectionLocator other)
+        {
+            this.host = other.host;
+            this.port = other.port;
+            this.username = other.username;
+            this.password = other.password;
+            this.identifier = other.identifier;
+            this.properties = new Dictionary<string, string>();
+            if (other.properties != null)
+            {
+                foreach (var item in other.properties)
+                {
+                    this.properties.Add(item.Key, item.Value);
+                }
+            }
+        }
 
         public string Host 
         {
@@ -168,6 +184,54 @@ namespace Dev.CD606.TM.Transport
         public override int GetHashCode()
         {
             return host.GetHashCode()^port.GetHashCode()^username.GetHashCode()^password.GetHashCode()^identifier.GetHashCode()^properties.GetHashCode();
+        }
+        public ConnectionLocator ModifyHost(string host)
+        {
+            var c = new ConnectionLocator(this);
+            c.host = host;
+            return c;
+        }
+        public ConnectionLocator ModifyPort(int port)
+        {
+            var c = new ConnectionLocator(this);
+            c.port = port;
+            return c;
+        }
+        public ConnectionLocator ModifyUserName(string u)
+        {
+            var c = new ConnectionLocator(this);
+            c.username = u;
+            return c;
+        }
+        public ConnectionLocator ModifyPassword(string p) 
+        {
+            var c = new ConnectionLocator(this);
+            c.password = p;
+            return c;
+        }
+        public ConnectionLocator ModifyIdentifier(string s)
+        {
+            var c = new ConnectionLocator(this);
+            c.identifier = s;
+            return c;
+        }
+        public ConnectionLocator ClearProperties()
+        {
+            var c = new ConnectionLocator(this);
+            c.properties.Clear();
+            return c;
+        }
+        public ConnectionLocator RemoveProperty(string name)
+        {
+            var c = new ConnectionLocator(this);
+            c.properties.Remove(name);
+            return c;
+        }
+        public ConnectionLocator AddProperty(string name, string value)
+        {
+            var c = new ConnectionLocator(this);
+            c.properties.Add(name, value);
+            return c;
         }
     }
 
