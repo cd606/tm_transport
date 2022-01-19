@@ -13,6 +13,7 @@
 #include <tm_kit/transport/redis/RedisComponent.hpp>
 #include <tm_kit/transport/redis/RedisOnOrderFacility.hpp>
 #include <tm_kit/transport/socket_rpc/SocketRPCComponent.hpp>
+#include <tm_kit/transport/singlecast/SinglecastComponent.hpp>
 #include <tm_kit/transport/socket_rpc/SocketRPCOnOrderFacility.hpp>
 #include <tm_kit/transport/grpc_interop/GrpcInteropComponent.hpp>
 #include <tm_kit/transport/grpc_interop/GrpcClientFacility.hpp>

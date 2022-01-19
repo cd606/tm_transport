@@ -9,6 +9,7 @@
 #include <tm_kit/transport/nng/NNGImporterExporter.hpp>
 #include <tm_kit/transport/shared_memory_broadcast/SharedMemoryBroadcastImporterExporter.hpp>
 #include <tm_kit/transport/websocket/WebSocketImporterExporter.hpp>
+#include <tm_kit/transport/singlecast/SinglecastImporterExporter.hpp>
 
 #include <tm_kit/basic/CommonFlowUtils.hpp>
 #include <tm_kit/basic/AppRunnerUtils.hpp>
@@ -140,6 +141,17 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                         throw std::runtime_error("[MultiTransportBroadcastPublisherManagingUtils::oneBroadcastPublisher] Trying to create web socket publisher with channel spec '"+channelSpec+"', but web socket is unsupported in the environment");
                     }
                     break;
+                case MultiTransportBroadcastListenerConnectionType::Singlecast:
+                    if constexpr (std::is_convertible_v<Env *, singlecast::SinglecastComponent *>) {
+                        auto pub = singlecast::SinglecastImporterExporter<Env>::template createTypedExporter<OutputType>(
+                            std::get<1>(*parsed), hook, name
+                        );
+                        r.registerExporter(name, pub);
+                        return r.exporterAsSink(pub);
+                    } else {
+                        throw std::runtime_error("[MultiTransportBroadcastPublisherManagingUtils::oneBroadcastPublisher] Trying to create singlecast publisher with channel spec '"+channelSpec+"', but singlecast is unsupported in the environment");
+                    }
+                    break;
                 default:
                     throw std::runtime_error("[MultiTransportBroadcastPublisherManagingUtils::oneBroadcastPublisher] Trying to create unknown-protocol publisher with channel spec '"+channelSpec+"'");
                     break;
@@ -245,6 +257,17 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                     return r.exporterAsSink(pub);
                 } else {
                     throw std::runtime_error("[MultiTransportBroadcastPublisherManagingUtils::oneByteDataBroadcastPublisher] Trying to create web socket publisher with channel spec '"+channelSpec+"', but web socket is unsupported in the environment");
+                }
+                break;
+            case MultiTransportBroadcastListenerConnectionType::Singlecast:
+                if constexpr (std::is_convertible_v<Env *, singlecast::SinglecastComponent *>) {
+                    auto pub = singlecast::SinglecastImporterExporter<Env>::createExporter(
+                        std::get<1>(*parsed), hook, name
+                    );
+                    r.registerExporter(name, pub);
+                    return r.exporterAsSink(pub);
+                } else {
+                    throw std::runtime_error("[MultiTransportBroadcastPublisherManagingUtils::oneByteDataBroadcastPublisher] Trying to create singlecast publisher with channel spec '"+channelSpec+"', but singlecast is unsupported in the environment");
                 }
                 break;
             default:

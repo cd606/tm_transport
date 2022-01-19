@@ -20,6 +20,7 @@
 #include <tm_kit/transport/zeromq/ZeroMQComponent.hpp>
 #include <tm_kit/transport/redis/RedisComponent.hpp>
 #include <tm_kit/transport/nng/NNGComponent.hpp>
+#include <tm_kit/transport/singlecast/SinglecastComponent.hpp>
 #include <tm_kit/transport/shared_memory_broadcast/SharedMemoryBroadcastComponent.hpp>
 #include <tm_kit/transport/websocket/WebSocketComponent.hpp>
 #include <tm_kit/transport/AbstractHookFactoryComponent.hpp>
@@ -184,6 +185,22 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
             });
         }
     };
+    template <class Env>
+    class HeartbeatAndAlertComponentInitializer<Env, singlecast::SinglecastComponent> {
+    public:
+        void operator()(Env *env, std::string const &identity, ConnectionLocator const &locator, std::optional<UserToWireHook> hook=std::nullopt) {
+            auto realHook = hook;
+            if (!realHook) {
+                realHook = DefaultHookFactory<Env>::template outgoingHook<HeartbeatMessage>(env);
+            }
+            env->HeartbeatAndAlertComponent::assignIdentity(HeartbeatAndAlertComponent {
+                static_cast<basic::real_time_clock::ClockComponent *>(env)
+                , identity
+                , static_cast<singlecast::SinglecastComponent *>(env)
+                    ->singlecast_getPublisher(locator, realHook)
+            });
+        }
+    };
 
     template <class Env>
     inline void initializeHeartbeatAndAlertComponent(
@@ -255,6 +272,15 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                 );
             } else {
                 throw std::runtime_error("initializeHeartbeatAndAlertComponent: connection type WebSocket not supported in environment");
+            }
+            break;
+        case MultiTransportBroadcastListenerConnectionType::Singlecast:
+            if constexpr (std::is_convertible_v<Env *, singlecast::SinglecastComponent *>) {
+                HeartbeatAndAlertComponentInitializer<Env, singlecast::SinglecastComponent>()(
+                    env, identity, locator, hook
+                );
+            } else {
+                throw std::runtime_error("initializeHeartbeatAndAlertComponent: connection type Singlecast not supported in environment");
             }
             break;
         default:

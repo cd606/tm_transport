@@ -18,6 +18,7 @@
 #include <tm_kit/transport/grpc_interop/GrpcInteropComponent.hpp>
 #include <tm_kit/transport/json_rest/JsonRESTComponent.hpp>
 #include <tm_kit/transport/websocket/WebSocketComponent.hpp>
+#include <tm_kit/transport/singlecast/SinglecastComponent.hpp>
 
 #include <type_traits>
 #include <regex>
@@ -37,6 +38,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
         , grpc_interop::GrpcInteropComponent
         , json_rest::JsonRESTComponent
         , web_socket::WebSocketComponent
+        , singlecast::SinglecastComponent
     >;
 
     template <class Env>
@@ -73,6 +75,9 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
         if constexpr (std::is_convertible_v<Env *, json_rest::JsonRESTComponent *>) {
             retVal["json_rest"] = env->json_rest_threadHandles();
         }
+        if constexpr (std::is_convertible_v<Env *, singlecast::SinglecastComponent *>) {
+            retVal["singlecast"] = env->singlecast_threadHandles();
+        }
         return retVal;
     }
 
@@ -84,8 +89,9 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
         , NNG
         , SharedMemoryBroadcast
         , WebSocket
+        , Singlecast
     };
-    inline const std::array<std::string,7> MULTI_TRANSPORT_SUBSCRIBER_CONNECTION_TYPE_STR = {
+    inline const std::array<std::string,8> MULTI_TRANSPORT_SUBSCRIBER_CONNECTION_TYPE_STR = {
         "multicast"
         , "rabbitmq"
         , "redis"
@@ -93,6 +99,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
         , "nng"
         , "shared_memory_broadcast"
         , "websocket"
+        , "singlecast"
     };
     inline auto parseMultiTransportBroadcastChannel(std::string const &s) 
         -> std::optional<std::tuple<MultiTransportBroadcastListenerConnectionType, ConnectionLocator>>
@@ -634,6 +641,56 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                             );
                         }
                         break;
+                    case MultiTransportBroadcastListenerConnectionType::Singlecast:
+                        if constexpr (std::is_convertible_v<Env *, singlecast::SinglecastComponent *>) {
+                            auto *component = static_cast<singlecast::SinglecastComponent *>(env);
+                            auto actualHook = wireToUserHook_;
+                            if (!actualHook) {
+                                actualHook = DefaultHookFactory<Env>::template incomingHook<T>(env);
+                            }
+                            auto res = component->singlecast_addSubscriptionClient(
+                                x.connectionLocator
+                                , MultiTransportBroadcastListenerTopicHelper<singlecast::SinglecastComponent>::parseTopic(x.topicDescription)
+                                , [this,env](basic::ByteDataWithTopic &&d) {
+                                    TM_INFRA_IMPORTER_TRACER_WITH_SUFFIX(env, ":data");
+                                    T t;
+                                    auto tRes = basic::bytedata_utils::RunDeserializer<T>::applyInPlace(t, d.content);
+                                    if (tRes) {
+                                        this->ImporterParent::publish(M::template pureInnerData<basic::TypedDataWithTopic<T>>(env, {std::move(d.topic), std::move(t)}));
+                                    }
+                                }
+                                , actualHook
+                            );
+                            {
+                                std::lock_guard<std::mutex> _(subscriptionsMutex_);
+                                subscriptions_.insert({{x.connectionType, res}, x});
+                            }
+                            this->FacilityParent::publish(
+                                env
+                                , typename M::template Key<MultiTransportBroadcastListenerOutput> {
+                                    id
+                                    , MultiTransportBroadcastListenerOutput { {
+                                        MultiTransportBroadcastListenerAddSubscriptionResponse {res}
+                                    } }
+                                }
+                                , true
+                            );
+                        } else {
+                            std::ostringstream errOss;
+                            errOss << "[MultiTransportBroadcastListner::actuallyHandle] trying to set up singlecast channel " << x.connectionLocator << " but singlecast is unsupported in the environment";
+                            env->log(infra::LogLevel::Warning, errOss.str());
+                            this->FacilityParent::publish(
+                                env
+                                , typename M::template Key<MultiTransportBroadcastListenerOutput> {
+                                    id
+                                    , MultiTransportBroadcastListenerOutput { {
+                                        MultiTransportBroadcastListenerAddSubscriptionResponse {0}
+                                    } }
+                                }
+                                , true
+                            );
+                        }
+                        break;
                     default:
                         this->FacilityParent::publish(
                             env
@@ -730,6 +787,16 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                             }
                         }
                         break;
+                    case MultiTransportBroadcastListenerConnectionType::Singlecast:
+                        if constexpr (std::is_convertible_v<Env *, singlecast::SinglecastComponent *>) {
+                            static_cast<singlecast::SinglecastComponent *>(env)
+                                ->singlecast_removeSubscriptionClient(x.subscriptionID);
+                            {
+                                std::lock_guard<std::mutex> _(subscriptionsMutex_);
+                                subscriptions_.erase({x.connectionType, x.subscriptionID});
+                            }
+                        }
+                        break;
                     default:
                         break;
                     }
@@ -787,6 +854,12 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                             if constexpr (std::is_convertible_v<Env *, web_socket::WebSocketComponent *>) {
                                 static_cast<web_socket::WebSocketComponent *>(env)
                                     ->websocket_removeSubscriptionClient(std::get<1>(x.first));
+                            }
+                            break;
+                        case MultiTransportBroadcastListenerConnectionType::Singlecast:
+                            if constexpr (std::is_convertible_v<Env *, singlecast::SinglecastComponent *>) {
+                                static_cast<singlecast::SinglecastComponent *>(env)
+                                    ->singlecast_removeSubscriptionClient(std::get<1>(x.first));
                             }
                             break;
                         default:

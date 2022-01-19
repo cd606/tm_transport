@@ -121,6 +121,17 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                         r.environment()->log(infra::LogLevel::Warning, "[MultiTransportBroadcastListenerManagingUtils (Synchronous Runner)::oneBroadcastListenerWithTopic] Trying to create websocket publisher with channel spec '"+spec.channel+"', but websocket is unsupported in the environment");
                     }
                     break;
+                case MultiTransportBroadcastListenerConnectionType::Singlecast:
+                    if constexpr (std::is_convertible_v<Env *, singlecast::SinglecastComponent *>) {
+                        sub = singlecast::SinglecastImporterExporter<Env>::template createTypedImporter<DataType>(
+                            std::get<1>(*parsedSpec)
+                            , MultiTransportBroadcastListenerTopicHelper<singlecast::SinglecastComponent>::parseTopic(getTopic_internal(std::get<0>(*parsedSpec), spec.topicDescription))
+                            , hookFactory(spec.name)
+                        );
+                    } else {
+                        r.environment()->log(infra::LogLevel::Warning, "[MultiTransportBroadcastListenerManagingUtils (Synchronous Runner)::oneBroadcastListenerWithTopic] Trying to create singlecast publisher with channel spec '"+spec.channel+"', but singlecast is unsupported in the environment");
+                    }
+                    break;
                 default:
                     r.environment()->log(infra::LogLevel::Warning, "[MultiTransportBroadcastListenerManagingUtils (Synchronous Runner)::oneBroadcastListenerWithTopic] Trying to create unknown-protocol publisher with channel spec '"+spec.channel+"'");
                     break;
@@ -313,6 +324,18 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                     return sub;
                 } else {
                     throw std::runtime_error("[MultiTransportBroadcastListenerManagingUtils (Synchronous Runner)::oneByteDataBroadcastListener] Trying to create web socket publisher with channel spec '"+channelSpec+"', but web socket is unsupported in the environment");
+                }
+                break;
+            case MultiTransportBroadcastListenerConnectionType::Singlecast:
+                if constexpr (std::is_convertible_v<Env *, singlecast::SinglecastComponent *>) {
+                    auto sub = singlecast::SinglecastImporterExporter<Env>::createImporter(
+                        std::get<1>(*parsed)
+                        , MultiTransportBroadcastListenerTopicHelper<singlecast::SinglecastComponent>::parseTopic(getTopic_internal(std::get<0>(*parsed), topicDescription))
+                        , hook
+                    );
+                    return sub;
+                } else {
+                    throw std::runtime_error("[MultiTransportBroadcastListenerManagingUtils (Synchronous Runner)::oneByteDataBroadcastListener] Trying to create singlecast publisher with channel spec '"+channelSpec+"', but singlecast is unsupported in the environment");
                 }
                 break;
             default:
