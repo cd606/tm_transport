@@ -20,6 +20,9 @@ common_deps = [thread_dep, boost_dep, rabbitmq_dep, zmq_dep, redis_dep, nng_dep,
 if build_machine.system() == 'windows'
     common_deps += declare_dependency(link_args: 'bcrypt.lib')
     add_global_arguments('/bigobj', language: 'cpp')
+    add_global_arguments('-DWINVER=0x0601', language: 'cpp')
+    add_global_arguments('-D_WIN32_WINNT=0x0601', language: 'cpp')
+    add_global_arguments('-DBOOST_USE_WINAPI_VERSION=BOOST_WINAPI_VERSION_WIN7', language: 'cpp')
 endif
 
 pkg = import('pkgconfig')
