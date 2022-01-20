@@ -135,6 +135,91 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
         }
 
         template <
+            template<class... Xs> class OutgoingProtocolWrapper
+            , class A 
+            , bool AutoKeyify = false
+        >
+        static auto clientNoReply(
+            R &r 
+            , std::string const &prefix
+            , std::string const &outgoingSpec 
+            , std::string const &outgoingTopic
+            , std::optional<UserToWireHook> outgoingHook = std::nullopt
+        ) -> typename R::template Sink<
+            std::conditional_t<
+                AutoKeyify
+                , A
+                , typename M::template Key<A>
+            >
+        >
+        {
+            std::optional<UserToWireHook> actualOutgoingHook = DefaultHookFactory<Env>::template supplyOutgoingHook<A>(
+                r.environment()
+                , outgoingHook
+            );
+            if constexpr (DetermineClientSideIdentityForRequest<Env, A>::HasIdentity) {
+                auto addTopic = M::template kleisli<
+                    std::conditional_t<AutoKeyify,A,typename M::template Key<A>>
+                >(
+                    [outgoingTopic](typename M::template InnerData<std::conditional_t<AutoKeyify,A,typename M::template Key<A>>> &&x) -> typename M::template Data<basic::ByteDataWithTopic> {
+                        if constexpr (AutoKeyify) {
+                            auto ret = basic::WrapFacilitioidConnectorForSerializationHelpers::encodeRawWithTopic<
+                                OutgoingProtocolWrapper, typename M::template Key<A>
+                            >(
+                                basic::TypedDataWithTopic<typename M::template Key<A>> {
+                                    outgoingTopic, typename M::template Key<A> {std::move(x.timedData.value)}
+                                }
+                            );
+                            ret.content = static_cast<
+                                typename DetermineClientSideIdentityForRequest<Env, A>::ComponentType *
+                            >(x.environment)->attach_identity(basic::ByteData {std::move(ret.content)}).content;
+                            return M::template pureInnerData<basic::ByteDataWithTopic>(x.environment, std::move(ret));
+                        } else {
+                            auto ret = basic::WrapFacilitioidConnectorForSerializationHelpers::encodeRawWithTopic<
+                                OutgoingProtocolWrapper, typename M::template Key<A>
+                            >(
+                                basic::TypedDataWithTopic<typename M::template Key<A>> {
+                                    outgoingTopic, std::move(x.timedData.value)
+                                }
+                            );
+                            ret.content = static_cast<
+                                typename DetermineClientSideIdentityForRequest<Env, A>::ComponentType *
+                            >(x.environment)->attach_identity(basic::ByteData {std::move(ret.content)}).content;
+                            return M::template pureInnerData<basic::ByteDataWithTopic>(x.environment, std::move(ret));
+                        }
+                    }
+                );
+                r.registerAction(prefix+"/addTopic", addTopic);
+                auto exporter = MultiTransportBroadcastPublisherManagingUtils<R>::oneByteDataBroadcastPublisher(
+                    r, prefix+"/exporter", outgoingSpec, actualOutgoingHook
+                );
+                r.connect(r.actionAsSource(addTopic), exporter);
+                return r.actionAsSink(addTopic);
+            } else {
+                auto addTopic = M::template liftPure<
+                    std::conditional_t<AutoKeyify,A,typename M::template Key<A>>
+                >(
+                    [outgoingTopic](std::conditional_t<AutoKeyify,A,typename M::template Key<A>> &&x) -> basic::TypedDataWithTopic<typename M::template Key<A>> {
+                        if constexpr (AutoKeyify) {
+                            return {outgoingTopic, typename M::template Key<A> {std::move(x)}};
+                        } else {
+                            return {outgoingTopic, std::move(x)};
+                        }
+                    }
+                );
+                r.registerAction(prefix+"/addTopic", addTopic);
+                auto exporter = MultiTransportBroadcastPublisherManagingUtils<R>::template oneBroadcastPublisherWithProtocol<
+                    OutgoingProtocolWrapper
+                    , typename M::template Key<A>
+                >(
+                    r, prefix+"/exporter", outgoingSpec, actualOutgoingHook
+                );
+                r.connect(r.actionAsSource(addTopic), exporter);
+                return r.actionAsSink(addTopic);
+            }
+        }
+
+        template <
             template<class... Xs> class IncomingProtocolWrapper
             , template<class... Xs> class OutgoingProtocolWrapper
             , class A 
