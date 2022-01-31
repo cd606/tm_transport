@@ -83,6 +83,16 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                             std::istreambuf_iterator<char>{ifs}, {}
                         );
                         ifs.close();
+#ifdef __linux__
+                    } else {
+                        std::ifstream ifs("/etc/ssl/certs/ca-certificates.crt");
+                        if (ifs.good()) {
+                            caCert = std::string(
+                                std::istreambuf_iterator<char>{ifs}, {}
+                            );
+                            ifs.close();
+                        }
+#endif
                     }
                     boost::system::error_code ec;
                     sslCtx_->add_certificate_authority(
@@ -815,6 +825,16 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                             std::istreambuf_iterator<char>{ifs}, {}
                         );
                         ifs.close();
+#ifdef __linux__
+                    } else {
+                        std::ifstream ifs("/etc/ssl/certs/ca-certificates.crt");
+                        if (ifs.good()) {
+                            caCert = std::string(
+                                std::istreambuf_iterator<char>{ifs}, {}
+                            );
+                            ifs.close();
+                        }
+#endif
                     }
                     boost::system::error_code ec;
                     sslCtx_->add_certificate_authority(

@@ -87,6 +87,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 private:
                     ConnectionLocator locator_;
                     bool useGet_;
+                    bool simplePost_;
                     bool noRequestResponseWrap_;
                 public:
                     LocalF(ConnectionLocator const &locator)
@@ -99,6 +100,11 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                         , locator_(locator)
                         , useGet_(
                             (locator.query("use_get", "false") == "true")
+                            && 
+                            basic::struct_field_info_utils::IsStructFieldInfoBasedCsvCompatibleStruct<Req>
+                        )
+                        , simplePost_(
+                            (locator.query("simple_post", "false") == "true")
                             && 
                             basic::struct_field_info_utils::IsStructFieldInfoBasedCsvCompatibleStruct<Req>
                         )
@@ -116,7 +122,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                         nlohmann::json sendData;
                         std::ostringstream oss;
                         if constexpr (basic::struct_field_info_utils::IsStructFieldInfoBasedCsvCompatibleStruct<Req>) {
-                            if (useGet_) {
+                            if (useGet_ || simplePost_) {
                                 bool start = true;
                                 basic::struct_field_info_utils::StructFieldInfoBasedSimpleCsvOutput<Req>
                                     ::outputNameValuePairs(
@@ -142,7 +148,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                         env->JsonRESTComponent::addJsonRESTClient(
                             locator_
                             , (useGet_?oss.str():"")
-                            , (useGet_?"":sendData.dump())
+                            , (useGet_?"":(simplePost_?oss.str():sendData.dump()))
                             , [this,env,id=std::move(id)](std::string &&response) mutable {
                                 if constexpr (std::is_same_v<Resp, RawString>) {
                                     this->publish(
@@ -173,6 +179,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                                     }
                                 }
                             }
+                            , (simplePost_?"x-www-form-urlencoded":"application/json")
                         );
                     }
                     void idleWork() {}
@@ -201,6 +208,11 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                     && 
                     basic::struct_field_info_utils::IsStructFieldInfoBasedCsvCompatibleStruct<Req>
                 );
+                bool simplePost = (
+                    (rpcQueueLocator.query("simple_post", "false") == "true")
+                    && 
+                    basic::struct_field_info_utils::IsStructFieldInfoBasedCsvCompatibleStruct<Req>
+                );
                 bool noRequestResponseWrap = (
                     rpcQueueLocator.query("no_wrap", "false") == "true"
                 );
@@ -208,7 +220,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 nlohmann::json sendData;
                 std::ostringstream oss;
                 if constexpr (basic::struct_field_info_utils::IsStructFieldInfoBasedCsvCompatibleStruct<Req>) {
-                    if (useGet) {
+                    if (useGet || simplePost) {
                         bool start = true;
                         basic::struct_field_info_utils::StructFieldInfoBasedSimpleCsvOutput<Req>
                             ::outputNameValuePairs(
@@ -232,7 +244,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 env->JsonRESTComponent::addJsonRESTClient(
                     rpcQueueLocator
                     , (useGet?oss.str():"")
-                    , (useGet?"":sendData.dump())
+                    , (useGet?"":(simplePost?oss.str():sendData.dump()))
                     , [ret,env,noRequestResponseWrap](std::string &&response) mutable {
                         if constexpr (std::is_same_v<Resp, RawString>) {
                             ret->set_value({std::move(response)});
@@ -249,6 +261,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                             }
                         }
                     }
+                    , (simplePost?"x-www-form-urlencoded":"application/json")
                 );
                 return ret->get_future();
             } else {

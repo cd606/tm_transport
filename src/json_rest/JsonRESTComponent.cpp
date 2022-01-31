@@ -52,6 +52,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             std::string urlQueryPart_;
             std::string request_;
             std::function<void(std::string &&)> callback_;
+            std::string contentType_;
 
             boost::asio::io_context *svc_;
             std::optional<boost::asio::ssl::context> sslCtx_;
@@ -75,6 +76,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 , std::string &&urlQueryPart
                 , std::string &&request
                 , std::function<void(std::string &&)> const &callback
+                , std::string const &contentType
                 , boost::asio::io_context *svc
                 , std::optional<TLSClientInfo> const &sslInfo
                 , basic::LoggingComponentBase *logger
@@ -84,6 +86,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 , urlQueryPart_(std::move(urlQueryPart))
                 , request_(std::move(request))
                 , callback_(callback)
+                , contentType_(contentType)
                 , svc_(svc)
                 , sslCtx_(
                     sslInfo
@@ -107,6 +110,16 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                             std::istreambuf_iterator<char>{ifs}, {}
                         );
                         ifs.close();
+#ifdef __linux__
+                    } else {
+                        std::ifstream ifs("/etc/ssl/certs/ca-certificates.crt");
+                        if (ifs.good()) {
+                            caCert = std::string(
+                                std::istreambuf_iterator<char>{ifs}, {}
+                            );
+                            ifs.close();
+                        }
+#endif
                     }
                     boost::system::error_code ec;
                     sslCtx_->add_certificate_authority(
@@ -160,7 +173,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
 
                     req_.set(boost::beast::http::field::authorization, "Basic "+authString);
                 }
-                req_.set(boost::beast::http::field::content_type, "application/json");
+                req_.set(boost::beast::http::field::content_type, contentType_);
                 req_.body() = std::move(request_);
                 req_.prepare_payload();
 
@@ -547,6 +560,29 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                         );
                         return;
                     }
+                    
+                    bool isSimplePost = false;
+                    if (req_[boost::beast::http::field::content_type] == "x-www-form-urlencoded") {
+                        isSimplePost = true;
+                        std::string queryStr = req_.body();
+                        std::vector<std::string> queryParts;
+                        boost::split(queryParts, queryStr, boost::is_any_of("&"));
+                        for (auto &q : queryParts) {
+                            std::vector<std::string> nv;
+                            boost::split(nv, q, boost::is_any_of("="));
+                            if (nv.size() != 2) {
+                                continue;
+                            }
+                            std::string n = unescape(nv[0]);
+                            std::string v = unescape(nv[1]);
+                            auto iter = queryMap.find(n);
+                            if (iter == queryMap.end()) {
+                                queryMap.insert({n, {v}});
+                            } else {
+                                iter->second.push_back(v);
+                            }
+                        }
+                    }
 
                     HandlerFunc handler;
                     if (req_.method() == boost::beast::http::verb::post || req_.method() == boost::beast::http::verb::get) {
@@ -792,7 +828,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                         res->keep_alive(req_.keep_alive());
                         if (!handler(
                             login
-                            , req_.body()
+                            , (isSimplePost?"":req_.body())
                             , queryMap
                             , [res,x=shared_from_this()](std::string const &resp) {
                                 x->writeResp(res, resp);
@@ -1106,6 +1142,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         void addJsonRESTClient(ConnectionLocator const &locator, std::string &&urlQueryPart, std::string &&request, std::function<
             void(std::string &&)
         > const &clientCallback
+        , std::string const &contentType
         , TLSClientConfigurationComponent const *config
         , basic::LoggingComponentBase *logger) {
             auto client = std::make_shared<OneClient>(
@@ -1114,6 +1151,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 , std::move(urlQueryPart)
                 , std::move(request)
                 , clientCallback 
+                , contentType
                 , &clientSvc_
                 , (config?config->getConfigurationItem(
                     TLSClientInfoKey {locator.host(), locator.port()}
@@ -1583,8 +1621,8 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
     JsonRESTComponent::~JsonRESTComponent() = default;
     void JsonRESTComponent::addJsonRESTClient(ConnectionLocator const &locator, std::string &&urlQueryPart, std::string &&request, std::function<
         void(std::string &&)
-    > const &clientCallback) {
-        impl_->addJsonRESTClient(locator, std::move(urlQueryPart), std::move(request), clientCallback, dynamic_cast<TLSClientConfigurationComponent const *>(this), dynamic_cast<basic::LoggingComponentBase *>(this));
+    > const &clientCallback, std::string const &contentType) {
+        impl_->addJsonRESTClient(locator, std::move(urlQueryPart), std::move(request), clientCallback, contentType, dynamic_cast<TLSClientConfigurationComponent const *>(this), dynamic_cast<basic::LoggingComponentBase *>(this));
     }
     void JsonRESTComponent::registerHandler(ConnectionLocator const &locator, std::function<
         bool(std::string const &, std::string const &, std::unordered_map<std::string, std::vector<std::string>> const &, std::function<void(std::string const &)> const &)
