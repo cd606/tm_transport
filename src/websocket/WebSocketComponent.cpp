@@ -16,6 +16,8 @@
 #include <boost/config.hpp>
 #include <boost/algorithm/string.hpp>
 
+#include <openssl/ssl.h>
+
 #include <unordered_map>
 #include <thread>
 #include <mutex>
@@ -129,6 +131,12 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                     svc_.run();
                 });
                 th_.detach();
+                if (stream_.index() == 2) {
+                    if(!SSL_set_tlsext_host_name(std::get<2>(stream_).next_layer().native_handle(), locator_.host().data())) {
+                        parent_->removeSubscriber(locator_);
+                        return;
+                    }
+                }
                 resolver_.async_resolve(
                     locator_.host()
                     , std::to_string(locator_.port())
@@ -871,6 +879,12 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                     svc_.run();
                 });
                 th_.detach();
+                if (stream_.index() == 2) {
+                    if(!SSL_set_tlsext_host_name(std::get<2>(stream_).next_layer().native_handle(), locator_.host().data())) {
+                        parent_->removeRPCClient(locator_);
+                        return;
+                    }
+                }
                 resolver_.async_resolve(
                     locator_.host()
                     , std::to_string(locator_.port())
