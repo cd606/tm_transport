@@ -17,6 +17,8 @@
 #include <boost/config.hpp>
 #include <boost/algorithm/string.hpp>
 
+#include <openssl/ssl.h>
+
 #include <thread>
 #include <mutex>
 #include <unordered_map>
@@ -176,6 +178,19 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 req_.set(boost::beast::http::field::content_type, contentType_);
                 req_.body() = std::move(request_);
                 req_.prepare_payload();
+
+                if (stream_.index() == 2) {
+                    if(!SSL_set_tlsext_host_name(std::get<2>(stream_).native_handle(), locator_.host().data())) {
+                        if (logger_) {
+                            logger_->logThroughLoggingComponentBase(
+                                infra::LogLevel::Error
+                                , "[JsonRESTComponent::OneClient::run] SSL set tlsext host name error for locator '"+locator_.toSerializationFormat()+"'"
+                            );
+                        }
+                        parent_->removeJsonRESTClient(shared_from_this());
+                        return;
+                    }
+                }
 
                 resolver_.async_resolve(
                     locator_.host()
