@@ -51,6 +51,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         private:
             JsonRESTComponentImpl *parent_;
             ConnectionLocator locator_;
+            int port_;
             std::string urlQueryPart_;
             std::string request_;
             std::function<void(std::string &&)> callback_;
@@ -75,6 +76,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             OneClient(
                 JsonRESTComponentImpl *parent
                 , ConnectionLocator const &locator
+                , int port
                 , std::string &&urlQueryPart
                 , std::string &&request
                 , std::function<void(std::string &&)> const &callback
@@ -85,6 +87,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             )
                 : parent_(parent)
                 , locator_(locator)
+                , port_(port)
                 , urlQueryPart_(std::move(urlQueryPart))
                 , request_(std::move(request))
                 , callback_(callback)
@@ -194,7 +197,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
 
                 resolver_.async_resolve(
                     locator_.host()
-                    , std::to_string(locator_.port())
+                    , std::to_string(port_)
                     , boost::beast::bind_front_handler(
                         &OneClient::onResolve
                         , shared_from_this()
@@ -1160,16 +1163,25 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         , std::string const &contentType
         , TLSClientConfigurationComponent const *config
         , basic::LoggingComponentBase *logger) {
+            int port = locator.port();
+            if (port == 0) {
+                if (config) {
+                    port = 443;
+                } else {
+                    port = 80;
+                }
+            }
             auto client = std::make_shared<OneClient>(
                 this
                 , locator
+                , port
                 , std::move(urlQueryPart)
                 , std::move(request)
                 , clientCallback 
                 , contentType
                 , &clientSvc_
                 , (config?config->getConfigurationItem(
-                    TLSClientInfoKey {locator.host(), locator.port()}
+                    TLSClientInfoKey {locator.host(), port}
                 ):std::nullopt)
                 , logger
             );
@@ -1186,18 +1198,26 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             clientSet_.erase(p);
         }
         void registerHandler(ConnectionLocator const &locator, HandlerFunc const &handler, TLSServerConfigurationComponent const *tlsConfig, basic::LoggingComponentBase *logger) {
+            int port = locator.port();
+            if (port == 0) {
+                if (tlsConfig) {
+                    port = 443;
+                } else {
+                    port = 80;
+                }
+            }
             if (locator.userName() != "") {
                 if (locator.password() == "") {
-                    addBasicAuthentication(locator.port(), locator.userName(), std::nullopt);
+                    addBasicAuthentication(port, locator.userName(), std::nullopt);
                 } else {
-                    addBasicAuthentication(locator.port(), locator.userName(), locator.password());
+                    addBasicAuthentication(port, locator.userName(), locator.password());
                 }
             }
             std::lock_guard<std::mutex> _(handlerMapMutex_);
             bool newPort = false;
-            auto iter = handlerMap_.find(locator.port());
+            auto iter = handlerMap_.find(port);
             if (iter == handlerMap_.end()) {
-                iter = handlerMap_.insert({locator.port(), {}}).first;
+                iter = handlerMap_.insert({port, {}}).first;
                 newPort = true;
             }
             std::string path = locator.identifier();

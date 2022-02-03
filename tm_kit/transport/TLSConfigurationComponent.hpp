@@ -42,6 +42,16 @@ namespace dev { namespace cd606 {namespace tm {namespace transport {
         , TLSServerConfigurationComponent
     >;
 
+    namespace tls {
+        template <class Env, typename=std::enable_if_t<std::is_convertible_v<Env *, TLSClientConfigurationComponent *>>>
+        inline void markConnectionAsUsingTLS(Env *env, std::string const &host, int port=443) {
+            static_cast<TLSClientConfigurationComponent *>(env)->setConfigurationItem(
+                TLSClientInfoKey {host, port}
+                , TLSClientInfo {}
+            );
+        }
+    }
+
 }}}}
 
 TM_BASIC_CBOR_CAPABLE_STRUCT_SERIALIZE(dev::cd606::tm::transport::TLSClientInfoKey, TM_KIT_TRANSPORT_TLS_CLIENT_INFO_KEY_FIELDS);
