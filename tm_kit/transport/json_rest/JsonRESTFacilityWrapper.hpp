@@ -8,6 +8,7 @@
 #include <tm_kit/basic/StructFieldInfoBasedCsvUtils.hpp>
 
 #include <tm_kit/transport/json_rest/JsonRESTComponent.hpp>
+#include <tm_kit/transport/json_rest/RawString.hpp>
 #include <tm_kit/transport/HeartbeatAndAlertComponent.hpp>
 
 namespace dev { namespace cd606 { namespace tm { namespace transport { namespace json_rest {
@@ -141,10 +142,16 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                     if (iter == cbMap_.end()) {
                         return;
                     }
-                    basic::nlohmann_json_interop::Json<Resp *> j(&(resp.data));
-                    nlohmann::json respObj;
-                    j.toNlohmannJson(noRequestResponseWrap_?respObj:respObj["response"]);
-                    (iter->second)(respObj.dump());
+                    if constexpr (std::is_same_v<Resp, RawString>) {
+                        (iter->second)(resp.data.value);
+                    } else if constexpr (std::is_same_v<Resp, basic::ByteData>) {
+                        (iter->second)(resp.data.content);
+                    } else {
+                        basic::nlohmann_json_interop::Json<Resp *> j(&(resp.data));
+                        nlohmann::json respObj;
+                        j.toNlohmannJson(noRequestResponseWrap_?respObj:respObj["response"]);
+                        (iter->second)(respObj.dump());
+                    }
                     cbMap_.erase(iter);
                 }
             };
@@ -295,10 +302,16 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                     if (iter == cbMap_.end()) {
                         return;
                     }
-                    basic::nlohmann_json_interop::Json<Resp *> j(&(resp.data));
-                    nlohmann::json respObj;
-                    j.toNlohmannJson(noRequestResponseWrap_?respObj:respObj["response"]);
-                    (iter->second)(respObj.dump());
+                    if constexpr (std::is_same_v<Resp, RawString>) {
+                        (iter->second)(resp.data.value);
+                    } else if constexpr (std::is_same_v<Resp, basic::ByteData>) {
+                        (iter->second)(resp.data.content);
+                    } else {
+                        basic::nlohmann_json_interop::Json<Resp *> j(&(resp.data));
+                        nlohmann::json respObj;
+                        j.toNlohmannJson(noRequestResponseWrap_?respObj:respObj["response"]);
+                        (iter->second)(respObj.dump());
+                    }
                     cbMap_.erase(iter);
                 }
             };

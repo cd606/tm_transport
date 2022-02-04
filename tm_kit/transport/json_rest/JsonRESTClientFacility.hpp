@@ -7,6 +7,7 @@
 #include <tm_kit/basic/StructFieldInfoBasedCsvUtils.hpp>
 
 #include <tm_kit/transport/json_rest/JsonRESTComponent.hpp>
+#include <tm_kit/transport/json_rest/RawString.hpp>
 #include <tm_kit/transport/AbstractIdentityCheckerComponent.hpp>
 
 #include <type_traits>
@@ -18,9 +19,6 @@
 #include <iomanip>
 
 namespace dev { namespace cd606 { namespace tm { namespace transport { namespace json_rest {
-
-    struct RawStringMark {};
-    using RawString = basic::SingleLayerWrapperWithTypeMark<RawStringMark, std::string>;
 
     class JsonRESTClientFacilityFactoryUtils {
     private:
@@ -150,7 +148,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                             , (useGet_?oss.str():"")
                             , (useGet_?"":(simplePost_?oss.str():sendData.dump()))
                             , [this,env,id=std::move(id)](std::string &&response) mutable {
-                                if constexpr (std::is_same_v<Resp, RawString>) {
+                                if constexpr (std::is_same_v<Resp, RawString> || std::is_same_v<Resp, basic::ByteData>) {
                                     this->publish(
                                         env 
                                         , typename M::template Key<Resp> {
@@ -246,7 +244,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                     , (useGet?oss.str():"")
                     , (useGet?"":(simplePost?oss.str():sendData.dump()))
                     , [ret,env,noRequestResponseWrap](std::string &&response) mutable {
-                        if constexpr (std::is_same_v<Resp, RawString>) {
+                        if constexpr (std::is_same_v<Resp, RawString> || std::is_same_v<Resp, basic::ByteData>) {
                             ret->set_value({std::move(response)});
                         } else {
                             try {

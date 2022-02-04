@@ -1,4 +1,5 @@
 tm_transport_json_rest_headers = [
+    'RawString.hpp',
     'JsonRESTComponentException.hpp',
     'JsonRESTComponent.hpp',
     'JsonRESTFacilityWrapper.hpp',
