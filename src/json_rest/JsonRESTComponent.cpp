@@ -17,6 +17,8 @@
 #include <boost/config.hpp>
 #include <boost/algorithm/string.hpp>
 
+#include <boost/certify/https_verification.hpp>
+
 #include <openssl/ssl.h>
 
 #include <thread>
@@ -115,32 +117,30 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                             std::istreambuf_iterator<char>{ifs}, {}
                         );
                         ifs.close();
-#ifdef __linux__
+                        boost::system::error_code ec;
+                        sslCtx_->add_certificate_authority(
+                            boost::asio::buffer(caCert.data(), caCert.length())
+                            , ec
+                        );
+                        if (ec) {
+                            if (logger_) {
+                                logger_->logThroughLoggingComponentBase(
+                                    infra::LogLevel::Error
+                                    , "[JsonRESTComponent::OneClient::(constructor)] ASIO error '"+ec.message()+"' for locator '"+locator_.toSerializationFormat()+"'"
+                                );
+                            }
+                            initializationFailure_ = true;
+                            return;
+                        }
                     } else {
-                        std::ifstream ifs("/etc/ssl/certs/ca-certificates.crt");
-                        if (ifs.good()) {
-                            caCert = std::string(
-                                std::istreambuf_iterator<char>{ifs}, {}
-                            );
-                            ifs.close();
-                        }
-#endif
+                        sslCtx_->set_verify_mode(
+                            boost::asio::ssl::context::verify_peer |
+                            boost::asio::ssl::context::verify_fail_if_no_peer_cert
+                        );
+                        sslCtx_->set_default_verify_paths();
+                        boost::certify::enable_native_https_server_verification(*sslCtx_);
                     }
-                    boost::system::error_code ec;
-                    sslCtx_->add_certificate_authority(
-                        boost::asio::buffer(caCert.data(), caCert.length())
-                        , ec
-                    );
-                    if (ec) {
-                        if (logger_) {
-                            logger_->logThroughLoggingComponentBase(
-                                infra::LogLevel::Error
-                                , "[JsonRESTComponent::OneClient::(constructor)] ASIO error '"+ec.message()+"' for locator '"+locator_.toSerializationFormat()+"'"
-                            );
-                        }
-                        initializationFailure_ = true;
-                        return;
-                    }
+                    
                     stream_.emplace<2>(boost::asio::make_strand(*svc_), *sslCtx_);
                 } else {
                     stream_.emplace<1>(boost::asio::make_strand(*svc_));
@@ -183,6 +183,18 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 req_.prepare_payload();
 
                 if (stream_.index() == 2) {
+                    boost::system::error_code ec;
+                    boost::certify::detail::set_server_hostname(std::get<2>(stream_).native_handle(), locator_.host(), ec);
+                    if (ec) {
+                        if (logger_) {
+                            logger_->logThroughLoggingComponentBase(
+                                infra::LogLevel::Error
+                                , "[JsonRESTComponent::OneClient::run] set_server_hostname error for locator '"+locator_.toSerializationFormat()+"'"
+                            );
+                        }
+                        parent_->removeJsonRESTClient(shared_from_this());
+                        return;
+                    }
                     if(!SSL_set_tlsext_host_name(std::get<2>(stream_).native_handle(), locator_.host().data())) {
                         if (logger_) {
                             logger_->logThroughLoggingComponentBase(

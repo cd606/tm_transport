@@ -60,7 +60,11 @@ The requirements of tm_transport are, in addition to requirements of tm_infra an
 
 * libsodium
 
+* boost_certify (https://github.com/djarek/certify) 
+
 Most of these can be installed through vcpkg. After installing the packages through vcpkg, sometimes a hand-written pkg-config file might be needed for meson to find the package, especially on Windows.
+
+(boost_certify is not on vcpkg, but it is a header-only library so a hand-written pkg-config file is easy to create.)
 
 On Ubuntu 18.04 at least, if Offscale Etcd C++ client library is built through vcpkg using the default toolchain (gcc), then clang will not be able to use the library in linking. However, if it is build through vcpkg using a customized toolchain that uses clang (11.0.0 tested), then both clang and gcc (10.1.0 tested) will be able to use it in the linker. 
 

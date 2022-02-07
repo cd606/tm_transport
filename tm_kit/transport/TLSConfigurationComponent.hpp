@@ -44,10 +44,12 @@ namespace dev { namespace cd606 {namespace tm {namespace transport {
 
     namespace tls {
         template <class Env, typename=std::enable_if_t<std::is_convertible_v<Env *, TLSClientConfigurationComponent *>>>
-        inline void markConnectionAsUsingTLS(Env *env, std::string const &host, int port=443) {
+        inline void markConnectionAsUsingTLS(Env *env, std::string const &host, int port=443
+            , std::string const &caCertFile="", std::string const &clientCertFile="", std::string const &clientKeyFile=""
+        ) {
             static_cast<TLSClientConfigurationComponent *>(env)->setConfigurationItem(
                 TLSClientInfoKey {host, port}
-                , TLSClientInfo {}
+                , TLSClientInfo {caCertFile, clientCertFile, clientKeyFile}
             );
         }
     }

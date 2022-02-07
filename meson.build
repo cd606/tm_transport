@@ -12,13 +12,15 @@ grpc_dep = dependency('grpc')
 etcd_dep = dependency('libetcdcpp')
 soci_dep = dependency('soci')
 libsodium_dep = dependency('libsodium')
+boost_certify_dep = dependency('boost_certify')
 tm_infra_dep = dependency('tm_kit_infra')
 tm_basic_dep = dependency('tm_kit_basic')
 
-common_deps = [thread_dep, boost_dep, rabbitmq_dep, zmq_dep, redis_dep, nng_dep, crossguid_dep, grpc_dep, etcd_dep, soci_dep, libsodium_dep, tm_infra_dep, tm_basic_dep]
+common_deps = [thread_dep, boost_dep, rabbitmq_dep, zmq_dep, redis_dep, nng_dep, crossguid_dep, grpc_dep, etcd_dep, soci_dep, libsodium_dep, boost_certify_dep, tm_infra_dep, tm_basic_dep]
 
 if build_machine.system() == 'windows'
     common_deps += declare_dependency(link_args: 'bcrypt.lib')
+    common_deps += declare_dependency(link_args: 'crypt32.lib')
     add_global_arguments('/bigobj', language: 'cpp')
     add_global_arguments('-DWINVER=0x0601', language: 'cpp')
     add_global_arguments('-D_WIN32_WINNT=0x0601', language: 'cpp')
