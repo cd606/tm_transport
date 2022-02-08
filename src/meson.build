@@ -19,6 +19,7 @@ tm_transport_sources = [
       , 'ConvertChainIDStringToGroup.cpp'
       , tm_transport_grpc_version_info_hpp
       , 'singlecast/SinglecastComponent.cpp'
+      , 'BoostCertifyAdaptor.cpp'
 ]
 tm_transport_lib = static_library('tm_kit_transport', tm_transport_sources, include_directories: inc, dependencies: common_deps, install: true)
 pkg.generate(tm_transport_lib)

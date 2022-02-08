@@ -17,8 +17,6 @@
 #include <boost/config.hpp>
 #include <boost/algorithm/string.hpp>
 
-#include <boost/certify/https_verification.hpp>
-
 #include <openssl/ssl.h>
 
 #include <thread>
@@ -35,6 +33,8 @@
 #include <sodium/crypto_pwhash.h>
 #include <sodium/crypto_generichash.h>
 #include <sodium/randombytes.h>
+
+#include "../BoostCertifyAdaptor.hpp"
 
 namespace dev { namespace cd606 { namespace tm { namespace transport { namespace json_rest {
 
@@ -133,12 +133,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                             return;
                         }
                     } else {
-                        sslCtx_->set_verify_mode(
-                            boost::asio::ssl::context::verify_peer |
-                            boost::asio::ssl::context::verify_fail_if_no_peer_cert
-                        );
-                        sslCtx_->set_default_verify_paths();
-                        boost::certify::enable_native_https_server_verification(*sslCtx_);
+                        boost_certify_adaptor::initializeSslCtx(*sslCtx_);
                     }
                     
                     stream_.emplace<2>(boost::asio::make_strand(*svc_), *sslCtx_);
@@ -183,9 +178,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 req_.prepare_payload();
 
                 if (stream_.index() == 2) {
-                    boost::system::error_code ec;
-                    boost::certify::detail::set_server_hostname(std::get<2>(stream_).native_handle(), locator_.host(), ec);
-                    if (ec) {
+                    if (!boost_certify_adaptor::setHostName(std::get<2>(stream_), locator_.host())) {
                         if (logger_) {
                             logger_->logThroughLoggingComponentBase(
                                 infra::LogLevel::Error

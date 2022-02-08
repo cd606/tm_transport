@@ -16,6 +16,8 @@
 #include <boost/config.hpp>
 #include <boost/algorithm/string.hpp>
 
+#include "../BoostCertifyAdaptor.hpp"
+
 #include <openssl/ssl.h>
 
 #include <unordered_map>
@@ -85,26 +87,20 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                             std::istreambuf_iterator<char>{ifs}, {}
                         );
                         ifs.close();
-#ifdef __linux__
-                    } else {
-                        std::ifstream ifs("/etc/ssl/certs/ca-certificates.crt");
-                        if (ifs.good()) {
-                            caCert = std::string(
-                                std::istreambuf_iterator<char>{ifs}, {}
-                            );
-                            ifs.close();
+
+                        boost::system::error_code ec;
+                        sslCtx_->add_certificate_authority(
+                            boost::asio::buffer(caCert.data(), caCert.length())
+                            , ec
+                        );
+                        if (ec) {
+                            initializationFailure_ = true;
+                            return;
                         }
-#endif
+                    } else {
+                        boost_certify_adaptor::initializeSslCtx(*sslCtx_);
                     }
-                    boost::system::error_code ec;
-                    sslCtx_->add_certificate_authority(
-                        boost::asio::buffer(caCert.data(), caCert.length())
-                        , ec
-                    );
-                    if (ec) {
-                        initializationFailure_ = true;
-                        return;
-                    }
+                    
                     stream_.emplace<2>(boost::asio::make_strand(svc_), *sslCtx_);
                     std::get<2>(stream_).binary(true);
                 } else {
@@ -210,6 +206,10 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                     );
                 } else {
                     boost::beast::get_lowest_layer(std::get<2>(stream_)).expires_after(std::chrono::seconds(30));
+                    if (!boost_certify_adaptor::setHostName(std::get<2>(stream_).next_layer(), handshakeHost_)) {
+                        parent_->removeSubscriber(locator_);
+                        return;
+                    }
                     if(!SSL_set_tlsext_host_name(
                         std::get<2>(stream_).next_layer().native_handle(),
                         handshakeHost_.c_str()
@@ -833,26 +833,20 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                             std::istreambuf_iterator<char>{ifs}, {}
                         );
                         ifs.close();
-#ifdef __linux__
-                    } else {
-                        std::ifstream ifs("/etc/ssl/certs/ca-certificates.crt");
-                        if (ifs.good()) {
-                            caCert = std::string(
-                                std::istreambuf_iterator<char>{ifs}, {}
-                            );
-                            ifs.close();
+
+                        boost::system::error_code ec;
+                        sslCtx_->add_certificate_authority(
+                            boost::asio::buffer(caCert.data(), caCert.length())
+                            , ec
+                        );
+                        if (ec) {
+                            initializationFailure_ = true;
+                            return;
                         }
-#endif
+                    } else {
+                        boost_certify_adaptor::initializeSslCtx(*sslCtx_);
                     }
-                    boost::system::error_code ec;
-                    sslCtx_->add_certificate_authority(
-                        boost::asio::buffer(caCert.data(), caCert.length())
-                        , ec
-                    );
-                    if (ec) {
-                        initializationFailure_ = true;
-                        return;
-                    }
+                    
                     stream_.emplace<2>(boost::asio::make_strand(svc_), *sslCtx_);
                     std::get<2>(stream_).binary(true);
                 } else {
@@ -880,6 +874,10 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 });
                 th_.detach();
                 if (stream_.index() == 2) {
+                    if (!boost_certify_adaptor::setHostName(std::get<2>(stream_).next_layer(), locator_.host())) {
+                        parent_->removeRPCClient(locator_);
+                        return;
+                    }
                     if(!SSL_set_tlsext_host_name(std::get<2>(stream_).next_layer().native_handle(), locator_.host().data())) {
                         parent_->removeRPCClient(locator_);
                         return;
