@@ -1201,13 +1201,11 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
         )
             -> ImporterOrActionFactory<ChainItemFolder,TriggerT,ResultTransformer>
         {
-            auto f = std::move(folder);
-            auto t = std::move(resultTransformer);
-            return [this,env,locatorStr,pollingPolicy,hookPair,f=std::move(f),t=std::move(t)]() mutable {
-                auto f1 = std::move(f);
-                auto t1 = std::move(t);
+            auto f = std::make_shared<std::decay_t<decltype(folder)>>(std::move(folder));
+            auto t = std::make_shared<std::decay_t<decltype(resultTransformer)>>(std::move(resultTransformer));
+            return [this,env,locatorStr,pollingPolicy,hookPair,f,t]() {
                 return reader<ChainData,ChainItemFolder,TriggerT,ResultTransformer,ForceSeparateDataStorageIfPossible>(
-                    env, locatorStr, pollingPolicy, hookPair, std::move(f1), std::move(t1)
+                    env, locatorStr, pollingPolicy, hookPair, std::move(*f), std::move(*t)
                 );
             };
         }
@@ -1251,23 +1249,12 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                 , basic::simple_shared_chain::ChainWriterOnOrderFacilityWithExternalEffectsFactory<App, ChainItemFolder, InputHandler, IdleLogic>
             >
         {
-            ChainItemFolder f = std::move(folder);
-            InputHandler h = std::move(inputHandler);
-            std::conditional_t<
-                std::is_same_v<IdleLogic, void>
-                , basic::VoidStruct
-                , IdleLogic
-            > l = std::move(idleLogic);
-            return [this,env,locatorStr,pollingPolicy,hookPair,f=std::move(f),h=std::move(h),l=std::move(l)]() mutable {
-                ChainItemFolder f1 = std::move(f);
-                InputHandler h1 = std::move(h);
-                std::conditional_t<
-                    std::is_same_v<IdleLogic, void>
-                    , basic::VoidStruct
-                    , IdleLogic
-                > l1 = std::move(l);
+            auto f = std::make_shared<std::decay_t<decltype(folder)>>(std::move(folder));
+            auto h = std::make_shared<std::decay_t<decltype(inputHandler)>>(std::move(inputHandler));
+            auto l = std::make_shared<std::decay_t<decltype(idleLogic)>>(std::move(idleLogic));
+            return [this,env,locatorStr,pollingPolicy,hookPair,f,h,l]() {
                 return writer<ChainData,ChainItemFolder,InputHandler,IdleLogic,ForceSeparateDataStorageIfPossible>(
-                    env, locatorStr, pollingPolicy, hookPair, std::move(f1), std::move(h1), std::move(l1)
+                    env, locatorStr, pollingPolicy, hookPair, std::move(*f), std::move(*h), std::move(*l)
                 );
             };
         }
