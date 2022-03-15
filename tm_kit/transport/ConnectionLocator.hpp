@@ -53,6 +53,18 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
         std::string const &identifier() const { return identifier_; }
 
         std::string query(std::string const &field, std::string const &defaultValue="") const;
+        template <class F>
+        void for_all_properties(F const &f) const {
+            for (auto const &item : properties_) {
+                f(item.first, item.second);
+            }
+        }
+        template <class F>
+        void for_all_properties(F &f) const {
+            for (auto const &item : properties_) {
+                f(item.first, item.second);
+            }
+        }
 
         std::string toSerializationFormat() const;
         std::string toPrintFormat() const;

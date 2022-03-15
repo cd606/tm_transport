@@ -119,22 +119,24 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
 
                         nlohmann::json sendData;
                         std::ostringstream oss;
-                        if constexpr (basic::struct_field_info_utils::IsStructFieldInfoBasedCsvCompatibleStruct<Req>) {
+                        if constexpr (basic::struct_field_info_utils::IsStructFieldInfoBasedCsvCompatibleStruct<Req> || std::is_empty_v<Req>) {
                             if (useGet_ || simplePost_) {
-                                bool start = true;
-                                basic::struct_field_info_utils::StructFieldInfoBasedSimpleCsvOutput<Req>
-                                    ::outputNameValuePairs(
-                                        req.timedData.value.key()
-                                        , [&start,&oss](std::string const &name, std::string const &value) {
-                                            if (!start) {
-                                                oss << '&';
+                                if constexpr (!std::is_empty_v<Req>) {
+                                    bool start = true;
+                                    basic::struct_field_info_utils::StructFieldInfoBasedSimpleCsvOutput<Req>
+                                        ::outputNameValuePairs(
+                                            req.timedData.value.key()
+                                            , [&start,&oss](std::string const &name, std::string const &value) {
+                                                if (!start) {
+                                                    oss << '&';
+                                                }
+                                                JsonRESTClientFacilityFactoryUtils::urlEscape(oss, name);
+                                                oss << '=';
+                                                JsonRESTClientFacilityFactoryUtils::urlEscape(oss, value);
+                                                start = false;
                                             }
-                                            JsonRESTClientFacilityFactoryUtils::urlEscape(oss, name);
-                                            oss << '=';
-                                            JsonRESTClientFacilityFactoryUtils::urlEscape(oss, value);
-                                            start = false;
-                                        }
-                                    );
+                                        );
+                                }
                             } else {
                                 basic::nlohmann_json_interop::JsonEncoder<Req>::write(sendData, (noRequestResponseWrap_?std::nullopt:std::optional<std::string> {"request"}), req.timedData.value.key());
                             }
@@ -178,6 +180,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                                 }
                             }
                             , (simplePost_?"x-www-form-urlencoded":"application/json")
+                            , useGet_
                         );
                     }
                     void idleWork() {}
@@ -217,22 +220,24 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 auto ret = std::make_shared<std::promise<Resp>>();
                 nlohmann::json sendData;
                 std::ostringstream oss;
-                if constexpr (basic::struct_field_info_utils::IsStructFieldInfoBasedCsvCompatibleStruct<Req>) {
+                if constexpr (basic::struct_field_info_utils::IsStructFieldInfoBasedCsvCompatibleStruct<Req> || std::is_empty_v<Req>) {
                     if (useGet || simplePost) {
-                        bool start = true;
-                        basic::struct_field_info_utils::StructFieldInfoBasedSimpleCsvOutput<Req>
-                            ::outputNameValuePairs(
-                                request
-                                , [&start,&oss](std::string const &name, std::string const &value) {
-                                    if (!start) {
-                                        oss << '&';
+                        if constexpr (!std::is_empty_v<Req>) {
+                            bool start = true;
+                            basic::struct_field_info_utils::StructFieldInfoBasedSimpleCsvOutput<Req>
+                                ::outputNameValuePairs(
+                                    request
+                                    , [&start,&oss](std::string const &name, std::string const &value) {
+                                        if (!start) {
+                                            oss << '&';
+                                        }
+                                        JsonRESTClientFacilityFactoryUtils::urlEscape(oss, name);
+                                        oss << '=';
+                                        JsonRESTClientFacilityFactoryUtils::urlEscape(oss, value);
+                                        start = false;
                                     }
-                                    JsonRESTClientFacilityFactoryUtils::urlEscape(oss, name);
-                                    oss << '=';
-                                    JsonRESTClientFacilityFactoryUtils::urlEscape(oss, value);
-                                    start = false;
-                                }
-                            );
+                                );
+                        }
                     } else {
                         basic::nlohmann_json_interop::JsonEncoder<Req>::write(sendData, (noRequestResponseWrap?std::nullopt:std::optional<std::string> {"request"}), request);
                     }
@@ -260,6 +265,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                         }
                     }
                     , (simplePost?"x-www-form-urlencoded":"application/json")
+                    , useGet
                 );
                 return ret->get_future();
             } else {
