@@ -35,6 +35,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         private:
             WebSocketComponentImpl *parent_;
             ConnectionLocator locator_;
+            std::optional<basic::ByteData> initialData_;
             bool ignoreTopic_;
             std::string handshakeHost_;
             boost::asio::io_context svc_;
@@ -62,9 +63,11 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             OneSubscriber(
                 WebSocketComponentImpl *parent
                 , ConnectionLocator const &locator
+                , std::optional<basic::ByteData> &&initialData
                 , std::optional<TLSClientInfo> const &sslInfo
             )
                 : parent_(parent), locator_(locator)
+                , initialData_(std::move(initialData))
                 , ignoreTopic_(locator.query("ignoreTopic","false")=="true")
                 , svc_()
                 , sslCtx_(
@@ -133,6 +136,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                         return;
                     }
                 }
+                //std::cerr << "Will resolve\n";
                 resolver_.async_resolve(
                     locator_.host()
                     , std::to_string(locator_.port())
@@ -147,6 +151,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                     parent_->removeSubscriber(locator_);
                     return;
                 }
+                //std::cerr << "Will connect\n";
                 if (stream_.index() == 1) {
                     boost::beast::get_lowest_layer(std::get<1>(stream_)).expires_after(std::chrono::seconds(30));
                     boost::beast::get_lowest_layer(std::get<1>(stream_)).async_connect(
@@ -172,6 +177,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                     parent_->removeSubscriber(locator_);
                     return;
                 }
+                //std::cerr << "Will handshake\n";
                 handshakeHost_ = locator_.host()+":"+std::to_string(ep.port());
                 if (stream_.index() == 1) {
                     boost::beast::get_lowest_layer(std::get<1>(stream_)).expires_never();
@@ -207,6 +213,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 } else {
                     boost::beast::get_lowest_layer(std::get<2>(stream_)).expires_after(std::chrono::seconds(30));
                     if (!boost_certify_adaptor::setHostName(std::get<2>(stream_).next_layer(), handshakeHost_)) {
+                        //std::cerr << "set hostname wrong\n";
                         parent_->removeSubscriber(locator_);
                         return;
                     }
@@ -215,6 +222,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                         handshakeHost_.c_str()
                     ))
                     {
+                        //std::cerr << "set tlsext host name wrong\n";
                         parent_->removeSubscriber(locator_);
                         return;
                     }
@@ -229,9 +237,11 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             }
             void onSSLHandshake(boost::beast::error_code ec) {
                 if (ec) {
+                    //std::cerr << "ssl handshake wrong " << ec.message() << '\n';
                     parent_->removeSubscriber(locator_);
                     return;
                 }
+                //std::cerr << "Will websocket handshake\n";
                 boost::beast::get_lowest_layer(std::get<2>(stream_)).expires_never();
                 std::get<2>(stream_).set_option(
                     boost::beast::websocket::stream_base::timeout::suggested(
@@ -268,7 +278,18 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                     parent_->removeSubscriber(locator_);
                     return;
                 }
+                //std::cerr << "Will send initial data\n";
                 if (stream_.index() == 1) {
+                    if (initialData_) {
+                        try {
+                            std::get<1>(stream_).write(
+                                boost::asio::buffer(reinterpret_cast<const char *>(initialData_->content.data()), initialData_->content.size())
+                            );
+                        } catch (...) {
+                            parent_->removeSubscriber(locator_);
+                            return;
+                        }
+                    }
                     std::get<1>(stream_).async_read(
                         buffer_ 
                         , boost::beast::bind_front_handler(
@@ -277,6 +298,16 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                         )
                     );
                 } else {
+                    if (initialData_) {
+                        try {
+                            std::get<2>(stream_).write(
+                                boost::asio::buffer(reinterpret_cast<const char *>(initialData_->content.data()), initialData_->content.size())
+                            );
+                        } catch (...) {
+                            parent_->removeSubscriber(locator_);
+                            return;
+                        }
+                    }
                     std::get<2>(stream_).async_read(
                         buffer_ 
                         , boost::beast::bind_front_handler(
@@ -1589,6 +1620,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             std::variant<WebSocketComponent::NoTopicSelection, std::string, std::regex> const &topic,
             std::function<void(basic::ByteDataWithTopic &&)> client,
             std::optional<WireToUserHook> wireToUserHook,
+            std::optional<basic::ByteData> &&initialData,
             TLSClientConfigurationComponent *config) 
         {
             uint32_t retVal = 0;
@@ -1603,6 +1635,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                             , std::make_shared<OneSubscriber>(
                                 this
                                 , locator
+                                , std::move(initialData)
                                 , (config?config->getConfigurationItem(TLSClientInfoKey {locator.host(), locator.port()}):std::nullopt)
                             )
                         }
@@ -1851,12 +1884,14 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
     uint32_t WebSocketComponent::websocket_addSubscriptionClient(ConnectionLocator const &locator,
         std::variant<WebSocketComponent::NoTopicSelection, std::string, std::regex> const &topic,
         std::function<void(basic::ByteDataWithTopic &&)> client,
-        std::optional<WireToUserHook> wireToUserHook) {
+        std::optional<WireToUserHook> wireToUserHook,
+        std::optional<basic::ByteData> &&initialData) {
         return impl_->websocket_addSubscriptionClient(
             locator 
             , topic 
             , client 
             , wireToUserHook 
+            , std::move(initialData)
             , dynamic_cast<TLSClientConfigurationComponent *>(this)
         );
     }
