@@ -84,8 +84,10 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 {
                 private:
                     ConnectionLocator locator_;
+                    std::string httpMethod_;
                     bool useGet_;
                     bool simplePost_;
+                    bool otherwiseEncodeInUrl_;
                     bool noRequestResponseWrap_;
                 public:
                     LocalF(ConnectionLocator const &locator)
@@ -96,15 +98,21 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                             , LocalF 
                         >()
                         , locator_(locator)
+                        , httpMethod_(locator.query("http_method", ""))
                         , useGet_(
                             (locator.query("use_get", "false") == "true")
                             && 
-                            basic::struct_field_info_utils::IsStructFieldInfoBasedCsvCompatibleStruct<Req>
+                            (basic::struct_field_info_utils::IsStructFieldInfoBasedCsvCompatibleStruct<Req> || std::is_empty_v<Req>)
                         )
                         , simplePost_(
                             (locator.query("simple_post", "false") == "true")
                             && 
-                            basic::struct_field_info_utils::IsStructFieldInfoBasedCsvCompatibleStruct<Req>
+                            (basic::struct_field_info_utils::IsStructFieldInfoBasedCsvCompatibleStruct<Req> || std::is_empty_v<Req>)
+                        )
+                        , otherwiseEncodeInUrl_(
+                            (locator.query("no_query_body", "false") == "true")
+                            && 
+                            (basic::struct_field_info_utils::IsStructFieldInfoBasedCsvCompatibleStruct<Req> || std::is_empty_v<Req>)
                         )
                         , noRequestResponseWrap_(
                             locator.query("no_wrap", "false") == "true"
@@ -120,7 +128,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                         nlohmann::json sendData;
                         std::ostringstream oss;
                         if constexpr (basic::struct_field_info_utils::IsStructFieldInfoBasedCsvCompatibleStruct<Req> || std::is_empty_v<Req>) {
-                            if (useGet_ || simplePost_) {
+                            if (useGet_ || simplePost_ || otherwiseEncodeInUrl_) {
                                 if constexpr (!std::is_empty_v<Req>) {
                                     bool start = true;
                                     basic::struct_field_info_utils::StructFieldInfoBasedSimpleCsvOutput<Req>
@@ -144,18 +152,34 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                             basic::nlohmann_json_interop::JsonEncoder<Req>::write(sendData, (noRequestResponseWrap_?std::nullopt:std::optional<std::string> {"request"}), req.timedData.value.key());
                         }
 
+                        std::optional<std::string> methodParam = std::nullopt;
+                        if (httpMethod_ != "") {
+                            methodParam = httpMethod_;
+                        } else if (useGet_) {
+                            methodParam = "GET";
+                        }
+
                         auto *env = req.environment;
                         env->JsonRESTComponent::addJsonRESTClient(
                             locator_
-                            , (useGet_?oss.str():"")
-                            , (useGet_?"":(simplePost_?oss.str():sendData.dump()))
-                            , [this,env,id=std::move(id)](std::string &&response) mutable {
+                            , ((useGet_||otherwiseEncodeInUrl_)?oss.str():"")
+                            , ((useGet_||otherwiseEncodeInUrl_)?"":(simplePost_?oss.str():sendData.dump()))
+                            , [this,env,id=std::move(id)](unsigned status, std::string &&response) mutable {
                                 if constexpr (std::is_same_v<Resp, RawString> || std::is_same_v<Resp, basic::ByteData>) {
                                     this->publish(
                                         env 
                                         , typename M::template Key<Resp> {
                                             std::move(id)
                                             , {std::move(response)}
+                                        }
+                                        , true
+                                    );
+                                } else if constexpr (std::is_same_v<Resp, RawStringWithStatus>) {
+                                    this->publish(
+                                        env 
+                                        , typename M::template Key<Resp> {
+                                            std::move(id)
+                                            , {status, std::move(response)}
                                         }
                                         , true
                                     );
@@ -180,7 +204,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                                 }
                             }
                             , (simplePost_?"x-www-form-urlencoded":"application/json")
-                            , useGet_
+                            , methodParam
                         );
                     }
                     void idleWork() {}
@@ -203,25 +227,32 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                     if constexpr (!std::is_same_v<typename DetermineClientSideIdentityForRequest<Env, Req>::IdentityType, std::string>) {
                         throw JsonRESTComponentException("json rest typed one shot remote call does not work when the request has non-string identity");
                     }
-                } 
+                }
+                std::string httpMethod = rpcQueueLocator.query("http_method", "");
                 bool useGet = (
                     (rpcQueueLocator.query("use_get", "false") == "true")
                     && 
-                    basic::struct_field_info_utils::IsStructFieldInfoBasedCsvCompatibleStruct<Req>
+                    (basic::struct_field_info_utils::IsStructFieldInfoBasedCsvCompatibleStruct<Req> || std::is_empty_v<Req>)
                 );
                 bool simplePost = (
                     (rpcQueueLocator.query("simple_post", "false") == "true")
                     && 
-                    basic::struct_field_info_utils::IsStructFieldInfoBasedCsvCompatibleStruct<Req>
+                    (basic::struct_field_info_utils::IsStructFieldInfoBasedCsvCompatibleStruct<Req> || std::is_empty_v<Req>)
+                );
+                bool otherwiseEncodeInUrl = (
+                    (rpcQueueLocator.query("no_query_body", "false") == "true")
+                    && 
+                    (basic::struct_field_info_utils::IsStructFieldInfoBasedCsvCompatibleStruct<Req> || std::is_empty_v<Req>)
                 );
                 bool noRequestResponseWrap = (
                     rpcQueueLocator.query("no_wrap", "false") == "true"
                 );
+                
                 auto ret = std::make_shared<std::promise<Resp>>();
                 nlohmann::json sendData;
                 std::ostringstream oss;
                 if constexpr (basic::struct_field_info_utils::IsStructFieldInfoBasedCsvCompatibleStruct<Req> || std::is_empty_v<Req>) {
-                    if (useGet || simplePost) {
+                    if (useGet || simplePost || otherwiseEncodeInUrl) {
                         if constexpr (!std::is_empty_v<Req>) {
                             bool start = true;
                             basic::struct_field_info_utils::StructFieldInfoBasedSimpleCsvOutput<Req>
@@ -244,13 +275,21 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 } else {
                     basic::nlohmann_json_interop::JsonEncoder<Req>::write(sendData, (noRequestResponseWrap?std::nullopt:std::optional<std::string> {"request"}), request);
                 }
+                std::optional<std::string> methodParam = std::nullopt;
+                if (httpMethod != "") {
+                    methodParam = httpMethod;
+                } else if (useGet) {
+                    methodParam = "GET";
+                }
                 env->JsonRESTComponent::addJsonRESTClient(
                     rpcQueueLocator
-                    , (useGet?oss.str():"")
-                    , (useGet?"":(simplePost?oss.str():sendData.dump()))
-                    , [ret,env,noRequestResponseWrap](std::string &&response) mutable {
+                    , ((useGet||otherwiseEncodeInUrl)?oss.str():"")
+                    , ((useGet||otherwiseEncodeInUrl)?"":(simplePost?oss.str():sendData.dump()))
+                    , [ret,env,noRequestResponseWrap](unsigned status, std::string &&response) mutable {
                         if constexpr (std::is_same_v<Resp, RawString> || std::is_same_v<Resp, basic::ByteData>) {
                             ret->set_value({std::move(response)});
+                        } else if constexpr (std::is_same_v<Resp, RawStringWithStatus>) {
+                            ret->set_value({status, std::move(response)});
                         } else {
                             try {
                                 nlohmann::json x = nlohmann::json::parse(response);
@@ -265,7 +304,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                         }
                     }
                     , (simplePost?"x-www-form-urlencoded":"application/json")
-                    , useGet
+                    , methodParam
                 );
                 return ret->get_future();
             } else {

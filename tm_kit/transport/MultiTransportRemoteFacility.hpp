@@ -640,7 +640,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                                         locator
                                         , (useGet?oss.str():"")
                                         , (useGet?"":sendData.dump())
-                                        , [this,env,id,noRequestResponseWrap](std::string &&response) mutable {
+                                        , [this,env,id,noRequestResponseWrap](unsigned status, std::string &&response) mutable {
                                             if constexpr (std::is_same_v<B, json_rest::RawString>) {
                                                 this->FacilityParent::publish(
                                                     env

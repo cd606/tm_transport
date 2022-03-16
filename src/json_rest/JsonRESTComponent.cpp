@@ -56,9 +56,9 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             int port_;
             std::string urlQueryPart_;
             std::string request_;
-            std::function<void(std::string &&)> callback_;
+            std::function<void(unsigned, std::string &&)> callback_;
             std::string contentType_;
-            bool forceUseGet_;
+            std::optional<std::string> method_;
 
             boost::asio::io_context *svc_;
             std::optional<boost::asio::ssl::context> sslCtx_;
@@ -82,9 +82,9 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 , int port
                 , std::string &&urlQueryPart
                 , std::string &&request
-                , std::function<void(std::string &&)> const &callback
+                , std::function<void(unsigned, std::string &&)> const &callback
                 , std::string const &contentType
-                , bool forceUseGet
+                , std::optional<std::string> const &method
                 , boost::asio::io_context *svc
                 , std::optional<TLSClientInfo> const &sslInfo
                 , basic::LoggingComponentBase *logger
@@ -96,7 +96,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 , request_(std::move(request))
                 , callback_(callback)
                 , contentType_(contentType)
-                , forceUseGet_(forceUseGet)
+                , method_(method)
                 , svc_(svc)
                 , sslCtx_(
                     sslInfo
@@ -147,14 +147,18 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             ~OneClient() {
             }
             void run() {
-                bool useGet = forceUseGet_ || (urlQueryPart_.length() > 0 && request_.length() == 0);
-                req_.method(
-                    useGet
-                    ?
-                    boost::beast::http::verb::get
-                    :
-                    boost::beast::http::verb::post
-                );
+                if (method_) {
+                    req_.method(boost::beast::http::string_to_verb(*method_));
+                } else {
+                    bool useGet = (urlQueryPart_.length() > 0 && request_.length() == 0);
+                    req_.method(
+                        useGet
+                        ?
+                        boost::beast::http::verb::get
+                        :
+                        boost::beast::http::verb::post
+                    );
+                }
                 std::string target = locator_.identifier();
                 if (!boost::starts_with(target, "/")) {
                     target = "/"+target;
@@ -348,7 +352,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                     parent_->removeJsonRESTClient(shared_from_this());
                     return;
                 }
-                callback_(std::move(res_.body()));
+                callback_(static_cast<unsigned>(res_.result()), std::move(res_.body()));
                 if (stream_.index() == 1) {
                     try {
                         std::get<1>(stream_).socket().shutdown(
@@ -1173,10 +1177,10 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             } catch (...) {}
         }
         void addJsonRESTClient(ConnectionLocator const &locator, std::string &&urlQueryPart, std::string &&request, std::function<
-            void(std::string &&)
+            void(unsigned, std::string &&)
         > const &clientCallback
         , std::string const &contentType
-        , bool forceUseGet
+        , std::optional<std::string> const &method
         , TLSClientConfigurationComponent const *config
         , basic::LoggingComponentBase *logger) {
             int port = locator.port();
@@ -1195,7 +1199,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 , std::move(request)
                 , clientCallback 
                 , contentType
-                , forceUseGet
+                , method
                 , &clientSvc_
                 , (config?config->getConfigurationItem(
                     TLSClientInfoKey {locator.host(), port}
@@ -1672,9 +1676,9 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
     JsonRESTComponent &JsonRESTComponent::operator=(JsonRESTComponent &&) = default;
     JsonRESTComponent::~JsonRESTComponent() = default;
     void JsonRESTComponent::addJsonRESTClient(ConnectionLocator const &locator, std::string &&urlQueryPart, std::string &&request, std::function<
-        void(std::string &&)
-    > const &clientCallback, std::string const &contentType, bool forceUseGet) {
-        impl_->addJsonRESTClient(locator, std::move(urlQueryPart), std::move(request), clientCallback, contentType, forceUseGet, dynamic_cast<TLSClientConfigurationComponent const *>(this), dynamic_cast<basic::LoggingComponentBase *>(this));
+        void(unsigned, std::string &&)
+    > const &clientCallback, std::string const &contentType, std::optional<std::string> const &method) {
+        impl_->addJsonRESTClient(locator, std::move(urlQueryPart), std::move(request), clientCallback, contentType, method, dynamic_cast<TLSClientConfigurationComponent const *>(this), dynamic_cast<basic::LoggingComponentBase *>(this));
     }
     void JsonRESTComponent::registerHandler(ConnectionLocator const &locator, std::function<
         bool(std::string const &, std::string const &, std::unordered_map<std::string, std::vector<std::string>> const &, std::function<void(std::string const &)> const &)
