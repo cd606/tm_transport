@@ -27,7 +27,13 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
             throw ConnectionLocatorParseError("'"+input+"' is not a valid remote resource descriptor, there are too few parts");
         }
         if (parts.size() > 5) {
-            throw ConnectionLocatorParseError("'"+input+"' is not a valid remote resource descriptor, there are too many parts");
+            std::ostringstream idPartOss;
+            idPartOss << parts[4];
+            for (int ii=5; ii<parts.size(); ++ii) {
+                idPartOss << ':' << parts[ii];
+            }
+            parts[4] = idPartOss.str();
+            parts.resize(5);
         }
         ConnectionLocator ret;
         ret.host_ = boost::trim_copy(parts[0]);
