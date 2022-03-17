@@ -142,7 +142,7 @@ namespace dev { namespace cd606 { namespace tm { namespace basic { namespace nlo
             auto const &i = (key?input.at(*key):input);
             if (i.is_null()) {
                 data = xg::Guid {};
-                return false;
+                return true;
             } else {
                 std::string s;
                 i.get_to(s);
