@@ -12,7 +12,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
 
     #define JSON_REST_COMPLEX_INPUT_ENCODE_FORMAT \
         (json_body) (simple_body) (url_query)
-#ifdef MSC_VER
+#ifdef _MSC_VER
     #define JSON_REST_COMPLEX_INPUT_FIELDS \
         ((std::string, method)) \
         ((std::string, path)) \
