@@ -8,6 +8,8 @@
 
 #include <tm_kit/transport/json_rest/JsonRESTComponent.hpp>
 #include <tm_kit/transport/json_rest/RawString.hpp>
+#include <tm_kit/transport/json_rest/ComplexInput.hpp>
+#include <tm_kit/transport/json_rest/JsonRESTClientFacilityUtils.hpp>
 #include <tm_kit/transport/AbstractIdentityCheckerComponent.hpp>
 
 #include <type_traits>
@@ -20,33 +22,6 @@
 
 namespace dev { namespace cd606 { namespace tm { namespace transport { namespace json_rest {
 
-    class JsonRESTClientFacilityFactoryUtils {
-    private:
-        static std::array<bool, 128> createUnreservedCharactersArray() {
-            std::array<bool, 128> ret;
-            for (int ii=0; ii<128; ++ii) {
-                char c = (char) ii;
-                ret[ii] = std::isalnum(c) || (c == '-') || (c == '.') || (c == '_') || (c == '~');
-            }
-            return ret;
-        }
-    public:
-        static void urlEscape(std::ostream &os, std::string const &input) {
-            static std::array<bool,128> unreservedCharacters = createUnreservedCharactersArray();
-            for (char c : input) {
-                if (c == ' ') {
-                    os << '+';
-                } else if ((int) c < 0 || (int) c >= 128) {
-                    os << '%' << std::setw(2) << std::setfill('0') << std::hex << std::uppercase << (unsigned) c;
-                } else if (!unreservedCharacters[(int) c]) {
-                    os << '%' << std::setw(2) << std::setfill('0') << std::hex << std::uppercase << (unsigned) c;
-                } else {
-                    os << c;
-                }
-            }
-        }
-    };
-
     template <class M, typename=std::enable_if_t<
         infra::app_classification_v<M> == infra::AppClassification::RealTime
         &&
@@ -58,6 +33,78 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
     class JsonRESTClientFacilityFactory {
     private:
         using Env = typename M::EnvironmentType;
+        static auto createComplexInputClientFacility(
+            ConnectionLocator const &locator
+        )
+            -> std::shared_ptr<
+                typename M::template OnOrderFacility<
+                    json_rest::ComplexInput, json_rest::RawStringWithStatus
+                >
+            >
+        {
+            class LocalF : 
+                public M::IExternalComponent
+                , public M::template AbstractOnOrderFacility<json_rest::ComplexInput, json_rest::RawStringWithStatus> 
+                , public infra::RealTimeAppComponents<Env>::template ThreadedHandler<
+                    typename M::template Key<json_rest::ComplexInput>
+                    , LocalF 
+                >
+            {
+            private:
+                ConnectionLocator locator_;
+            public:
+                LocalF(ConnectionLocator const &locator)
+                    : M::IExternalComponent()
+                    , M::template AbstractOnOrderFacility<json_rest::ComplexInput, json_rest::RawStringWithStatus>()
+                    , infra::RealTimeAppComponents<Env>::template ThreadedHandler<
+                        typename M::template Key<json_rest::ComplexInput>
+                        , LocalF 
+                    >()
+                    , locator_(locator)
+                {
+                    this->startThread();
+                }
+                virtual void start(Env *env) override final {
+                }
+                void actuallyHandle(typename M::template InnerData<typename M::template Key<json_rest::ComplexInput>> &&req) {
+                    auto id = req.timedData.value.id();
+
+                    std::ostringstream oss;
+                    auto const &input = req.timedData.value.key();
+                    
+                    auto *env = req.environment;
+                    ConnectionLocator updatedLocator = locator_.modifyIdentifier(input.path);
+                    if (!input.headers.empty()) {
+                        std::unordered_map<std::string, std::string> locatorHeaderProps;
+                        for (auto const &item : input.headers) {
+                            locatorHeaderProps.insert(std::make_pair("header/"+item.first, item.second));
+                        }
+                        updatedLocator = updatedLocator.addProperties(locatorHeaderProps);
+                    }
+                    
+                    env->JsonRESTComponent::addJsonRESTClient(
+                        updatedLocator
+                        , std::string {input.query}
+                        , std::string {input.body}
+                        , [this,env,id=std::move(id)](unsigned status, std::string &&response) mutable {
+                            this->publish(
+                                env 
+                                , typename M::template Key<json_rest::RawStringWithStatus> {
+                                    std::move(id)
+                                    , {status, std::move(response)}
+                                }
+                                , true
+                            );
+                        }
+                        , input.contentType
+                        , input.method
+                    );
+                }
+                void idleWork() {}
+                void waitForStart() {}
+            };
+            return M::template fromAbstractOnOrderFacility<json_rest::ComplexInput, json_rest::RawStringWithStatus>(new LocalF(locator));
+        }
     public:
         template <class Req, class Resp>
         static auto createClientFacility(
@@ -70,6 +117,12 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             >
         {
             if constexpr (
+                std::is_same_v<Req, json_rest::ComplexInput>
+                &&
+                std::is_same_v<Resp, json_rest::RawStringWithStatus>
+            ) {
+                return createComplexInputClientFacility(locator);
+            } else if constexpr (
                 basic::nlohmann_json_interop::JsonWrappable<Req>::value
                 &&
                 basic::nlohmann_json_interop::JsonWrappable<Resp>::value

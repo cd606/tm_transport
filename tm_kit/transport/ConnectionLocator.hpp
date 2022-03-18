@@ -112,6 +112,13 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
             l.properties_[name] = value;
             return l;
         }
+        ConnectionLocator addProperties(std::unordered_map<std::string, std::string> const &prop) const {
+            ConnectionLocator l(*this);
+            for (auto const &item : prop) {
+                l.properties_[item.first] = item.second;
+            }
+            return l;
+        }
     };
 
     inline std::ostream &operator<<(std::ostream &os, ConnectionLocator const &d) {
