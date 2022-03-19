@@ -36,6 +36,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             WebSocketComponentImpl *parent_;
             ConnectionLocator locator_;
             std::optional<basic::ByteData> initialData_;
+            std::function<std::optional<basic::ByteData>(basic::ByteDataView const &)> protocolReactor_;
             bool ignoreTopic_;
             std::string handshakeHost_;
             boost::asio::io_context svc_;
@@ -64,10 +65,12 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 WebSocketComponentImpl *parent
                 , ConnectionLocator const &locator
                 , std::optional<basic::ByteData> &&initialData
+                , std::function<std::optional<basic::ByteData>(basic::ByteDataView const &)> const &protocolReactor
                 , std::optional<TLSClientInfo> const &sslInfo
             )
                 : parent_(parent), locator_(locator)
                 , initialData_(std::move(initialData))
+                , protocolReactor_(protocolReactor)
                 , ignoreTopic_(locator.query("ignoreTopic","false")=="true")
                 , svc_()
                 , sslCtx_(
@@ -335,6 +338,10 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 }
 
                 auto input = boost::beast::buffers_to_string(buffer_.data());
+                std::optional<basic::ByteData> reactorRes = std::nullopt;
+                if (protocolReactor_) {
+                    reactorRes = protocolReactor_(basic::ByteDataView {std::string_view {input}});
+                }
                 
                 if (ignoreTopic_) {
                     for (auto const &f : noFilterClients_) {
@@ -364,6 +371,16 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
 
                 buffer_.clear();
                 if (stream_.index() == 1) {
+                    if (reactorRes) {
+                        try {
+                            std::get<1>(stream_).write(
+                                boost::asio::buffer(reinterpret_cast<const char *>(reactorRes->content.data()), reactorRes->content.size())
+                            );
+                        } catch (...) {
+                            parent_->removeSubscriber(locator_);
+                            return;
+                        }
+                    }
                     std::get<1>(stream_).async_read(
                         buffer_ 
                         , boost::beast::bind_front_handler(
@@ -372,6 +389,16 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                         )
                     );
                 } else {
+                    if (reactorRes) {
+                        try {
+                            std::get<2>(stream_).write(
+                                boost::asio::buffer(reinterpret_cast<const char *>(reactorRes->content.data()), reactorRes->content.size())
+                            );
+                        } catch (...) {
+                            parent_->removeSubscriber(locator_);
+                            return;
+                        }
+                    }
                     std::get<2>(stream_).async_read(
                         buffer_ 
                         , boost::beast::bind_front_handler(
@@ -1621,6 +1648,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             std::function<void(basic::ByteDataWithTopic &&)> client,
             std::optional<WireToUserHook> wireToUserHook,
             std::optional<basic::ByteData> &&initialData,
+            std::function<std::optional<basic::ByteData>(basic::ByteDataView const &)> const &protocolReactor,
             TLSClientConfigurationComponent *config) 
         {
             uint32_t retVal = 0;
@@ -1636,6 +1664,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                                 this
                                 , locator
                                 , std::move(initialData)
+                                , protocolReactor
                                 , (config?config->getConfigurationItem(TLSClientInfoKey {locator.host(), locator.port()}):std::nullopt)
                             )
                         }
@@ -1885,13 +1914,15 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         std::variant<WebSocketComponent::NoTopicSelection, std::string, std::regex> const &topic,
         std::function<void(basic::ByteDataWithTopic &&)> client,
         std::optional<WireToUserHook> wireToUserHook,
-        std::optional<basic::ByteData> &&initialData) {
+        std::optional<basic::ByteData> &&initialData,
+        std::function<std::optional<basic::ByteData>(basic::ByteDataView const &)> const &protocolReactor) {
         return impl_->websocket_addSubscriptionClient(
             locator 
             , topic 
             , client 
             , wireToUserHook 
             , std::move(initialData)
+            , protocolReactor
             , dynamic_cast<TLSClientConfigurationComponent *>(this)
         );
     }

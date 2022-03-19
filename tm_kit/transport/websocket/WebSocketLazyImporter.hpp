@@ -22,6 +22,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             ConnectionLocator const &locator
             , std::variant<WebSocketComponent::NoTopicSelection, std::string, std::regex> const &topic=WebSocketComponent::NoTopicSelection()
             , std::optional<ByteDataHookPair> hookPair = std::nullopt
+            , std::function<std::optional<basic::ByteData>(basic::ByteDataView const &)> const &protocolReactor = {}
         ) -> std::shared_ptr<typename M::template Action<basic::ByteData, basic::ByteDataWithTopic>>  
         {
             class LocalA final : public M::template AbstractAction<basic::ByteData, basic::ByteDataWithTopic> {
@@ -29,13 +30,21 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 ConnectionLocator locator_;
                 std::variant<WebSocketComponent::NoTopicSelection, std::string, std::regex> topic_;
                 std::optional<ByteDataHookPair> hookPair_;
+                std::function<std::optional<basic::ByteData>(basic::ByteDataView const &)> protocolReactor_;
                 std::optional<uint32_t> client_;
                 Env *env_;
                 std::mutex mutex_;
             public:
-                LocalA(ConnectionLocator const &locator, std::variant<WebSocketComponent::NoTopicSelection, std::string, std::regex> const &topic, std::optional<ByteDataHookPair> const &hookPair)
-                    : locator_(locator), topic_(topic), hookPair_(hookPair), client_(std::nullopt), env_(nullptr), mutex_()
+                LocalA(ConnectionLocator const &locator, std::variant<WebSocketComponent::NoTopicSelection, std::string, std::regex> const &topic, std::optional<ByteDataHookPair> const &hookPair, std::function<std::optional<basic::ByteData>(basic::ByteDataView const &)> const &protocolReactor)
+                    : locator_(locator), topic_(topic), hookPair_(hookPair), protocolReactor_(protocolReactor), client_(std::nullopt), env_(nullptr), mutex_()
                 {
+                }
+                ~LocalA() {
+                    std::lock_guard<std::mutex> _(mutex_);
+                    if (client_ && env_) {
+                        env_->websocket_removeSubscriptionClient(*client_);
+                        client_ = std::nullopt;
+                    }
                 }
                 virtual bool isThreaded() const override final {
                     return true;
@@ -59,6 +68,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                                 }
                                 , (hookPair_?hookPair_->wireToUser:std::nullopt)
                                 , hookPair_->userToWire->hook(std::move(input.timedData.value))
+                                , protocolReactor_
                             );
                         } else {
                             client_ = env_->websocket_addSubscriptionClient(
@@ -70,28 +80,20 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                                 }
                                 , (hookPair_?hookPair_->wireToUser:std::nullopt)
                                 , std::move(input.timedData.value)
+                                , protocolReactor_
                             );
                         }
                     }
                 }
-                virtual void afterStopProducer() override final {
-                    std::lock_guard<std::mutex> _(mutex_);
-                    if (client_ && env_) {
-                        env_->websocket_removeSubscriptionClient(*client_);
-                    }
-                }
-                virtual void beforeRestartProducer() override final {
-                    std::lock_guard<std::mutex> _(mutex_);
-                    client_ = std::nullopt;
-                }
             };
-            return M::fromAbstractAction(new LocalA(locator, topic, hookPair));
+            return M::fromAbstractAction(new LocalA(locator, topic, hookPair, protocolReactor));
         }
         template <class A, class B>
         static auto createTypedLazyImporter(
             ConnectionLocator const &locator
             , std::variant<WebSocketComponent::NoTopicSelection, std::string, std::regex> const &topic=WebSocketComponent::NoTopicSelection()
             , std::optional<ByteDataHookPair> hookPair = std::nullopt
+            , std::function<std::optional<basic::ByteData>(basic::ByteDataView const &)> const &protocolReactor = {}
         ) -> std::shared_ptr<typename M::template Action<A, basic::TypedDataWithTopic<B>>>  
         {
             class LocalA final : public M::template AbstractAction<A, basic::TypedDataWithTopic<B>> {
@@ -99,13 +101,21 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 ConnectionLocator locator_;
                 std::variant<WebSocketComponent::NoTopicSelection, std::string, std::regex> topic_;
                 std::optional<ByteDataHookPair> hookPair_;
+                std::function<std::optional<basic::ByteData>(basic::ByteDataView const &)> protocolReactor_;
                 std::optional<uint32_t> client_;
                 Env *env_;
                 std::mutex mutex_;
             public:
-                LocalA(ConnectionLocator const &locator, std::variant<WebSocketComponent::NoTopicSelection, std::string, std::regex> const &topic, std::optional<ByteDataHookPair> const &hookPair)
-                    : locator_(locator), topic_(topic), hookPair_(hookPair), client_(std::nullopt), env_(nullptr), mutex_()
+                LocalA(ConnectionLocator const &locator, std::variant<WebSocketComponent::NoTopicSelection, std::string, std::regex> const &topic, std::optional<ByteDataHookPair> const &hookPair, std::function<std::optional<basic::ByteData>(basic::ByteDataView const &)> const &protocolReactor)
+                    : locator_(locator), topic_(topic), hookPair_(hookPair), protocolReactor_(protocolReactor), client_(std::nullopt), env_(nullptr), mutex_()
                 {
+                }
+                ~LocalA() {
+                    std::lock_guard<std::mutex> _(mutex_);
+                    if (client_ && env_) {
+                        env_->websocket_removeSubscriptionClient(*client_);
+                        client_ = std::nullopt;
+                    }
                 }
                 virtual bool isThreaded() const override final {
                     return true;
@@ -142,6 +152,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                                 }
                                 , wireToUser
                                 , userToWire->hook(std::move(initialData))
+                                , protocolReactor_
                             );
                         } else {
                             client_ = env_->websocket_addSubscriptionClient(
@@ -157,22 +168,13 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                                 }
                                 , wireToUser
                                 , std::move(initialData)
+                                , protocolReactor_
                             );
                         }
                     }
                 }
-                virtual void afterStopProducer() override final {
-                    std::lock_guard<std::mutex> _(mutex_);
-                    if (client_ && env_) {
-                        env_->websocket_removeSubscriptionClient(*client_);
-                    }
-                }
-                virtual void beforeRestartProducer() override final {
-                    std::lock_guard<std::mutex> _(mutex_);
-                    client_ = std::nullopt;
-                }
             };
-            return M::fromAbstractAction(new LocalA(locator, topic, hookPair));
+            return M::fromAbstractAction(new LocalA(locator, topic, hookPair, protocolReactor));
         }
     };
 
