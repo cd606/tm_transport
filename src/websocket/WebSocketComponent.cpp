@@ -134,6 +134,10 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 });
                 th_.detach();
                 if (stream_.index() == 2) {
+                    if (!boost_certify_adaptor::setHostName(std::get<2>(stream_).next_layer(), locator_.host())) {
+                        parent_->removeRPCClient(locator_);
+                        return;
+                    }
                     if(!SSL_set_tlsext_host_name(std::get<2>(stream_).next_layer().native_handle(), locator_.host().data())) {
                         parent_->removeSubscriber(locator_);
                         return;
@@ -154,7 +158,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                     parent_->removeSubscriber(locator_);
                     return;
                 }
-                //std::cerr << "Will connect\n";
+                //std::cerr << "Will connect " << stream_.index() << "\n";
                 if (stream_.index() == 1) {
                     boost::beast::get_lowest_layer(std::get<1>(stream_)).expires_after(std::chrono::seconds(30));
                     boost::beast::get_lowest_layer(std::get<1>(stream_)).async_connect(
@@ -177,6 +181,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             }
             void onConnect(boost::beast::error_code ec, boost::asio::ip::tcp::resolver::results_type::endpoint_type ep) {
                 if (ec) {
+                    //std::cerr << "connect error\n";
                     parent_->removeSubscriber(locator_);
                     return;
                 }
@@ -215,20 +220,6 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                     );
                 } else {
                     boost::beast::get_lowest_layer(std::get<2>(stream_)).expires_after(std::chrono::seconds(30));
-                    if (!boost_certify_adaptor::setHostName(std::get<2>(stream_).next_layer(), handshakeHost_)) {
-                        //std::cerr << "set hostname wrong\n";
-                        parent_->removeSubscriber(locator_);
-                        return;
-                    }
-                    if(!SSL_set_tlsext_host_name(
-                        std::get<2>(stream_).next_layer().native_handle(),
-                        handshakeHost_.c_str()
-                    ))
-                    {
-                        //std::cerr << "set tlsext host name wrong\n";
-                        parent_->removeSubscriber(locator_);
-                        return;
-                    }
                     std::get<2>(stream_).next_layer().async_handshake(
                         boost::asio::ssl::stream_base::client
                         , boost::beast::bind_front_handler(
@@ -281,7 +272,12 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                     parent_->removeSubscriber(locator_);
                     return;
                 }
-                //std::cerr << "Will send initial data\n";
+                /*
+                std::cerr << "Will send initial data\n";
+                if (initialData_) {
+                    std::cerr << "initial data is " << *initialData_ << '\n';
+                }
+                */
                 if (stream_.index() == 1) {
                     if (initialData_) {
                         try {
@@ -1651,6 +1647,15 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             std::function<std::optional<basic::ByteData>(basic::ByteDataView const &)> const &protocolReactor,
             TLSClientConfigurationComponent *config) 
         {
+            int port = locator.port();
+            if (port == 0) {
+                if (config) {
+                    port = 443;
+                } else {
+                    port = 80;
+                }
+            }
+            auto actualLocator = locator.modifyPort(port);
             uint32_t retVal = 0;
             {
                 std::lock_guard<std::mutex> _(subscriberMapMutex_);
@@ -1659,13 +1664,13 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 if (iter == subscriberMap_.end()) {
                     iter = subscriberMap_.insert(
                         {
-                            locator
+                            actualLocator
                             , std::make_shared<OneSubscriber>(
                                 this
-                                , locator
+                                , actualLocator
                                 , std::move(initialData)
                                 , protocolReactor
-                                , (config?config->getConfigurationItem(TLSClientInfoKey {locator.host(), locator.port()}):std::nullopt)
+                                , (config?config->getConfigurationItem(TLSClientInfoKey {actualLocator.host(), actualLocator.port()}):std::nullopt)
                             )
                         }
                     ).first;
@@ -1677,7 +1682,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                     }
                 }
                 if (iter != subscriberMap_.end()) {
-                    subscriberClientIDToSubscriberLocatorMap_[retVal] = locator;
+                    subscriberClientIDToSubscriberLocatorMap_[retVal] = actualLocator;
                     iter->second->addClient(retVal, topic, client, wireToUserHook);
                 }
             }
