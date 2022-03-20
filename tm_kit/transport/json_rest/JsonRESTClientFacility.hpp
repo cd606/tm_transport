@@ -105,6 +105,79 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             };
             return M::template fromAbstractOnOrderFacility<json_rest::ComplexInput, json_rest::RawStringWithStatus>(new LocalF(locator));
         }
+        template <class T>
+        static auto createComplexInputWithDataClientFacility(
+            ConnectionLocator const &locator
+        )
+            -> std::shared_ptr<
+                typename M::template OnOrderFacility<
+                    json_rest::ComplexInputWithData<T>, json_rest::RawStringWithStatus
+                >
+            >
+        {
+            class LocalF : 
+                public M::IExternalComponent
+                , public M::template AbstractOnOrderFacility<json_rest::ComplexInputWithData<T>, json_rest::RawStringWithStatus> 
+                , public infra::RealTimeAppComponents<Env>::template ThreadedHandler<
+                    typename M::template Key<json_rest::ComplexInputWithData<T>>
+                    , LocalF 
+                >
+            {
+            private:
+                ConnectionLocator locator_;
+            public:
+                LocalF(ConnectionLocator const &locator)
+                    : M::IExternalComponent()
+                    , M::template AbstractOnOrderFacility<json_rest::ComplexInputWithData<T>, json_rest::RawStringWithStatus>()
+                    , infra::RealTimeAppComponents<Env>::template ThreadedHandler<
+                        typename M::template Key<json_rest::ComplexInputWithData<T>>
+                        , LocalF 
+                    >()
+                    , locator_(locator)
+                {
+                    this->startThread();
+                }
+                virtual void start(Env *env) override final {
+                }
+                void actuallyHandle(typename M::template InnerData<typename M::template Key<json_rest::ComplexInputWithData<T>>> &&req) {
+                    auto id = req.timedData.value.id();
+
+                    std::ostringstream oss;
+                    auto const &input = req.timedData.value.key();
+                    
+                    auto *env = req.environment;
+                    ConnectionLocator updatedLocator = locator_.modifyIdentifier(input.path);
+                    if (!input.headers.empty()) {
+                        std::unordered_map<std::string, std::string> locatorHeaderProps;
+                        for (auto const &item : input.headers) {
+                            locatorHeaderProps.insert(std::make_pair("header/"+item.first, item.second));
+                        }
+                        updatedLocator = updatedLocator.addProperties(locatorHeaderProps);
+                    }
+                    
+                    env->JsonRESTComponent::addJsonRESTClient(
+                        updatedLocator
+                        , std::string {input.query}
+                        , std::string {input.body}
+                        , [this,env,id=std::move(id)](unsigned status, std::string &&response) mutable {
+                            this->publish(
+                                env 
+                                , typename M::template Key<json_rest::RawStringWithStatus> {
+                                    std::move(id)
+                                    , {status, std::move(response)}
+                                }
+                                , true
+                            );
+                        }
+                        , input.contentType
+                        , input.method
+                    );
+                }
+                void idleWork() {}
+                void waitForStart() {}
+            };
+            return M::template fromAbstractOnOrderFacility<json_rest::ComplexInputWithData<T>, json_rest::RawStringWithStatus>(new LocalF(locator));
+        }
     public:
         template <class Req, class Resp>
         static auto createClientFacility(
@@ -122,6 +195,14 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 std::is_same_v<Resp, json_rest::RawStringWithStatus>
             ) {
                 return createComplexInputClientFacility(locator);
+            } else if constexpr (
+                json_rest::IsComplexInputWithData<Req>::value
+                &&
+                std::is_same_v<Resp, json_rest::RawStringWithStatus>
+            ) {
+                return createComplexInputWithDataClientFacility<
+                    typename json_rest::IsComplexInputWithData<Req>::DataType
+                >(locator);
             } else if constexpr (
                 basic::nlohmann_json_interop::JsonWrappable<Req>::value
                 &&

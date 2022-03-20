@@ -30,14 +30,29 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         ((std::string, body))
 #endif
 
+    #define JSON_REST_COMPLEX_INPUT_WITH_DATA_FIELDS \
+        JSON_REST_COMPLEX_INPUT_FIELDS \
+        ((T, data))
+
     TM_BASIC_CBOR_CAPABLE_ENUM_AS_STRING(ComplexInputEncodeFormat, JSON_REST_COMPLEX_INPUT_ENCODE_FORMAT);
     TM_BASIC_CBOR_CAPABLE_STRUCT(ComplexInput, JSON_REST_COMPLEX_INPUT_FIELDS);
+    TM_BASIC_CBOR_CAPABLE_TEMPLATE_STRUCT(((typename, T)), ComplexInputWithData, JSON_REST_COMPLEX_INPUT_WITH_DATA_FIELDS);
 
+    template <class X>
+    struct IsComplexInputWithData {
+        static constexpr bool value = false;
+    };
     template <class T>
+    struct IsComplexInputWithData<ComplexInputWithData<T>> {
+        static constexpr bool value = true;
+        using DataType = T;
+    };
+
+    template <class T, class ComplexInputLikeStruct>
     inline void encodeDataForComplexInput(
         ComplexInputEncodeFormat encodeFormat
         , T const &t
-        , ComplexInput &output
+        , ComplexInputLikeStruct &output
     ) {
         std::ostringstream oss;
         bool encodeInURL = (encodeFormat == ComplexInputEncodeFormat::url_query);
@@ -80,7 +95,9 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
 
 TM_BASIC_CBOR_CAPABLE_ENUM_AS_STRING_SERIALIZE(dev::cd606::tm::transport::json_rest::ComplexInputEncodeFormat, JSON_REST_COMPLEX_INPUT_ENCODE_FORMAT);
 TM_BASIC_CBOR_CAPABLE_STRUCT_SERIALIZE(dev::cd606::tm::transport::json_rest::ComplexInput, JSON_REST_COMPLEX_INPUT_FIELDS);
+TM_BASIC_CBOR_CAPABLE_TEMPLATE_STRUCT_SERIALIZE(((typename, T)), dev::cd606::tm::transport::json_rest::ComplexInputWithData, JSON_REST_COMPLEX_INPUT_WITH_DATA_FIELDS);
 #undef JSON_REST_COMPLEX_INPUT_ENCODE_FORMAT
 #undef JSON_REST_COMPLEX_INPUT_FIELDS
+#undef JSON_REST_COMPLEX_INPUT_WITH_DATA_FIELDS
 
 #endif
