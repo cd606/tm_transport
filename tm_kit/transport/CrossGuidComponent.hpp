@@ -155,6 +155,34 @@ namespace dev { namespace cd606 { namespace tm { namespace basic { namespace nlo
                 }
             }
         }
+        static bool read_simd(simdjson::dom::element const &input, std::optional<std::string> const &key, xg::Guid &data, JsonFieldMapping const &/*mapping*/=JsonFieldMapping {}) {
+            try {
+                if (key) {
+                    if (input[*key].error() == simdjson::NO_SUCH_FIELD) {
+                        data = xg::Guid {};
+                        return true;
+                    }
+                    try {
+                        data = (xg::Guid) ((std::string) input[*key]);
+                        return true;
+                    } catch (...) {
+                        data = xg::Guid {};
+                        return false;
+                    }
+                } else {
+                    try {
+                        data = (xg::Guid) ((std::string) input);
+                        return true;
+                    } catch (...) {
+                        data = xg::Guid {};
+                        return false;
+                    }
+                }
+            } catch (simdjson::simdjson_error) {
+                data = xg::Guid {};
+                return false;
+            }
+        }
     };
     
 } } } } }

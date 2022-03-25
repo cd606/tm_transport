@@ -171,6 +171,34 @@ namespace dev { namespace cd606 { namespace tm { namespace basic { namespace nlo
                 }
             }
         }
+        static bool read_simd(simdjson::dom::element const &input, std::optional<std::string> const &key, boost::uuids::uuid &data, JsonFieldMapping const &/*mapping*/=JsonFieldMapping {}) {
+            try {
+                if (key) {
+                    if (input[*key].error() == simdjson::NO_SUCH_FIELD) {
+                        data = boost::uuids::uuid {};
+                        return true;
+                    }
+                    try {
+                        data = boost::lexical_cast<boost::uuids::uuid>((std::string) input[*key]);
+                        return true;
+                    } catch (...) {
+                        data = boost::uuids::uuid {};
+                        return false;
+                    }
+                } else {
+                    try {
+                        data = boost::lexical_cast<boost::uuids::uuid>((std::string) input);
+                        return true;
+                    } catch (...) {
+                        data = boost::uuids::uuid {};
+                        return false;
+                    }
+                }
+            } catch (simdjson::simdjson_error) {
+                data = boost::uuids::uuid {};
+                return false;
+            }
+        }
     };
     
 } } } } }
