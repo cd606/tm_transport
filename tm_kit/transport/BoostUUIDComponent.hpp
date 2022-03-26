@@ -154,6 +154,7 @@ namespace dev { namespace cd606 { namespace tm { namespace basic { namespace nlo
     template <>
     class JsonDecoder<boost::uuids::uuid, void> {
     public:
+        static void fillFieldNameMapping(JsonFieldMapping const &mapping=JsonFieldMapping {}) {}
         static bool read(nlohmann::json const &input, std::optional<std::string> const &key, boost::uuids::uuid &data, JsonFieldMapping const &/*mapping*/=JsonFieldMapping {}) {
             auto const &i = (key?input.at(*key):input);
             if (i.is_null()) {
