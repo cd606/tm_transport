@@ -184,6 +184,36 @@ namespace dev { namespace cd606 { namespace tm { namespace basic { namespace nlo
                 return false;
             }
         }
+        template <class X>
+        static bool read_simd_ondemand(X &input, std::optional<std::string> const &key, xg::Guid &data, JsonFieldMapping const &/*mapping*/=JsonFieldMapping {}) {
+            try {
+                if (key) {
+                    auto x = input.get_object()[*key];
+                    if (x.error() == simdjson::NO_SUCH_FIELD) {
+                        data = xg::Guid {};
+                        return true;
+                    }
+                    try {
+                        data = (xg::Guid) (std::string {x.get_string().value()});
+                        return true;
+                    } catch (...) {
+                        data = xg::Guid {};
+                        return false;
+                    }
+                } else {
+                    try {
+                        data = (xg::Guid) (std::string {input.get_string().value()});
+                        return true;
+                    } catch (...) {
+                        data = xg::Guid {};
+                        return false;
+                    }
+                }
+            } catch (simdjson::simdjson_error) {
+                data = xg::Guid {};
+                return false;
+            }
+        }
     };
     
 } } } } }

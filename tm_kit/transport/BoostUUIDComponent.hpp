@@ -200,6 +200,36 @@ namespace dev { namespace cd606 { namespace tm { namespace basic { namespace nlo
                 return false;
             }
         }
+        template <class X>
+        static bool read_simd_ondemand(X &input, std::optional<std::string> const &key, boost::uuids::uuid &data, JsonFieldMapping const &/*mapping*/=JsonFieldMapping {}) {
+            try {
+                if (key) {
+                    auto x = input.get_object()[*key];
+                    if (x.error() == simdjson::NO_SUCH_FIELD) {
+                        data = boost::uuids::uuid {};
+                        return true;
+                    }
+                    try {
+                        data = boost::lexical_cast<boost::uuids::uuid>(std::string {x.get_string().value()});
+                        return true;
+                    } catch (...) {
+                        data = boost::uuids::uuid {};
+                        return false;
+                    }
+                } else {
+                    try {
+                        data = boost::lexical_cast<boost::uuids::uuid>(std::string {input.get_string().value()});
+                        return true;
+                    } catch (...) {
+                        data = boost::uuids::uuid {};
+                        return false;
+                    }
+                }
+            } catch (simdjson::simdjson_error) {
+                data = boost::uuids::uuid {};
+                return false;
+            }
+        }
     };
     
 } } } } }
