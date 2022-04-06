@@ -74,11 +74,16 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                     
                     auto *env = req.environment;
                     ConnectionLocator updatedLocator = locator_.modifyIdentifier(input.path);
+                    std::unordered_map<std::string, std::string> locatorHeaderProps;
                     if (!input.headers.empty()) {
-                        std::unordered_map<std::string, std::string> locatorHeaderProps;
                         for (auto const &item : input.headers) {
                             locatorHeaderProps.insert(std::make_pair("header/"+item.first, item.second));
                         }
+                    }
+                    if (input.auth_token) {
+                        locatorHeaderProps.insert(std::make_pair("auth_token", *(input.auth_token)));
+                    }
+                    if (!locatorHeaderProps.empty()) {
                         updatedLocator = updatedLocator.addProperties(locatorHeaderProps);
                     }
                     

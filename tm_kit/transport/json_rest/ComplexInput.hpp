@@ -19,7 +19,8 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         ((TM_BASIC_CBOR_CAPABLE_STRUCT_PROTECT_TYPE(std::unordered_map<std::string,std::string>), headers)) \
         ((std::string, contentType)) \
         ((std::string, query)) \
-        ((std::string, body))
+        ((std::string, body)) \
+        ((std::optional<std::string>, auth_token))
 #else
     #define JSON_REST_COMPLEX_INPUT_FIELDS \
         ((std::string, method)) \
@@ -27,7 +28,8 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         (((std::unordered_map<std::string,std::string>), headers)) \
         ((std::string, contentType)) \
         ((std::string, query)) \
-        ((std::string, body))
+        ((std::string, body)) \
+        ((std::optional<std::string>, auth_token))
 #endif
 
     #define JSON_REST_COMPLEX_INPUT_WITH_DATA_FIELDS \
