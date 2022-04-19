@@ -5,7 +5,11 @@
 #include <cstring>
 #include <sstream>
 #include <unordered_map>
-#include <cppzmq/zmq.hpp>
+#if __has_include(<cppzmq/zmq.hpp>)
+    #include <cppzmq/zmq.hpp>
+#else
+    #include <zmq.hpp>
+#endif
 
 #include <tm_kit/transport/zeromq/ZeroMQComponent.hpp>
 
