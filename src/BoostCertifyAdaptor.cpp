@@ -10,6 +10,7 @@ namespace dev { namespace cd606 {namespace tm {namespace transport {
             );
             ctx.set_default_verify_paths();
             boost::certify::enable_native_https_server_verification(ctx);
+            SSL_CTX_set_options(ctx.native_handle(), SSL_OP_LEGACY_SERVER_CONNECT);
         }
         bool setHostName(boost::beast::ssl_stream<boost::beast::tcp_stream> &stream, std::string const &hostName) {
             boost::system::error_code ec;
