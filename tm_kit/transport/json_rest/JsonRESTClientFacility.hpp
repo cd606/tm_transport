@@ -342,7 +342,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                                     }
                                 }
                             }
-                            , (simplePost_?"x-www-form-urlencoded":"application/json")
+                            , (simplePost_?"application/x-www-form-urlencoded":"application/json")
                             , methodParam
                         );
                     }
