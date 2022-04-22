@@ -5,7 +5,7 @@
 
 #include <tm_kit/basic/ByteData.hpp>
 #include <tm_kit/basic/ProtoInterop.hpp>
-#include <tm_kit/basic/NlohmannJsonInterop.hpp>
+#include <tm_kit/basic/ConvertibleWithString.hpp>
 
 namespace dev { namespace cd606 { namespace tm { namespace transport {
     struct CrossGuidComponent {
@@ -122,100 +122,21 @@ namespace dev { namespace cd606 { namespace tm { namespace basic { namespace pro
     
 } } } } }
 
-namespace dev { namespace cd606 { namespace tm { namespace basic { namespace nlohmann_json_interop {
+namespace dev { namespace cd606 { namespace tm { namespace basic {
     template <>
-    class JsonEncoder<xg::Guid, void> {
+    class ConvertibleWithString<xg::Guid> {
     public:
-        static void write(nlohmann::json &output, std::optional<std::string> const &key, xg::Guid const &data) {
-            auto &o = (key?output[*key]:output);
-            o = (std::string) data;
-        }
-    };
-    template <>
-    struct JsonWrappable<xg::Guid, void> {
         static constexpr bool value = true;
-    };
-    template <>
-    class JsonDecoder<xg::Guid, void> {
-    public:
-        static void fillFieldNameMapping(JsonFieldMapping const &mapping=JsonFieldMapping {}) {}
-        static bool read(nlohmann::json const &input, std::optional<std::string> const &key, xg::Guid &data, JsonFieldMapping const &/*mapping*/=JsonFieldMapping {}) {
-            auto const &i = (key?input.at(*key):input);
-            if (i.is_null()) {
-                data = xg::Guid {};
-                return true;
-            } else {
-                std::string s;
-                i.get_to(s);
-                try {
-                    data = (xg::Guid) s;
-                    return true;
-                } catch (...) {
-                    data = xg::Guid {};
-                    return false;
-                }
-            }
+        static std::string toString(xg::Guid const &data) {
+            return (std::string) data;
         }
-        static bool read_simd(simdjson::dom::element const &input, std::optional<std::string> const &key, xg::Guid &data, JsonFieldMapping const &/*mapping*/=JsonFieldMapping {}) {
-            try {
-                if (key) {
-                    if (input[*key].error() == simdjson::NO_SUCH_FIELD) {
-                        data = xg::Guid {};
-                        return true;
-                    }
-                    try {
-                        data = (xg::Guid) ((std::string) input[*key]);
-                        return true;
-                    } catch (...) {
-                        data = xg::Guid {};
-                        return false;
-                    }
-                } else {
-                    try {
-                        data = (xg::Guid) ((std::string) input);
-                        return true;
-                    } catch (...) {
-                        data = xg::Guid {};
-                        return false;
-                    }
-                }
-            } catch (simdjson::simdjson_error) {
-                data = xg::Guid {};
-                return false;
+        static xg::Guid fromString(std::string_view const &s) {
+            if (s == "") {
+                return xg::Guid {};
             }
-        }
-        template <class X>
-        static bool read_simd_ondemand(X &input, std::optional<std::string> const &key, xg::Guid &data, JsonFieldMapping const &/*mapping*/=JsonFieldMapping {}) {
-            try {
-                if (key) {
-                    auto x = input.get_object()[*key];
-                    if (x.error() == simdjson::NO_SUCH_FIELD) {
-                        data = xg::Guid {};
-                        return true;
-                    }
-                    try {
-                        data = (xg::Guid) (std::string {x.get_string().value()});
-                        return true;
-                    } catch (...) {
-                        data = xg::Guid {};
-                        return false;
-                    }
-                } else {
-                    try {
-                        data = (xg::Guid) (std::string {input.get_string().value()});
-                        return true;
-                    } catch (...) {
-                        data = xg::Guid {};
-                        return false;
-                    }
-                }
-            } catch (simdjson::simdjson_error) {
-                data = xg::Guid {};
-                return false;
-            }
+            return (xg::Guid) s;
         }
     };
-    
-} } } } }
+} } } }
 
 #endif
