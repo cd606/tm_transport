@@ -34,6 +34,32 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 }
             }
         }
+        template <class T>
+        static void toQueryString(std::ostream &os, T const &t) {
+            if constexpr (basic::struct_field_info_utils::IsStructFieldInfoBasedCsvCompatibleStruct<T>) {
+                std::ostringstream oss;
+                bool start = true;
+                basic::struct_field_info_utils::StructFieldInfoBasedSimpleCsvOutput<T>
+                    ::outputNameValuePairs(
+                        t
+                        , [&start,&os](std::string const &name, std::string const &value) {
+                            if (!start) {
+                                os << '&';
+                            }
+                            JsonRESTClientFacilityFactoryUtils::urlEscape(os, name);
+                            os << '=';
+                            JsonRESTClientFacilityFactoryUtils::urlEscape(os, value);
+                            start = false;
+                        }
+                    );
+            }
+        }
+        template <class T>
+        static std::string toQueryString(T const &t) {
+            std::ostringstream oss;
+            toQueryString(oss, t);
+            return oss.str();
+        }
     };
 
 }}}}}
