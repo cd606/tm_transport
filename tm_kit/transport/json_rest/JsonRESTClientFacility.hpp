@@ -442,7 +442,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                             }
                         }
                     }
-                    , (simplePost?"x-www-form-urlencoded":"application/json")
+                    , (simplePost?"application/x-www-form-urlencoded":"application/json")
                     , methodParam
                 );
                 return ret->get_future();

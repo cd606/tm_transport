@@ -90,7 +90,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             output.query = "";
             output.body = oss.str();
         }
-        output.contentType = (simplePost?"x-www-form-urlencoded":"application/json");
+        output.contentType = (simplePost?"application/x-www-form-urlencoded":"application/json");
     }   
 
 } } } } }
