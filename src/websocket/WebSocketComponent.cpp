@@ -85,6 +85,8 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 , buffer_()
                 , initializationFailure_(false)
             {
+                bool binary = (locator.query("binary", "true") == "true");
+                //std::cerr << "connection binary is " << binary << "\n";
                 if (sslInfo) {
                     std::string caCert;
                     if (sslInfo->caCertificateFile != "") {
@@ -108,10 +110,10 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                     }
                     
                     stream_.emplace<2>(boost::asio::make_strand(svc_), *sslCtx_);
-                    std::get<2>(stream_).binary(true);
+                    std::get<2>(stream_).binary(binary);
                 } else {
                     stream_.emplace<1>(boost::asio::make_strand(svc_));
-                    std::get<1>(stream_).binary(true);
+                    std::get<1>(stream_).binary(binary);
                 }
             }
             ~OneSubscriber() {
@@ -272,12 +274,14 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                     parent_->removeSubscriber(locator_);
                     return;
                 }
+                
                 /*
                 std::cerr << "Will send initial data\n";
                 if (initialData_) {
                     std::cerr << "initial data is " << *initialData_ << '\n';
                 }
                 */
+                
                 if (stream_.index() == 1) {
                     if (initialData_) {
                         try {
@@ -302,6 +306,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                             std::get<2>(stream_).write(
                                 boost::asio::buffer(reinterpret_cast<const char *>(initialData_->content.data()), initialData_->content.size())
                             );
+                            //std::cerr << "sent initial data\n";
                         } catch (...) {
                             parent_->removeSubscriber(locator_);
                             return;
@@ -327,6 +332,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 }
             }
             void onRead(boost::beast::error_code ec, std::size_t bytes_transferred) {
+                //std::cerr << "onRead " << bytes_transferred << "\n";
                 boost::ignore_unused(bytes_transferred);
                 if (ec) {
                     parent_->removeSubscriber(locator_);
@@ -340,6 +346,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 }
                 
                 if (ignoreTopic_) {
+                    //std::cerr << "Will publish\n";
                     for (auto const &f : noFilterClients_) {
                         callClient(f, basic::ByteDataWithTopic {"", std::move(input)});
                     }
@@ -879,6 +886,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 , writeMutex_()
                 , beforeReadyBuffer_()
             {
+                bool binary = (locator.query("binary", "true") == "true");
                 if (sslInfo) {
                     std::string caCert;
                     if (sslInfo->caCertificateFile != "") {
@@ -902,10 +910,10 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                     }
                     
                     stream_.emplace<2>(boost::asio::make_strand(svc_), *sslCtx_);
-                    std::get<2>(stream_).binary(true);
+                    std::get<2>(stream_).binary(binary);
                 } else {
                     stream_.emplace<1>(boost::asio::make_strand(svc_));
-                    std::get<1>(stream_).binary(true);
+                    std::get<1>(stream_).binary(binary);
                 }
             }
             ~OneRPCClient() {
