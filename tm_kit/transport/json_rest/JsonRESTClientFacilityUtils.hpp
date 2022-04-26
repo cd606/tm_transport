@@ -35,19 +35,27 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             }
         }
         template <class T>
-        static void toQueryString(std::ostream &os, T const &t) {
+        static void toQueryString(std::ostream &os, T const &t, bool encodeConnectors=false) {
             if constexpr (basic::struct_field_info_utils::IsStructFieldInfoBasedCsvCompatibleStruct<T>) {
                 std::ostringstream oss;
                 bool start = true;
                 basic::struct_field_info_utils::StructFieldInfoBasedSimpleCsvOutput<T>
                     ::outputNameValuePairs(
                         t
-                        , [&start,&os](std::string const &name, std::string const &value) {
+                        , [&start,&os,encodeConnectors](std::string const &name, std::string const &value) {
                             if (!start) {
-                                os << '&';
+                                if (encodeConnectors) {
+                                    os << "%26";
+                                } else {
+                                    os << '&';
+                                }
                             }
                             JsonRESTClientFacilityFactoryUtils::urlEscape(os, name);
-                            os << '=';
+                            if (encodeConnectors) {
+                                os << "%3D";
+                            } else {
+                                os << '=';
+                            }
                             JsonRESTClientFacilityFactoryUtils::urlEscape(os, value);
                             start = false;
                         }
@@ -55,9 +63,9 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             }
         }
         template <class T>
-        static std::string toQueryString(T const &t) {
+        static std::string toQueryString(T const &t, bool encodeConnectors=false) {
             std::ostringstream oss;
-            toQueryString(oss, t);
+            toQueryString(oss, t, encodeConnectors);
             return oss.str();
         }
     };
