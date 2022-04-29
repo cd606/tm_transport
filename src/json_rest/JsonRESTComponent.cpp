@@ -56,9 +56,10 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             int port_;
             std::string urlQueryPart_;
             std::string request_;
-            std::function<void(unsigned, std::string &&)> callback_;
+            std::function<void(unsigned, std::string &&, std::unordered_map<std::string,std::string> &&)> callback_;
             std::string contentType_;
             std::optional<std::string> method_;
+            bool parseHeader_;
 
             boost::asio::io_context *svc_;
             std::optional<boost::asio::ssl::context> sslCtx_;
@@ -82,7 +83,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 , int port
                 , std::string &&urlQueryPart
                 , std::string &&request
-                , std::function<void(unsigned, std::string &&)> const &callback
+                , std::function<void(unsigned, std::string &&, std::unordered_map<std::string,std::string> &&)> const &callback
                 , std::string const &contentType
                 , std::optional<std::string> const &method
                 , boost::asio::io_context *svc
@@ -97,6 +98,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 , callback_(callback)
                 , contentType_(contentType)
                 , method_(method)
+                , parseHeader_(locator.query("parse_header", "false") == "true")
                 , svc_(svc)
                 , sslCtx_(
                     sslInfo
@@ -352,7 +354,13 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                     parent_->removeJsonRESTClient(shared_from_this());
                     return;
                 }
-                callback_(static_cast<unsigned>(res_.result()), std::move(res_.body()));
+                std::unordered_map<std::string,std::string> headerFields;
+                if (parseHeader_) {
+                    for (auto &h : res_.base()) {
+                        headerFields.insert(std::make_pair(h.name_string(), h.value()));
+                    }
+                }
+                callback_(static_cast<unsigned>(res_.result()), std::move(res_.body()), std::move(headerFields));
                 if (stream_.index() == 1) {
                     try {
                         std::get<1>(stream_).socket().shutdown(
@@ -1177,7 +1185,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             } catch (...) {}
         }
         void addJsonRESTClient(ConnectionLocator const &locator, std::string &&urlQueryPart, std::string &&request, std::function<
-            void(unsigned, std::string &&)
+            void(unsigned, std::string &&, std::unordered_map<std::string,std::string> &&)
         > const &clientCallback
         , std::string const &contentType
         , std::optional<std::string> const &method
@@ -1676,7 +1684,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
     JsonRESTComponent &JsonRESTComponent::operator=(JsonRESTComponent &&) = default;
     JsonRESTComponent::~JsonRESTComponent() = default;
     void JsonRESTComponent::addJsonRESTClient(ConnectionLocator const &locator, std::string &&urlQueryPart, std::string &&request, std::function<
-        void(unsigned, std::string &&)
+        void(unsigned, std::string &&, std::unordered_map<std::string,std::string> &&)
     > const &clientCallback, std::string const &contentType, std::optional<std::string> const &method) {
         impl_->addJsonRESTClient(locator, std::move(urlQueryPart), std::move(request), clientCallback, contentType, method, dynamic_cast<TLSClientConfigurationComponent const *>(this), dynamic_cast<basic::LoggingComponentBase *>(this));
     }
