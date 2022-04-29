@@ -30,7 +30,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         virtual ~JsonRESTComponent();
 
         void addJsonRESTClient(ConnectionLocator const &locator, std::string &&urlQueryPart, std::string &&request, std::function<
-            void(unsigned, std::string &&)
+            void(unsigned, std::string &&, std::unordered_map<std::string,std::string> &&)
         > const &clientCallback, std::string const &contentType="application/json", std::optional<std::string> const &method=std::nullopt);
         void registerHandler(ConnectionLocator const &locator, std::function<
             bool(std::string const &login, std::string const &data, std::unordered_map<std::string, std::vector<std::string>> const &queryMap, std::function<void(std::string const &)> const &callback)

@@ -7,6 +7,8 @@
 #include <iostream>
 #include <sstream>
 
+#include <tm_kit/basic/StructFieldInfoBasedCsvUtils.hpp>
+
 namespace dev { namespace cd606 { namespace tm { namespace transport { namespace json_rest {
 
     class JsonRESTClientFacilityFactoryUtils {

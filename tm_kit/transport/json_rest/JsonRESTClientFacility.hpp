@@ -60,7 +60,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                         typename M::template Key<json_rest::ComplexInput>
                         , LocalF 
                     >()
-                    , locator_(locator)
+                    , locator_(locator.addProperty("parse_header", "true"))
                 {
                     this->startThread();
                 }
@@ -91,12 +91,12 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                         updatedLocator
                         , std::string {input.query}
                         , std::string {input.body}
-                        , [this,env,id=std::move(id)](unsigned status, std::string &&response) mutable {
+                        , [this,env,id=std::move(id)](unsigned status, std::string &&response, std::unordered_map<std::string,std::string> &&headerFields) mutable {
                             this->publish(
                                 env 
                                 , typename M::template Key<json_rest::RawStringWithStatus> {
                                     std::move(id)
-                                    , {status, std::move(response)}
+                                    , {status, std::move(headerFields), std::move(response)}
                                 }
                                 , true
                             );
@@ -138,7 +138,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                         typename M::template Key<json_rest::ComplexInputWithData<T>>
                         , LocalF 
                     >()
-                    , locator_(locator)
+                    , locator_(locator.addProperty("parse_header", "true"))
                 {
                     this->startThread();
                 }
@@ -164,12 +164,12 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                         updatedLocator
                         , std::string {input.query}
                         , std::string {input.body}
-                        , [this,env,id=std::move(id)](unsigned status, std::string &&response) mutable {
+                        , [this,env,id=std::move(id)](unsigned status, std::string &&response, std::unordered_map<std::string,std::string> &&headerFields) mutable {
                             this->publish(
                                 env 
                                 , typename M::template Key<json_rest::RawStringWithStatus> {
                                     std::move(id)
-                                    , {status, std::move(response)}
+                                    , {status, std::move(headerFields), std::move(response)}
                                 }
                                 , true
                             );
@@ -236,7 +236,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                             typename M::template Key<Req>
                             , LocalF 
                         >()
-                        , locator_(locator)
+                        , locator_(std::is_same_v<Resp, json_rest::RawStringWithStatus>?locator.addProperty("parse_header", "true"):locator)
                         , httpMethod_(locator.query("http_method", ""))
                         , useGet_(
                             (locator.query("use_get", "false") == "true")
@@ -303,7 +303,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                             locator_
                             , ((useGet_||otherwiseEncodeInUrl_)?oss.str():"")
                             , ((useGet_||otherwiseEncodeInUrl_)?"":(simplePost_?oss.str():sendData.dump()))
-                            , [this,env,id=std::move(id)](unsigned status, std::string &&response) mutable {
+                            , [this,env,id=std::move(id)](unsigned status, std::string &&response, std::unordered_map<std::string,std::string> &&headerFields) mutable {
                                 if constexpr (std::is_same_v<Resp, RawString> || std::is_same_v<Resp, basic::ByteData>) {
                                     this->publish(
                                         env 
@@ -318,7 +318,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                                         env 
                                         , typename M::template Key<Resp> {
                                             std::move(id)
-                                            , {status, std::move(response)}
+                                            , {status, std::move(headerFields), std::move(response)}
                                         }
                                         , true
                                     );
@@ -421,14 +421,14 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                     methodParam = "GET";
                 }
                 env->JsonRESTComponent::addJsonRESTClient(
-                    rpcQueueLocator
+                    (std::is_same_v<Resp, RawStringWithStatus>?rpcQueueLocator.addProperty("parse_header", "true"):rpcQueueLocator)
                     , ((useGet||otherwiseEncodeInUrl)?oss.str():"")
                     , ((useGet||otherwiseEncodeInUrl)?"":(simplePost?oss.str():sendData.dump()))
-                    , [ret,env,noRequestResponseWrap](unsigned status, std::string &&response) mutable {
+                    , [ret,env,noRequestResponseWrap](unsigned status, std::string &&response, std::unordered_map<std::string,std::string> &&headerFields) mutable {
                         if constexpr (std::is_same_v<Resp, RawString> || std::is_same_v<Resp, basic::ByteData>) {
                             ret->set_value({std::move(response)});
                         } else if constexpr (std::is_same_v<Resp, RawStringWithStatus>) {
-                            ret->set_value({status, std::move(response)});
+                            ret->set_value({status, std::move(headerFields), std::move(response)});
                         } else {
                             try {
                                 nlohmann::json x = nlohmann::json::parse(response);
