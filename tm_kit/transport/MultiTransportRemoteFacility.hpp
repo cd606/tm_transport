@@ -637,16 +637,25 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                                         basic::nlohmann_json_interop::JsonEncoder<A>::write(sendData, (noRequestResponseWrap?std::nullopt:std::optional<std::string> {"request"}), data);
                                     }
                                     env->json_rest::JsonRESTComponent::addJsonRESTClient(
-                                        locator
+                                        (std::is_same_v<B, json_rest::RawStringWithStatus>?locator.addProperty("parse_header","true"):locator)
                                         , (useGet?oss.str():"")
                                         , (useGet?"":sendData.dump())
-                                        , [this,env,id,noRequestResponseWrap](unsigned status, std::string &&response) mutable {
+                                        , [this,env,id,noRequestResponseWrap](unsigned status, std::string &&response, std::unordered_map<std::string,std::string> &&headerFields) mutable {
                                             if constexpr (std::is_same_v<B, json_rest::RawString>) {
                                                 this->FacilityParent::publish(
                                                     env
                                                     , typename M::template Key<Output> {
                                                         Env::id_from_string(id)
                                                         , Output {std::move(response)}
+                                                    }
+                                                    , true
+                                                );
+                                            } else if constexpr (std::is_same_v<B, json_rest::RawStringWithStatus>) {
+                                                this->FacilityParent::publish(
+                                                    env
+                                                    , typename M::template Key<Output> {
+                                                        Env::id_from_string(id)
+                                                        , Output {status, std::move(headerFields), std::move(response)}
                                                     }
                                                     , true
                                                 );
