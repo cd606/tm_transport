@@ -4,8 +4,8 @@ import {Etcd3, IOptions as IEtcd3Options} from 'etcd3'
 //NOTE: according to https://www.gitmemory.com/SunshowerC, etcd3 1.0.1 is not compatible with 
 //cockatiel 1.1.0, and cockatiel@1.0.0 must be installed instead, otherwise tsc will reject
 //the importing of etcd3
-import * as asyncRedis from 'async-redis'
-import * as dateFormat from 'dateformat'
+import {AsyncRedis} from 'async-redis'
+import * as dateFNS from 'date-fns'
 import {TMTransportUtils} from './TMTransport'
 
 export interface EtcdSharedChainConfiguration {
@@ -36,7 +36,7 @@ export class EtcdSharedChain {
     separateStorageDecoder : (x : any) => any;
 
     static defaultEtcdSharedChainConfiguration(commonPrefix = "", useDate = true) : EtcdSharedChainConfiguration {
-        var today = dateFormat(new Date(), "yyyy_mm_dd");
+        var today = dateFNS.format(new Date(), "yyyy_mm_dd");
         return {
             etcd3Options : {hosts: '127.0.0.1:2379'}
             , headKey : ""
@@ -55,7 +55,7 @@ export class EtcdSharedChain {
         this.config = config;
         this.client = new Etcd3(config.etcd3Options);
         if (config.duplicateFromRedis || config.automaticallyDuplicateToRedis) {
-            this.redisClient = asyncRedis.createClient(`redis://${this.config.redisServerAddr}`, {'return_buffers': true});
+            this.redisClient = new AsyncRedis(`redis://${this.config.redisServerAddr}`);
         }
         this.current = null;
         if (separateStorageDecoder) {
@@ -453,7 +453,7 @@ export class RedisSharedChain {
     decoder : ((x : any) => any);
 
     static defaultRedisSharedChainConfiguration(commonPrefix = "", useDate = true) : RedisSharedChainConfiguration {
-        var today = dateFormat(new Date(), "yyyy_mm_dd");
+        var today = dateFNS.format(new Date(), "yyyy_mm_dd");
         return {
             redisServerAddr : "127.0.0.1:6379"
             , headKey : ""
@@ -465,7 +465,7 @@ export class RedisSharedChain {
 
     constructor(config : RedisSharedChainConfiguration, decoder? : ((x : any) => any)) {
         this.config = config;
-        this.client = asyncRedis.createClient(`redis://${this.config.redisServerAddr}`, {'return_buffers': true});
+        this.client = new AsyncRedis(`redis://${this.config.redisServerAddr}`);
         this.current = null;
         if (decoder) {
             this.decoder = decoder;

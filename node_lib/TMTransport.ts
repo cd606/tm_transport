@@ -286,24 +286,12 @@ export class MultiTransportListener {
     private static redisInputToStream(locator : ConnectionLocator, topic : TopicSpec, stream : Stream.Readable) {
         (async () => {
             let subscriber = redis.createClient({
-                host : locator.host
-                , port : ((locator.port>0)?locator.port:6379)
-                , return_buffers : true
+                url: `redis://${locator.host}:${((locator.port>0)?locator.port:6379)}`
             });
-            subscriber.on('pmessage_buffer', function(_pattern : string, channel : string, message : Buffer) {
+            await subscriber.connect();
+            await subscriber.pSubscribe(topic.exactString, function(message, channel) {
                 stream.push([channel, message]);
-            });
-            subscriber.on('pmessage', function(_pattern : string, channel : string, message : Buffer) {
-                stream.push([channel, message]);
-            });
-            await new Promise<string>((resolve, reject) => {
-                subscriber.psubscribe(topic.exactString, function(err, reply) {
-                    if (err) {
-                        reject(err);
-                    }
-                    resolve(reply);
-                });
-            });
+            }, true);
             stream.on('close', function() {
                 subscriber.quit();
             });
@@ -467,13 +455,15 @@ export class MultiTransportPublisher {
             );
         }
     }
-    private static redisWrite(locator : ConnectionLocator) : (chunk : [string, Buffer], encoding : BufferEncoding) => void {
+    private static async redisWrite(locator : ConnectionLocator) : Promise<(chunk : [string, Buffer], encoding : BufferEncoding) => void> {
         let publisher = redis.createClient({
-            host : locator.host
-            , port : ((locator.port>0)?locator.port:6379)
+            url: `redis://${locator.host}:${((locator.port>0)?locator.port:6379)}`
         });
+        await publisher.connect();
         return function(chunk : [string, Buffer], _encoding : BufferEncoding) {
-            publisher.send_command("PUBLISH", [chunk[0], chunk[1]]);
+            (async () => {
+                await publisher.publish(chunk[0], chunk[1]);
+            })().then((_res) => {});
         }
     }
     private static zeromqWrite(locator : ConnectionLocator) : (chunk : [string, Buffer], encoding : BufferEncoding) => void {
@@ -503,7 +493,7 @@ export class MultiTransportPublisher {
                 writeFunc = await this.rabbitmqWrite(parsedAddr[1]);
                 break;
             case Transport.Redis:
-                writeFunc = this.redisWrite(parsedAddr[1]);
+                writeFunc = await this.redisWrite(parsedAddr[1]);
                 break;
             case Transport.ZeroMQ:
                 writeFunc = this.zeromqWrite(parsedAddr[1]);
@@ -609,22 +599,24 @@ export class MultiTransportFacilityClient {
     }
     private static async redisFacilityStream(locator : ConnectionLocator) : Promise<Stream.Duplex> {
         let publisher = redis.createClient({
-            host : locator.host
-            , port : ((locator.port>0)?locator.port:6379)
+            url: `redis://${locator.host}:${((locator.port>0)?locator.port:6379)}`
         });
+        await publisher.connect();
         let subscriber = redis.createClient({
-            host : locator.host
-            , port : ((locator.port>0)?locator.port:6379)
-            , return_buffers : true
+            url: `redis://${locator.host}:${((locator.port>0)?locator.port:6379)}`
         });
+        await subscriber.connect();
         
         let streamID = uuidv4();
         let inputMap = new Map<string, Buffer>();
         let stream = new Stream.Duplex({
             write : function(chunk : [string, Buffer], _encoding, callback) {
                 inputMap.set(chunk[0], chunk[1]);
-                publisher.send_command("PUBLISH", [locator.identifier, cbor.encode([streamID, cbor.encode(chunk)])]);
-                callback();
+                (async () => {
+                    await publisher.publish(locator.identifier, cbor.encode([streamID, cbor.encode(chunk)]));
+                })().then((_res) => {
+                    callback();
+                });
             }
             , read : function() {}   
             , objectMode: true
@@ -664,24 +656,14 @@ export class MultiTransportFacilityClient {
             }
         }
 
-        subscriber.on('message_buffer', function(_channel : string, message : Buffer) {
+        await subscriber.subscribe(streamID, function(message) {
             handleMessage(message);
-        });
-        subscriber.on('message', function(_channel : string, message : Buffer) {
-            handleMessage(message);
-        });
+        }, true);
         stream.on('close', function() {
             subscriber.quit();
             publisher.quit();
         })
-        return new Promise<Stream.Duplex>((resolve, reject) => {
-            subscriber.subscribe(streamID, function(err, _reply) {
-                if (err) {
-                    return reject(err);
-                }
-                return resolve(stream);
-            });
-        });
+        return stream;
     }
     
     static async facilityStream(param : ClientFacilityStreamParameters) : Promise<[Stream.Writable, Stream.Readable]> {
@@ -809,14 +791,13 @@ export class MultiTransportFacilityServer {
     }
     private static async redisFacilityStream(locator : ConnectionLocator) : Promise<Stream.Duplex> {
         let publisher = redis.createClient({
-            host : locator.host
-            , port : ((locator.port>0)?locator.port:6379)
+            url: `redis://${locator.host}:${((locator.port>0)?locator.port:6379)}`
         });
+        await publisher.connect();
         let subscriber = redis.createClient({
-            host : locator.host
-            , port : ((locator.port>0)?locator.port:6379)
-            , return_buffers : true
+            url: `redis://${locator.host}:${((locator.port>0)?locator.port:6379)}`
         });
+        await subscriber.connect();
 
         let replyMap = new Map<string, string>();
 
@@ -828,11 +809,14 @@ export class MultiTransportFacilityServer {
                     return;
                 }
                 let replyInfo = replyMap.get(id);
-                publisher.send_command("PUBLISH", [replyInfo, cbor.encode([final,[id, data]])]);
-                if (final) {
-                    replyMap.delete(id);
-                }
-                callback();
+                (async() => {
+                    await publisher.publish(replyInfo, cbor.encode([final,[id, data]]));
+                })().then((_res) => {
+                    if (final) {
+                        replyMap.delete(id);
+                    }
+                    callback();
+                })
             }
             , read : function(_size : number) {}
             , objectMode : true
@@ -857,21 +841,11 @@ export class MultiTransportFacilityServer {
             replyMap.set(id, replyQueue);
             ret.push([id, data]);
         }
+        await subscriber.subscribe(locator.identifier, function(message) {
+            handleMessage(message);
+        }, true);
 
-        subscriber.on('message_buffer', function(_channel : string, message : Buffer) {
-            handleMessage(message);
-        });
-        subscriber.on('message', function(_channel : string, message : Buffer) {
-            handleMessage(message);
-        });
-        return new Promise<Stream.Duplex>((resolve, reject) => {
-            subscriber.subscribe(locator.identifier, function(err, _reply) {
-                if (err) {
-                    return reject(err);
-                }
-                return resolve(ret);
-            });
-        });
+        return ret;
     }
     
     static async facilityStream(param : ServerFacilityStreamParameters) : Promise<[Stream.Writable, Stream.Readable]> {
