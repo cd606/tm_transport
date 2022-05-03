@@ -235,6 +235,29 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                 break;
             }
         }
+        template <class A, class B>
+        static void emptyWrap(
+            R &runner
+            , std::shared_ptr<typename M::template OnOrderFacility<
+                typename DetermineServerSideIdentityForRequest<Env, A>::FullRequestType
+                , B
+            >> const &toBeWrapped
+            , std::string const &wrapperItemsNamePrefix
+        ) {
+            auto emptyInput = M::template vacuousImporter<
+                typename M::template Key<typename DetermineServerSideIdentityForRequest<Env, A>::FullRequestType>
+            >();
+            auto emptyOutput = M::template trivialExporter<
+                typename M::template KeyedData<typename DetermineServerSideIdentityForRequest<Env, A>::FullRequestType, B>
+            >();
+            runner.registerImporter(wrapperItemsNamePrefix+"/emptyInput", emptyInput);
+            runner.registerExporter(wrapperItemsNamePrefix+"/emptyOutput", emptyOutput);
+            runner.placeOrderWithFacility(
+                runner.importItem(emptyInput)
+                , toBeWrapped
+                , runner.exporterAsSink(emptyOutput)
+            );
+        }
         template <template<class... Xs> class ProtocolWrapper, class A, class B, MultiTransportFacilityWrapperOption Option=MultiTransportFacilityWrapperOption::Default>
         static void wrapWithProtocol(
             R &runner
@@ -427,6 +450,30 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                 throw std::runtime_error("[MultiTransportFacilityWrapper::wrap(localOnOrderFacility)] Unknown connection type");
                 break;
             }
+        }
+        template <class A, class B, class C>
+        static void emptyWrap(
+            R &runner
+            , std::shared_ptr<typename M::template LocalOnOrderFacility<
+                typename DetermineServerSideIdentityForRequest<Env, A>::FullRequestType
+                , B
+                , C
+            >> const &toBeWrapped
+            , std::string const &wrapperItemsNamePrefix
+        ) {
+            auto emptyInput = M::template vacuousImporter<
+                typename M::template Key<typename DetermineServerSideIdentityForRequest<Env, A>::FullRequestType>
+            >();
+            auto emptyOutput = M::template trivialExporter<
+                typename M::template KeyedData<typename DetermineServerSideIdentityForRequest<Env, A>::FullRequestType, B>
+            >();
+            runner.registerImporter(wrapperItemsNamePrefix+"/emptyInput", emptyInput);
+            runner.registerExporter(wrapperItemsNamePrefix+"/emptyOutput", emptyOutput);
+            runner.placeOrderWithLocalFacility(
+                runner.importItem(emptyInput)
+                , toBeWrapped
+                , runner.exporterAsSink(emptyOutput)
+            );
         }
         template <template<class... Xs> class ProtocolWrapper, class A, class B, class C, MultiTransportFacilityWrapperOption Option=MultiTransportFacilityWrapperOption::Default>
         static void wrapWithProtocol(
@@ -624,6 +671,30 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                 break;
             }
         }
+        template <class A, class B, class C>
+        static void emptyWrap(
+            R &runner
+            , std::shared_ptr<typename M::template OnOrderFacilityWithExternalEffects<
+                typename DetermineServerSideIdentityForRequest<Env, A>::FullRequestType
+                , B
+                , C
+            >> const &toBeWrapped
+            , std::string const &wrapperItemsNamePrefix
+        ) {
+            auto emptyInput = M::template vacuousImporter<
+                typename M::template Key<typename DetermineServerSideIdentityForRequest<Env, A>::FullRequestType>
+            >();
+            auto emptyOutput = M::template trivialExporter<
+                typename M::template KeyedData<typename DetermineServerSideIdentityForRequest<Env, A>::FullRequestType, B>
+            >();
+            runner.registerImporter(wrapperItemsNamePrefix+"/emptyInput", emptyInput);
+            runner.registerExporter(wrapperItemsNamePrefix+"/emptyOutput", emptyOutput);
+            runner.placeOrderWithFacilityWithExternalEffects(
+                runner.importItem(emptyInput)
+                , toBeWrapped
+                , runner.exporterAsSink(emptyOutput)
+            );
+        }
         template <template<class... Xs> class ProtocolWrapper, class A, class B, class C, MultiTransportFacilityWrapperOption Option=MultiTransportFacilityWrapperOption::Default>
         static void wrapWithProtocol(
             R &runner
@@ -820,6 +891,31 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                 throw std::runtime_error("[MultiTransportFacilityWrapper::wrap(vieOnOrderFacility)] Unknown connection type");
                 break;
             }
+        }
+        template <class A, class B, class C, class D>
+        static void emptyWrap(
+            R &runner
+            , std::shared_ptr<typename M::template VIEOnOrderFacility<
+                typename DetermineServerSideIdentityForRequest<Env, A>::FullRequestType
+                , B
+                , C
+                , D
+            >> const &toBeWrapped
+            , std::string const &wrapperItemsNamePrefix
+        ) {
+            auto emptyInput = M::template vacuousImporter<
+                typename M::template Key<typename DetermineServerSideIdentityForRequest<Env, A>::FullRequestType>
+            >();
+            auto emptyOutput = M::template trivialExporter<
+                typename M::template KeyedData<typename DetermineServerSideIdentityForRequest<Env, A>::FullRequestType, B>
+            >();
+            runner.registerImporter(wrapperItemsNamePrefix+"/emptyInput", emptyInput);
+            runner.registerExporter(wrapperItemsNamePrefix+"/emptyOutput", emptyOutput);
+            runner.placeOrderWithVIEFacility(
+                runner.importItem(emptyInput)
+                , toBeWrapped
+                , runner.exporterAsSink(emptyOutput)
+            );
         }
         template <template<class... Xs> class ProtocolWrapper, class A, class B, class C, class D, MultiTransportFacilityWrapperOption Option=MultiTransportFacilityWrapperOption::Default>
         static void wrapWithProtocol(
