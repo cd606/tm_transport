@@ -27,6 +27,20 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         }
     public:
         template <class T, typename = std::enable_if_t<basic::StructFieldInfo<T>::HasGeneratedStructFieldInfo>>
+        static auto getTableData(std::shared_ptr<soci::session> const &session, std::string const &importerInput)
+            -> std::vector<T>
+        {
+            using DF = basic::struct_field_info_utils::StructFieldInfoBasedDataFiller<T>;
+            std::vector<T> value;
+            soci::rowset<soci::row> queryRes = 
+                session->prepare << selectStatement<T>(importerInput);
+            for (auto const &r : queryRes) {
+                value.push_back(DF::retrieveData(r,0));
+            }
+            return value;
+        }
+
+        template <class T, typename = std::enable_if_t<basic::StructFieldInfo<T>::HasGeneratedStructFieldInfo>>
         static auto createImporter(std::shared_ptr<soci::session> const &session, std::string const &importerInput)
             -> std::shared_ptr<typename M::template Importer<std::vector<T>>>
         {
