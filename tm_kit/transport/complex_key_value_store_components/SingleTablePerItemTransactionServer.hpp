@@ -30,17 +30,19 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             std::string tableName_;
             std::function<void(std::string)> logger_;
             typename basic::transaction::v2::DataStreamEnvComponent<DI>::Callback *cb_;
+            std::optional<std::string> whereClause_;
         public:
-            DSComponent() : session_(), tableName_(), logger_() {
+            DSComponent() : session_(), tableName_(), logger_(), whereClause_() {
             }
-            DSComponent(std::shared_ptr<soci::session> const &session, std::string const &tableName, std::function<void(std::string)> const &logger) : session_(session), tableName_(tableName), logger_(logger) {
+            DSComponent(std::shared_ptr<soci::session> const &session, std::string const &tableName, std::function<void(std::string)> const &logger, std::optional<std::string> const &whereClause) : session_(session), tableName_(tableName), logger_(logger), whereClause_(whereClause) {
             }
-            DSComponent(DSComponent &&c) : session_(std::move(c.session_)), tableName_(std::move(c.tableName_)), logger_(std::move(c.logger_)) {}
+            DSComponent(DSComponent &&c) : session_(std::move(c.session_)), tableName_(std::move(c.tableName_)), logger_(std::move(c.logger_)), whereClause_(std::move(whereClause_)) {}
             DSComponent &operator=(DSComponent &&c) {
                 if (this != &c) {
                     session_ = std::move(c.session_);
                     tableName_ = std::move(c.tableName_);
                     logger_ = std::move(c.logger_);
+                    whereClause_ = std::move(c.whereClause_);
                 }
                 return *this;
             }
@@ -49,7 +51,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 cb_ = cb;
                 std::vector<typename DI::OneUpdateItem> updates;
                 soci::rowset<soci::row> res = 
-                    session_->prepare << ("SELECT "+KF::commaSeparatedFieldNames()+", "+DF::commaSeparatedFieldNames()+" FROM "+tableName_);
+                    session_->prepare << ("SELECT "+KF::commaSeparatedFieldNames()+", "+DF::commaSeparatedFieldNames()+" FROM "+tableName_+(whereClause_?(" WHERE "+*whereClause_):std::string{}));
                 for (auto const &r : res) {
                     updates.push_back({
                         typename DI::OneFullUpdateItem {
@@ -282,6 +284,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             , std::shared_ptr<soci::session> const &session
             , std::string const &tableName
             , std::function<bool(std::string const &)> accountFilter = std::function<bool(std::string const &)>()
+            , std::optional<std::string> const &whereClause = std::nullopt
         ) {
             env->DSComponent::operator=(DSComponent {
                 session
@@ -289,6 +292,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 , [env](std::string const &s) {
                     env->log(infra::LogLevel::Info, s);
                 }
+                , whereClause
             });
             env->THComponent::operator=(THComponent {
                 session
