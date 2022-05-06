@@ -6,6 +6,7 @@
 #include <boost/bind/bind.hpp>
 
 #include <tm_kit/transport/multicast/MulticastComponent.hpp>
+#include "InterfaceToIP.hpp"
 
 namespace dev { namespace cd606 { namespace tm { namespace transport { namespace multicast {
     
@@ -115,7 +116,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 }
             }
         public:
-            OneMulticastSubscription(MulticastComponentTopicEncodingChoice encodingChoice, boost::asio::io_service *service, ConnectionLocator const &locator) 
+            OneMulticastSubscription(MulticastComponentTopicEncodingChoice encodingChoice, boost::asio::io_service *service, ConnectionLocator const &locator, std::string const &interface) 
                 : encodingChoice_(encodingChoice), locator_(locator), sock_(*service), senderPoint_(), mcastAddr_(), buffer_()
                 , noFilterClients_(), stringMatchClients_(), regexMatchClients_()
                 , thHandle_()
@@ -129,15 +130,30 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                     sock_.open(listenPoint.protocol());
                     sock_.set_option(boost::asio::ip::udp::socket::reuse_address(true));
                     sock_.set_option(boost::asio::ip::udp::socket::receive_buffer_size(16*1024*1024));
+                    //sock_.set_option(boost::asio::ip::multicast::enable_loopback(true));
                     sock_.bind(listenPoint);
                 }
                 
                 {
                     boost::asio::ip::udp::resolver::query query(locator.host(), std::to_string(locator.port()));
                     mcastAddr_ = resolver.resolve(query)->endpoint().address();
-                    sock_.set_option(boost::asio::ip::multicast::join_group(
-                        mcastAddr_
-                    ));
+                    if (interface != "") {
+                        auto interfaceAddr = getAddressForInterface(interface);
+                        if (interfaceAddr != "") {
+                            sock_.set_option(boost::asio::ip::multicast::join_group(
+                                mcastAddr_.to_v4()
+                                , boost::asio::ip::address::from_string(interfaceAddr).to_v4()
+                            ));
+                        } else {
+                            sock_.set_option(boost::asio::ip::multicast::join_group(
+                                mcastAddr_.to_v4()
+                            ));
+                        }
+                    } else {
+                        sock_.set_option(boost::asio::ip::multicast::join_group(
+                            mcastAddr_.to_v4()
+                        ));
+                    }
                 }
 
                 sock_.async_receive_from(
@@ -240,7 +256,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             void handleSend(boost::system::error_code const &) {
             }
         public:
-            OneMulticastSender(MulticastComponentTopicEncodingChoice encodingChoice, boost::asio::io_service *service, ConnectionLocator const &locator)
+            OneMulticastSender(MulticastComponentTopicEncodingChoice encodingChoice, boost::asio::io_service *service, ConnectionLocator const &locator, std::string const &interface)
                 : encodingChoice_(encodingChoice), sock_(*service), destination_(), mutex_(), ttl_(0)
             {
                 boost::asio::ip::udp::resolver resolver(*service);
@@ -250,6 +266,16 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 sock_.open(destination_.protocol());
                 sock_.set_option(boost::asio::ip::udp::socket::reuse_address(true));
                 sock_.set_option(boost::asio::ip::udp::socket::send_buffer_size(16*1024*1024));
+                //sock_.set_option(boost::asio::ip::multicast::enable_loopback(true));
+                if (interface != "") {
+                    auto interfaceAddr = getAddressForInterface(interface);
+                    //std::cerr << "interface " << interface << " has address '" << interfaceAddr << "'\n";
+                    if (interfaceAddr != "") {
+                        sock_.set_option(boost::asio::ip::multicast::outbound_interface(
+                            boost::asio::ip::address::from_string(interfaceAddr).to_v4()
+                        ));
+                    }
+                }
             }
             ~OneMulticastSender() {
                 sock_.close();
@@ -296,8 +322,9 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             auto iter = subscriptions_.find(hostAndPort);
             if (iter == subscriptions_.end()) {
                 auto choice = parseEncodingChoice(d.query("envelop", "cbor"));
+                auto interface = d.query("interface", "");
                 std::unique_ptr<boost::asio::io_service> svc = std::make_unique<boost::asio::io_service>();
-                iter = subscriptions_.insert({hostAndPort, std::make_unique<OneMulticastSubscription>(choice, svc.get(), hostAndPort)}).first;
+                iter = subscriptions_.insert({hostAndPort, std::make_unique<OneMulticastSubscription>(choice, svc.get(), hostAndPort, interface)}).first;
                 std::thread th([svc=std::move(svc)] {
                     boost::asio::io_service::work work(*svc);
                     svc->run();
@@ -326,7 +353,8 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             auto iter = senders_.find(hostAndPort);
             if (iter == senders_.end()) {
                 auto choice = parseEncodingChoice(d.query("envelop", "cbor"));
-                iter = senders_.insert({hostAndPort, std::make_unique<OneMulticastSender>(choice, &senderService_, hostAndPort)}).first;
+                auto interface = d.query("interface", "");
+                iter = senders_.insert({hostAndPort, std::make_unique<OneMulticastSender>(choice, &senderService_, hostAndPort, interface)}).first;
             }
             return iter->second.get();
         }
