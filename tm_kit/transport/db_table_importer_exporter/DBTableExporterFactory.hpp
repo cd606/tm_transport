@@ -193,6 +193,23 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 }
             );
         }
+        template <class T, typename = std::enable_if_t<basic::StructFieldInfo<T>::HasGeneratedStructFieldInfo>>
+        static auto writeBatchToTable(std::shared_ptr<soci::session> const &session, std::string const &tableName, std::vector<T> const &batch)
+            -> std::shared_ptr<typename M::template Exporter<std::vector<T>>>
+        {
+            static std::string insertStmt = insertTemplate<T>(tableName);
+            
+            std::vector<std::function<void()>> deletors;
+            soci::statement stmt(*session);
+            stmt.alloc();
+            stmt.prepare(insertStmt);
+            sociBindFieldsBatch(stmt, batch, deletors);
+            stmt.define_and_bind();
+            stmt.execute(true);
+            for (auto const &d : deletors) {
+                d();
+            }
+        }
     };
 } } } } }
 
