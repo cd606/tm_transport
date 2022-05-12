@@ -1197,99 +1197,55 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                 };
             }
         }
+
         template <class Request, class Result>
         static auto setupSimpleRemoteFacility(
-            std::string const &channelSpec
+            MultiTransportRemoteFacilityConnectionType connType
+            , ConnectionLocator const &locator
             , std::optional<ByteDataHookPair> hooks = std::nullopt
         ) ->  typename R::template OnOrderFacilityPtr<Request, Result>
         {
-            auto parsed = parseMultiTransportRemoteFacilityChannel(channelSpec);
-            if (parsed) {
-                switch (std::get<0>(*parsed)) {
-                case MultiTransportRemoteFacilityConnectionType::RabbitMQ:
-                    if constexpr(std::is_convertible_v<typename R::EnvironmentType *, rabbitmq::RabbitMQComponent *>) {
-                        return rabbitmq::RabbitMQOnOrderFacility<typename R::EnvironmentType>::template createTypedRPCOnOrderFacility<Request,Result>(std::get<1>(*parsed), hooks);
-                    } else {
-                        throw std::runtime_error("[MultiTransportRemoteFacilityManagingUtils::setupSimpleRemoteFacility] trying to set up rabbitmq facility for channel spec '"+channelSpec+"', but rabbitmq is unsupported in the environment");
-                    }
-                    break;
-                case MultiTransportRemoteFacilityConnectionType::Redis:
-                    if constexpr(std::is_convertible_v<typename R::EnvironmentType *, redis::RedisComponent *>) {
-                        return redis::RedisOnOrderFacility<typename R::EnvironmentType>::template createTypedRPCOnOrderFacility<Request,Result>(std::get<1>(*parsed), hooks);
-                    } else {
-                        throw std::runtime_error("[MultiTransportRemoteFacilityManagingUtils::setupSimpleRemoteFacility] trying to set up redis facility for channel spec '"+channelSpec+"', but redis is unsupported in the environment");
-                    }
-                    break;
-                case MultiTransportRemoteFacilityConnectionType::SocketRPC:
-                    if constexpr(std::is_convertible_v<typename R::EnvironmentType *, socket_rpc::SocketRPCComponent *>) {
-                        return socket_rpc::SocketRPCOnOrderFacility<typename R::EnvironmentType>::template createTypedRPCOnOrderFacility<Request,Result>(std::get<1>(*parsed), hooks);
-                    } else {
-                        throw std::runtime_error("[MultiTransportRemoteFacilityManagingUtils::setupSimpleRemoteFacility] trying to set up socket rpc facility for channel spec '"+channelSpec+"', but socket rpc is unsupported in the environment");
-                    }
-                    break;
-                case MultiTransportRemoteFacilityConnectionType::GrpcInterop:
-                    if constexpr(std::is_convertible_v<typename R::EnvironmentType *, grpc_interop::GrpcInteropComponent *>) {
-                        if constexpr(DetermineClientSideIdentityForRequest<typename R::EnvironmentType, Request>::HasIdentity) {
-                            if constexpr (std::is_same_v<typename DetermineClientSideIdentityForRequest<typename R::EnvironmentType, Request>::IdentityType, std::string>) {
-                                if (hooks) {
-                                    throw std::runtime_error("[MultiTransportRemoteFacilityManagingUtils::setupSimpleRemoteFacility] trying to set up grpc interop facility for channel spec '"+channelSpec+"', but grpc interop does not support requests with hooks");
-                                } else {
-                                    if constexpr (
-                                        basic::bytedata_utils::ProtobufStyleSerializableChecker<Request>::IsProtobufStyleSerializable()
-                                        &&
-                                        basic::bytedata_utils::ProtobufStyleSerializableChecker<Result>::IsProtobufStyleSerializable()
-                                    ) {
-                                        return grpc_interop::GrpcClientFacilityFactory<typename R::AppType>::template createClientFacility<Request, Result>(std::get<1>(*parsed));
-                                    } else if constexpr (
-                                        basic::proto_interop::ProtoWrappable<Request>::value
-                                        &&
-                                        basic::proto_interop::ProtoWrappable<Result>::value
-                                    ) {
-                                        auto underlyingFacility = grpc_interop::GrpcClientFacilityFactory<typename R::AppType>::template createClientFacility<basic::proto_interop::Proto<Request>, basic::proto_interop::Proto<Result>>(std::get<1>(*parsed));
-                                        auto encodingAction = R::AppType::template liftPure<typename R::AppType::template Key<Request>>(
-                                            [](typename R::AppType::template Key<Request> &&key) -> typename R::AppType::template Key<basic::proto_interop::Proto<Request>> {
-                                                return {
-                                                    key.id()
-                                                    , {key.key()}
-                                                };
-                                            }
-                                        );
-                                        auto decodingAction = R::AppType::template liftPure<typename R::AppType::template Key<basic::proto_interop::Proto<Result>>>(
-                                            [](typename R::AppType::template Key<basic::proto_interop::Proto<Result>> &&key) -> typename R::AppType::template Key<Result> {
-                                                return {
-                                                    key.id()
-                                                    , key.key().moveValue()
-                                                };
-                                            }
-                                        );
-                                        return R::AppType::wrappedOnOrderFacility(
-                                            std::move(*underlyingFacility)
-                                            , std::move(*encodingAction)
-                                            , std::move(*decodingAction)
-                                        );
-                                    } else {
-                                        throw std::runtime_error("[MultiTransportRemoteFacilityManagingUtils::setupSimpleRemoteFacility] trying to set up grpc interop facility for channel spec '"+channelSpec+"', but the types are not grpc compatible");
-                                    }
-                                }
-                            } else {
-                                throw std::runtime_error("[MultiTransportRemoteFacilityManagingUtils::setupSimpleRemoteFacility] trying to set up grpc interop facility for channel spec '"+channelSpec+"', but grpc interop does not support non-string identity on request");
-                            }
-                        } else {
+            switch (connType) {
+            case MultiTransportRemoteFacilityConnectionType::RabbitMQ:
+                if constexpr(std::is_convertible_v<typename R::EnvironmentType *, rabbitmq::RabbitMQComponent *>) {
+                    return rabbitmq::RabbitMQOnOrderFacility<typename R::EnvironmentType>::template createTypedRPCOnOrderFacility<Request,Result>(locator, hooks);
+                } else {
+                    throw std::runtime_error("[MultiTransportRemoteFacilityManagingUtils::setupSimpleRemoteFacility] trying to set up rabbitmq facility for channel spec '"+locator.toPrintFormat()+"', but rabbitmq is unsupported in the environment");
+                }
+                break;
+            case MultiTransportRemoteFacilityConnectionType::Redis:
+                if constexpr(std::is_convertible_v<typename R::EnvironmentType *, redis::RedisComponent *>) {
+                    return redis::RedisOnOrderFacility<typename R::EnvironmentType>::template createTypedRPCOnOrderFacility<Request,Result>(locator, hooks);
+                } else {
+                    throw std::runtime_error("[MultiTransportRemoteFacilityManagingUtils::setupSimpleRemoteFacility] trying to set up redis facility for channel spec '"+locator.toPrintFormat()+"', but redis is unsupported in the environment");
+                }
+                break;
+            case MultiTransportRemoteFacilityConnectionType::SocketRPC:
+                if constexpr(std::is_convertible_v<typename R::EnvironmentType *, socket_rpc::SocketRPCComponent *>) {
+                    return socket_rpc::SocketRPCOnOrderFacility<typename R::EnvironmentType>::template createTypedRPCOnOrderFacility<Request,Result>(locator, hooks);
+                } else {
+                    throw std::runtime_error("[MultiTransportRemoteFacilityManagingUtils::setupSimpleRemoteFacility] trying to set up socket rpc facility for channel spec '"+locator.toPrintFormat()+"', but socket rpc is unsupported in the environment");
+                }
+                break;
+            case MultiTransportRemoteFacilityConnectionType::GrpcInterop:
+                if constexpr(std::is_convertible_v<typename R::EnvironmentType *, grpc_interop::GrpcInteropComponent *>) {
+                    if constexpr(DetermineClientSideIdentityForRequest<typename R::EnvironmentType, Request>::HasIdentity) {
+                        if constexpr (std::is_same_v<typename DetermineClientSideIdentityForRequest<typename R::EnvironmentType, Request>::IdentityType, std::string>) {
                             if (hooks) {
-                                throw std::runtime_error("[MultiTransportRemoteFacilityManagingUtils::setupSimpleRemoteFacility] trying to set up grpc interop facility for channel spec '"+channelSpec+"', but grpc interop does not support requests with hooks");
+                                throw std::runtime_error("[MultiTransportRemoteFacilityManagingUtils::setupSimpleRemoteFacility] trying to set up grpc interop facility for channel spec '"+locator.toPrintFormat()+"', but grpc interop does not support requests with hooks");
                             } else {
                                 if constexpr (
                                     basic::bytedata_utils::ProtobufStyleSerializableChecker<Request>::IsProtobufStyleSerializable()
                                     &&
                                     basic::bytedata_utils::ProtobufStyleSerializableChecker<Result>::IsProtobufStyleSerializable()
                                 ) {
-                                    return grpc_interop::GrpcClientFacilityFactory<typename R::AppType>::template createClientFacility<Request, Result>(std::get<1>(*parsed));
+                                    return grpc_interop::GrpcClientFacilityFactory<typename R::AppType>::template createClientFacility<Request, Result>(locator);
                                 } else if constexpr (
                                     basic::proto_interop::ProtoWrappable<Request>::value
                                     &&
                                     basic::proto_interop::ProtoWrappable<Result>::value
                                 ) {
-                                    auto underlyingFacility = grpc_interop::GrpcClientFacilityFactory<typename R::AppType>::template createClientFacility<basic::proto_interop::Proto<Request>, basic::proto_interop::Proto<Result>>(std::get<1>(*parsed));
+                                    auto underlyingFacility = grpc_interop::GrpcClientFacilityFactory<typename R::AppType>::template createClientFacility<basic::proto_interop::Proto<Request>, basic::proto_interop::Proto<Result>>(locator);
                                     auto encodingAction = R::AppType::template liftPure<typename R::AppType::template Key<Request>>(
                                         [](typename R::AppType::template Key<Request> &&key) -> typename R::AppType::template Key<basic::proto_interop::Proto<Request>> {
                                             return {
@@ -1312,51 +1268,121 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                                         , std::move(*decodingAction)
                                     );
                                 } else {
-                                    throw std::runtime_error("[MultiTransportRemoteFacilityManagingUtils::setupSimpleRemoteFacility] trying to set up grpc interop facility for channel spec '"+channelSpec+"', but the types are not grpc compatible");
+                                    throw std::runtime_error("[MultiTransportRemoteFacilityManagingUtils::setupSimpleRemoteFacility] trying to set up grpc interop facility for channel spec '"+locator.toPrintFormat()+"', but the types are not grpc compatible");
                                 }
                             }
+                        } else {
+                            throw std::runtime_error("[MultiTransportRemoteFacilityManagingUtils::setupSimpleRemoteFacility] trying to set up grpc interop facility for channel spec '"+locator.toPrintFormat()+"', but grpc interop does not support non-string identity on request");
                         }
                     } else {
-                        throw std::runtime_error("[MultiTransportRemoteFacilityManagingUtils::setupSimpleRemoteFacility] trying to set up grpc interop facility for channel spec '"+channelSpec+"', but grpc interop is unsupported in the environment");
-                    }
-                    break;
-                case MultiTransportRemoteFacilityConnectionType::JsonREST:
-                    if (hooks) {
-                        throw std::runtime_error("[MultiTransportRemoteFacilityManagingUtils::setupSimpleRemoteFacility] trying to set up json rest facility for channel spec '"+channelSpec+"', but json rest does not support requests with hooks");
-                    }
-                    if constexpr(std::is_convertible_v<typename R::EnvironmentType *, json_rest::JsonRESTComponent *>) {
-                        if constexpr(DetermineClientSideIdentityForRequest<typename R::EnvironmentType, Request>::HasIdentity) {
-                            if constexpr (!std::is_same_v<typename DetermineClientSideIdentityForRequest<typename R::EnvironmentType, Request>::IdentityType, std::string>) {
-                                throw std::runtime_error("[MultiTransportRemoteFacilityManagingUtils::setupSimpleRemoteFacility] trying to set up json rest facility for channel spec '"+channelSpec+"', but json rest does not support non-string identity on request");
+                        if (hooks) {
+                            throw std::runtime_error("[MultiTransportRemoteFacilityManagingUtils::setupSimpleRemoteFacility] trying to set up grpc interop facility for channel spec '"+locator.toPrintFormat()+"', but grpc interop does not support requests with hooks");
+                        } else {
+                            if constexpr (
+                                basic::bytedata_utils::ProtobufStyleSerializableChecker<Request>::IsProtobufStyleSerializable()
+                                &&
+                                basic::bytedata_utils::ProtobufStyleSerializableChecker<Result>::IsProtobufStyleSerializable()
+                            ) {
+                                return grpc_interop::GrpcClientFacilityFactory<typename R::AppType>::template createClientFacility<Request, Result>(locator);
+                            } else if constexpr (
+                                basic::proto_interop::ProtoWrappable<Request>::value
+                                &&
+                                basic::proto_interop::ProtoWrappable<Result>::value
+                            ) {
+                                auto underlyingFacility = grpc_interop::GrpcClientFacilityFactory<typename R::AppType>::template createClientFacility<basic::proto_interop::Proto<Request>, basic::proto_interop::Proto<Result>>(locator);
+                                auto encodingAction = R::AppType::template liftPure<typename R::AppType::template Key<Request>>(
+                                    [](typename R::AppType::template Key<Request> &&key) -> typename R::AppType::template Key<basic::proto_interop::Proto<Request>> {
+                                        return {
+                                            key.id()
+                                            , {key.key()}
+                                        };
+                                    }
+                                );
+                                auto decodingAction = R::AppType::template liftPure<typename R::AppType::template Key<basic::proto_interop::Proto<Result>>>(
+                                    [](typename R::AppType::template Key<basic::proto_interop::Proto<Result>> &&key) -> typename R::AppType::template Key<Result> {
+                                        return {
+                                            key.id()
+                                            , key.key().moveValue()
+                                        };
+                                    }
+                                );
+                                return R::AppType::wrappedOnOrderFacility(
+                                    std::move(*underlyingFacility)
+                                    , std::move(*encodingAction)
+                                    , std::move(*decodingAction)
+                                );
+                            } else {
+                                throw std::runtime_error("[MultiTransportRemoteFacilityManagingUtils::setupSimpleRemoteFacility] trying to set up grpc interop facility for channel spec '"+locator.toPrintFormat()+"', but the types are not grpc compatible");
                             }
                         }
-                        if constexpr (
-                            basic::nlohmann_json_interop::JsonWrappable<Request>::value
-                            &&
-                            basic::nlohmann_json_interop::JsonWrappable<Result>::value
-                        ) {
-                            return json_rest::JsonRESTClientFacilityFactory<typename R::AppType>::template createClientFacility<Request, Result>(std::get<1>(*parsed));
-                        } else {
-                            throw std::runtime_error("[MultiTransportRemoteFacilityManagingUtils::setupSimpleRemoteFacility] trying to set up json rest facility for channel spec '"+channelSpec+"', but the data types are not json-compatible");
-                        }
-                    } else {
-                        throw std::runtime_error("[MultiTransportRemoteFacilityManagingUtils::setupSimpleRemoteFacility] trying to set up json rest facility for channel spec '"+channelSpec+"', but json rest is unsupported in the environment");
                     }
-                    break;
-                case MultiTransportRemoteFacilityConnectionType::WebSocket:
-                    if constexpr(std::is_convertible_v<typename R::EnvironmentType *, web_socket::WebSocketComponent *>) {
-                        return web_socket::WebSocketOnOrderFacilityClient<typename R::EnvironmentType>::template createTypedRPCOnOrderFacility<Request,Result>(std::get<1>(*parsed), hooks);
-                    } else {
-                        throw std::runtime_error("[MultiTransportRemoteFacilityManagingUtils::setupSimpleRemoteFacility] trying to set up web socket facility for channel spec '"+channelSpec+"', but web socket is unsupported in the environment");
-                    }
-                    break;
-                default:
-                    throw std::runtime_error("[MultiTransportRemoteFacilityManagingUtils::setupSimpleRemoteFacility] trying to set up unsupported facility for channel spec '"+channelSpec+"'");
-                    break;
+                } else {
+                    throw std::runtime_error("[MultiTransportRemoteFacilityManagingUtils::setupSimpleRemoteFacility] trying to set up grpc interop facility for channel spec '"+locator.toPrintFormat()+"', but grpc interop is unsupported in the environment");
                 }
+                break;
+            case MultiTransportRemoteFacilityConnectionType::JsonREST:
+                if (hooks) {
+                    throw std::runtime_error("[MultiTransportRemoteFacilityManagingUtils::setupSimpleRemoteFacility] trying to set up json rest facility for channel spec '"+locator.toPrintFormat()+"', but json rest does not support requests with hooks");
+                }
+                if constexpr(std::is_convertible_v<typename R::EnvironmentType *, json_rest::JsonRESTComponent *>) {
+                    if constexpr(DetermineClientSideIdentityForRequest<typename R::EnvironmentType, Request>::HasIdentity) {
+                        if constexpr (!std::is_same_v<typename DetermineClientSideIdentityForRequest<typename R::EnvironmentType, Request>::IdentityType, std::string>) {
+                            throw std::runtime_error("[MultiTransportRemoteFacilityManagingUtils::setupSimpleRemoteFacility] trying to set up json rest facility for channel spec '"+locator.toPrintFormat()+"', but json rest does not support non-string identity on request");
+                        }
+                    }
+                    if constexpr (
+                        basic::nlohmann_json_interop::JsonWrappable<Request>::value
+                        &&
+                        basic::nlohmann_json_interop::JsonWrappable<Result>::value
+                    ) {
+                        return json_rest::JsonRESTClientFacilityFactory<typename R::AppType>::template createClientFacility<Request, Result>(locator);
+                    } else {
+                        throw std::runtime_error("[MultiTransportRemoteFacilityManagingUtils::setupSimpleRemoteFacility] trying to set up json rest facility for channel spec '"+locator.toPrintFormat()+"', but the data types are not json-compatible");
+                    }
+                } else {
+                    throw std::runtime_error("[MultiTransportRemoteFacilityManagingUtils::setupSimpleRemoteFacility] trying to set up json rest facility for channel spec '"+locator.toPrintFormat()+"', but json rest is unsupported in the environment");
+                }
+                break;
+            case MultiTransportRemoteFacilityConnectionType::WebSocket:
+                if constexpr(std::is_convertible_v<typename R::EnvironmentType *, web_socket::WebSocketComponent *>) {
+                    return web_socket::WebSocketOnOrderFacilityClient<typename R::EnvironmentType>::template createTypedRPCOnOrderFacility<Request,Result>(locator, hooks);
+                } else {
+                    throw std::runtime_error("[MultiTransportRemoteFacilityManagingUtils::setupSimpleRemoteFacility] trying to set up web socket facility for channel spec '"+locator.toPrintFormat()+"', but web socket is unsupported in the environment");
+                }
+                break;
+            default:
+                throw std::runtime_error("[MultiTransportRemoteFacilityManagingUtils::setupSimpleRemoteFacility] trying to set up unsupported facility for channel spec '"+locator.toPrintFormat()+"'");
+                break;
+            }
+        }
+
+        template <class Request, class Result>
+        static auto setupSimpleRemoteFacility( 
+            std::string const &channelSpec
+            , std::optional<ByteDataHookPair> hooks = std::nullopt
+        ) ->  typename R::template OnOrderFacilityPtr<Request, Result>
+        {
+            auto parsed = parseMultiTransportRemoteFacilityChannel(channelSpec);
+            if (parsed) {
+                return setupSimpleRemoteFacility<Request, Result>(
+                    std::get<0>(*parsed)
+                    , std::get<1>(*parsed)
+                    , hooks
+                );
             } else {
                 throw std::runtime_error("[MultiTransportRemoteFacilityManagingUtils::setupSimpleRemoteFacility] unknown channel spec '"+channelSpec+"'");
             }
+        }
+
+        template <class Request, class Result>
+        static auto setupSimpleRemoteFacility(
+            R &r
+            , MultiTransportRemoteFacilityConnectionType connType
+            , ConnectionLocator const &locator
+            , std::optional<ByteDataHookPair> hooks = std::nullopt
+        ) ->  typename R::template OnOrderFacilityPtr<Request, Result>
+        {
+            return setupSimpleRemoteFacility<Request,Result>(connType, locator, hooks);
         }
         template <class Request, class Result>
         static auto setupSimpleRemoteFacility(
@@ -1368,6 +1394,47 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
             return setupSimpleRemoteFacility<Request,Result>(channelSpec, hooks);
         }
 
+        template <template<class...> class ProtocolWrapper, class Request, class Result>
+        static auto setupSimpleRemoteFacilityWithProtocol(
+            MultiTransportRemoteFacilityConnectionType connType
+            , ConnectionLocator const &locator
+            , std::optional<ByteDataHookPair> hooks = std::nullopt
+        ) ->  typename R::template OnOrderFacilityPtr<Request, Result>
+        {
+            if constexpr (std::is_same_v<basic::WrapFacilitioidConnectorForSerializationHelpers::WrappedType<
+                ProtocolWrapper, Request
+            >, Request>) {
+                return setupSimpleRemoteFacility<Request,Result>(connType, locator, hooks);
+            } else {
+                auto underlyingFacility = setupSimpleRemoteFacility<
+                    basic::WrapFacilitioidConnectorForSerializationHelpers::WrappedType<ProtocolWrapper,Request>
+                    ,basic::WrapFacilitioidConnectorForSerializationHelpers::WrappedType<ProtocolWrapper,Result>
+                >(connType, locator, hooks);
+                auto encodingAction = R::AppType::template liftPure<typename R::AppType::template Key<Request>>(
+                    [](typename R::AppType::template Key<Request> &&key) -> typename R::AppType::template Key<basic::WrapFacilitioidConnectorForSerializationHelpers::WrappedType<ProtocolWrapper,Request>> {
+                        return {
+                            key.id()
+                            , {key.key()}
+                        };
+                    }
+                );
+                auto decodingAction = R::AppType::template liftPure<typename R::AppType::template Key<basic::WrapFacilitioidConnectorForSerializationHelpers::WrappedType<ProtocolWrapper,Result>>>(
+                    [](typename R::AppType::template Key<basic::WrapFacilitioidConnectorForSerializationHelpers::WrappedType<ProtocolWrapper,Result>> &&key) -> typename R::AppType::template Key<Result> {
+                        return {
+                            key.id()
+                            , basic::WrapFacilitioidConnectorForSerializationHelpers::WrapperUtils<
+                                ProtocolWrapper
+                            >::template extract<Result>(key.key())
+                        };
+                    }
+                );
+                return R::AppType::wrappedOnOrderFacility(
+                    std::move(*underlyingFacility)
+                    , std::move(*encodingAction)
+                    , std::move(*decodingAction)
+                );
+            }
+        }
         template <template<class...> class ProtocolWrapper, class Request, class Result>
         static auto setupSimpleRemoteFacilityWithProtocol(
             std::string const &channelSpec
