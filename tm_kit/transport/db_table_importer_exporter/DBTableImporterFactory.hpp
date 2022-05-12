@@ -21,9 +21,9 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 return s;
             }
             if (boost::starts_with(s1, "FROM ")) {
-                return ("SELECT "+DF::commaSeparatedFieldNames()+" "+s);
+                return ("SELECT "+DF::commaSeparatedFieldNamesForSelect()+" "+s);
             }
-            return ("SELECT "+DF::commaSeparatedFieldNames()+" FROM "+s);
+            return ("SELECT "+DF::commaSeparatedFieldNamesForSelect()+" FROM "+s);
         }
     public:
         template <class T, typename = std::enable_if_t<basic::StructFieldInfo<T>::HasGeneratedStructFieldInfo>>

@@ -21,13 +21,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             oss << DF::commaSeparatedFieldNames();
             oss << ") VALUES (";
             bool begin = true;
-            for (auto const &s : basic::StructFieldInfo<T>::FIELD_NAMES) {
-                if (!begin) {
-                    oss << ',';
-                }
-                begin = false;
-                oss << ':' << s;
-            }
+            DF::addValueFieldsToInsertValueList(oss, begin);
             oss << ')';
             return oss.str();
         }
@@ -42,20 +36,8 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             oss << DF::commaSeparatedFieldNames();
             oss << ") VALUES (";
             bool begin = true;
-            for (auto const &s : basic::StructFieldInfo<ItemKey>::FIELD_NAMES) {
-                if (!begin) {
-                    oss << ',';
-                }
-                begin = false;
-                oss << ':' << s;
-            }
-            for (auto const &s : basic::StructFieldInfo<ItemData>::FIELD_NAMES) {
-                if (!begin) {
-                    oss << ',';
-                }
-                begin = false;
-                oss << ':' << s;
-            }
+            KF::addValueFieldsToInsertValueList(oss, begin);
+            DF::addValueFieldsToInsertValueList(oss, begin);
             oss << ") ON DUPLICATE KEY UPDATE ";
             begin = true;
             for (auto const &s : basic::StructFieldInfo<ItemData>::FIELD_NAMES) {
@@ -81,6 +63,9 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                     t.tm_sec = 0;
                     t.tm_isdst = -1;
                     stmt.exchange(soci::use(t, std::string(basic::StructFieldInfo<T>::FIELD_NAMES[FieldIndex])));
+                } else if constexpr (std::is_same_v<typename basic::StructFieldTypeInfo<T,FieldIndex>::TheType, std::chrono::system_clock::time_point>) {
+                    std::string s = infra::withtime_utils::localTimeString(data.*(basic::StructFieldTypeInfo<T,FieldIndex>::fieldPointer()));
+                    stmt.exchange(soci::use(s, std::string(basic::StructFieldInfo<T>::FIELD_NAMES[FieldIndex])));
                 } else {
                     stmt.exchange(soci::use(data.*(basic::StructFieldTypeInfo<T,FieldIndex>::fieldPointer()), std::string(basic::StructFieldInfo<T>::FIELD_NAMES[FieldIndex])));
                 }
@@ -109,6 +94,14 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                         t.tm_sec = 0;
                         t.tm_isdst = -1;
                         v->push_back(t);
+                    }
+                    stmt.exchange(soci::use(*v, std::string(basic::StructFieldInfo<T>::FIELD_NAMES[FieldIndex])));
+                    deletors.push_back([v]() {delete v;});
+                } else if constexpr (std::is_same_v<typename basic::StructFieldTypeInfo<T,FieldIndex>::TheType, std::chrono::system_clock::time_point>) {
+                    auto *v = new std::vector<std::string>();
+                    for (auto const &x : data) {
+                        auto const &y = x.*(basic::StructFieldTypeInfo<T,FieldIndex>::fieldPointer());
+                        v->push_back(infra::withtime_utils::localTimeString(y));
                     }
                     stmt.exchange(soci::use(*v, std::string(basic::StructFieldInfo<T>::FIELD_NAMES[FieldIndex])));
                     deletors.push_back([v]() {delete v;});
@@ -194,8 +187,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             );
         }
         template <class T, typename = std::enable_if_t<basic::StructFieldInfo<T>::HasGeneratedStructFieldInfo>>
-        static auto writeBatchToTable(std::shared_ptr<soci::session> const &session, std::string const &tableName, std::vector<T> const &batch)
-            -> std::shared_ptr<typename M::template Exporter<std::vector<T>>>
+        static void writeBatchToTable(std::shared_ptr<soci::session> const &session, std::string const &tableName, std::vector<T> const &batch)
         {
             static std::string insertStmt = insertTemplate<T>(tableName);
             
