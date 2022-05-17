@@ -390,6 +390,168 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                 r, spec, broadcastTopic, dataHook
             );
         }
+
+        //we assume that all the broadcasts under one source lookup name are
+        //the same, with the same hook
+        template <class R1, class InputType>
+        static auto setupBroadcastListenerWithTopicThroughHeartbeatForAnotherRunner(
+            infra::SynchronousRunner<M> &r
+            , R1 &r1
+            , std::string const &r1NamePrefix
+            , std::string const &heartbeatChannelSpec
+            , std::optional<std::string> const &heartbeatChannelTopicDescription
+            , std::regex const &serverNameRE
+            , std::string const &broadcastSourceLookupName
+            , std::string const &broadcastTopic
+            , std::optional<WireToUserHook> const &dataHook = std::nullopt
+            , std::optional<WireToUserHook> const &heartbeatHook = std::nullopt
+        ) 
+            ->  typename R1::template Source<basic::TypedDataWithTopic<
+                std::conditional_t<
+                    basic::bytedata_utils::DirectlySerializableChecker<InputType>::IsDirectlySerializable()
+                    , InputType
+                    , basic::CBOR<InputType>
+                >
+            >>
+        {
+            using RealInputType = std::conditional_t<
+                basic::bytedata_utils::DirectlySerializableChecker<InputType>::IsDirectlySerializable()
+                , InputType
+                , basic::CBOR<InputType>
+            >;
+            auto importer = oneBroadcastListenerWithTopic<HeartbeatMessage>(
+                r, heartbeatChannelSpec, heartbeatChannelTopicDescription, heartbeatHook
+            );
+            auto heartbeatMsg = r.importItemUntil(
+                importer 
+                , [serverNameRE,broadcastSourceLookupName](typename M::template InnerData<basic::TypedDataWithTopic<HeartbeatMessage>> const &h) {
+                    if (!std::regex_match(h.timedData.value.content.senderDescription(), serverNameRE)) {
+                        return false;
+                    }
+                    auto iter = h.timedData.value.content.broadcastChannels().find(broadcastSourceLookupName);
+                    return (iter != h.timedData.value.content.broadcastChannels().end() && !iter->second.empty());
+                }
+            )->back();
+            if (!std::regex_match(heartbeatMsg.timedData.value.content.senderDescription(), serverNameRE)) {
+                throw std::runtime_error("[MultiTransportBroadcastListenerManagingUtils (Synchronous Runner)::setupBroadcastListenerWithTopicThroughHeartbeatForAnotherRunner] Cannot find heartbeat for server that matches the RE");
+            }
+            auto iter = heartbeatMsg.timedData.value.content.broadcastChannels().find(broadcastSourceLookupName);
+            if (iter == heartbeatMsg.timedData.value.content.broadcastChannels().end() || iter->second.empty()) {
+                throw std::runtime_error("[MultiTransportBroadcastListenerManagingUtils (Synchronous Runner)::setupBroadcastListenerWithTopicThroughHeartbeatForAnotherRunner] Cannot find heartbeat entry for source '"+broadcastSourceLookupName+"'");
+            }
+            auto spec = *(iter->second.begin());
+            r.environment()->log(
+                infra::LogLevel::Info
+                , std::string("[MultiTransportBroadcastListenerManagingUtils (Synchronous Runner)::setupBroadcastListenerWithTopicThroughHeartbeatForAnotherRunner] ")
+                 +" Setting up listener for '"+spec+"' under prefix '"+r1NamePrefix+"'"
+                );
+            return MultiTransportBroadcastListenerManagingUtils<R1>::template oneBroadcastListenerWithTopic<RealInputType>(
+                r1, r1NamePrefix, spec, broadcastTopic, dataHook
+            );
+        }
+        template <class R1, class InputType>
+        static auto setupBroadcastListenerThroughHeartbeatForAnotherRunner(
+            infra::SynchronousRunner<M> &r
+            , R1 &r1
+            , std::string const &r1NamePrefix
+            , std::string const &heartbeatChannelSpec
+            , std::optional<std::string> const &heartbeatChannelTopicDescription
+            , std::regex const &serverNameRE
+            , std::string const &broadcastSourceLookupName
+            , std::string const &broadcastTopic
+            , std::optional<WireToUserHook> const &dataHook = std::nullopt
+            , std::optional<WireToUserHook> const &heartbeatHook = std::nullopt
+        ) 
+            ->  typename R1::template Source<
+                std::conditional_t<
+                    basic::bytedata_utils::DirectlySerializableChecker<InputType>::IsDirectlySerializable()
+                    , InputType
+                    , basic::CBOR<InputType>
+                >
+            >
+        {
+            using RealInputType = std::conditional_t<
+                basic::bytedata_utils::DirectlySerializableChecker<InputType>::IsDirectlySerializable()
+                , InputType
+                , basic::CBOR<InputType>
+            >;
+            auto importer = oneBroadcastListenerWithTopic<HeartbeatMessage>(
+                r, heartbeatChannelSpec, heartbeatChannelTopicDescription, heartbeatHook
+            );
+            auto heartbeatMsg = r.importItemUntil(
+                importer 
+                , [serverNameRE,broadcastSourceLookupName](typename M::template InnerData<basic::TypedDataWithTopic<HeartbeatMessage>> const &h) {
+                    if (!std::regex_match(h.timedData.value.content.senderDescription(), serverNameRE)) {
+                        return false;
+                    }
+                    auto iter = h.timedData.value.content.broadcastChannels().find(broadcastSourceLookupName);
+                    return (iter != h.timedData.value.content.broadcastChannels().end() && !iter->second.empty());
+                }
+            )->back();
+            if (!std::regex_match(heartbeatMsg.timedData.value.content.senderDescription(), serverNameRE)) {
+                throw std::runtime_error("[MultiTransportBroadcastListenerManagingUtils (Synchronous Runner)::setupBroadcastListenerThroughHeartbeatForAnotherRunner] Cannot find heartbeat for server that matches the RE");
+            }
+            auto iter = heartbeatMsg.timedData.value.content.broadcastChannels().find(broadcastSourceLookupName);
+            if (iter == heartbeatMsg.timedData.value.content.broadcastChannels().end() || iter->second.empty()) {
+                throw std::runtime_error("[MultiTransportBroadcastListenerManagingUtils (Synchronous Runner)::setupBroadcastListenerThroughHeartbeatForAnotherRunner] Cannot find heartbeat entry for source '"+broadcastSourceLookupName+"'");
+            }
+            auto spec = *(iter->second.begin());
+            r.environment()->log(
+                infra::LogLevel::Info
+                , std::string("[MultiTransportBroadcastListenerManagingUtils (Synchronous Runner)::setupBroadcastListenerThroughHeartbeatForAnotherRunner] ")
+                 +" Setting up listener for '"+spec+"' under prefix '"+r1NamePrefix+"'"
+                );
+            return MultiTransportBroadcastListenerManagingUtils<R1>::template oneBroadcastListener<RealInputType>(
+                r1, r1NamePrefix, spec, broadcastTopic, dataHook
+            );
+        }
+        template <class R1>
+        static auto setupByteDataBroadcastListenerThroughHeartbeatForAnotherRunner(
+            infra::SynchronousRunner<M> &r
+            , R1 &r1
+            , std::string const &r1NamePrefix
+            , std::string const &heartbeatChannelSpec
+            , std::optional<std::string> const &heartbeatChannelTopicDescription
+            , std::regex const &serverNameRE
+            , std::string const &broadcastSourceLookupName
+            , std::string const &broadcastTopic
+            , std::optional<WireToUserHook> const &dataHook = std::nullopt
+            , std::optional<WireToUserHook> const &heartbeatHook = std::nullopt
+        ) 
+            ->  typename R1::template Source<
+                basic::ByteDataWithTopic
+            >
+        {
+            auto importer = oneBroadcastListenerWithTopic<HeartbeatMessage>(
+                r, heartbeatChannelSpec, heartbeatChannelTopicDescription, heartbeatHook
+            );
+            auto heartbeatMsg = r.importItemUntil(
+                importer 
+                , [serverNameRE,broadcastSourceLookupName](typename M::template InnerData<basic::TypedDataWithTopic<HeartbeatMessage>> const &h) {
+                    if (!std::regex_match(h.timedData.value.content.senderDescription(), serverNameRE)) {
+                        return false;
+                    }
+                    auto iter = h.timedData.value.content.broadcastChannels().find(broadcastSourceLookupName);
+                    return (iter != h.timedData.value.content.broadcastChannels().end() && !iter->second.empty());
+                }
+            )->back();
+            if (!std::regex_match(heartbeatMsg.timedData.value.content.senderDescription(), serverNameRE)) {
+                throw std::runtime_error("[MultiTransportBroadcastListenerManagingUtils (Synchronous Runner)::setupByteDataBroadcastListenerThroughHeartbeatForAnotherRunner] Cannot find heartbeat for server that matches the RE");
+            }
+            auto iter = heartbeatMsg.timedData.value.content.broadcastChannels().find(broadcastSourceLookupName);
+            if (iter == heartbeatMsg.timedData.value.content.broadcastChannels().end() || iter->second.empty()) {
+                throw std::runtime_error("[MultiTransportBroadcastListenerManagingUtils (Synchronous Runner)::setupByteDataBroadcastListenerThroughHeartbeatForAnotherRunner] Cannot find heartbeat entry for source '"+broadcastSourceLookupName+"'");
+            }
+            auto spec = *(iter->second.begin());
+            r.environment()->log(
+                infra::LogLevel::Info
+                , std::string("[MultiTransportBroadcastListenerManagingUtils (Synchronous Runner)::setupByteDataBroadcastListenerThroughHeartbeatForAnotherRunner] ")
+                 +" Setting up listener for '"+spec+"' under prefix '"+r1NamePrefix+"'"
+                );
+            return MultiTransportBroadcastListenerManagingUtils<R1>::oneByteDataBroadcastListener(
+                r1, r1NamePrefix, spec, broadcastTopic, dataHook
+            );
+        }
     };
 
 } } } }
