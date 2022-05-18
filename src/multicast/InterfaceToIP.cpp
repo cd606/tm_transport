@@ -1,4 +1,5 @@
 #include "InterfaceToIP.hpp"
+#include <stdexcept>
 
 #ifndef _MSC_VER
 #include <arpa/inet.h>
