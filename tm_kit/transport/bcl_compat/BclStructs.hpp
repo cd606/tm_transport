@@ -267,6 +267,18 @@ namespace std {
 }
 
 namespace dev { namespace cd606 { namespace tm { namespace basic { 
+    namespace proto_interop {
+        template <class Env>
+        class IgnoreProxiesForProtoInterop<transport::bcl_compat::BclGuid<Env>> {
+        public:
+            static constexpr bool value = true;
+        };
+        template <>
+        class IgnoreProxiesForProtoInterop<transport::bcl_compat::BclDecimal> {
+        public:
+            static constexpr bool value = true;
+        };
+    }
     template <class Env>
     class PrintHelper<transport::bcl_compat::BclGuid<Env>> {
     public:

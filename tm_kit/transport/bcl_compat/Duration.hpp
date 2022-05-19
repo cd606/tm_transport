@@ -340,6 +340,11 @@ namespace dev { namespace cd606 { namespace tm { namespace basic {
 
     namespace proto_interop {
         template <class Rep, class Period>
+        class IgnoreProxiesForProtoInterop<std::chrono::duration<Rep,Period>> {
+        public:
+            static constexpr bool value = true;
+        };
+        template <class Rep, class Period>
         class ProtoEncoder<std::chrono::duration<Rep,Period>, void> {
         public:
             static constexpr uint64_t thisFieldNumber(uint64_t inputFieldNumber) {
