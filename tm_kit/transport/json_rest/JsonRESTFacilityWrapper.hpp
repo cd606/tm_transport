@@ -377,7 +377,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             wrapFacilitioidConnector<Req,Resp>(
                 r
                 , r.getRegisteredName(toBeWrapped)
-                , r.facilityConnector(toBeWrapped)
+                , r.template facilityConnector<Req, Resp>(toBeWrapped)
                 , locator
                 , wrapperItemsNamePrefix
             );
@@ -392,7 +392,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             wrapFacilitioidConnector<Req,Resp>(
                 r
                 , r.getRegisteredName(toBeWrapped)
-                , r.facilityConnector(toBeWrapped)
+                , r.template facilityConnector<Req, Resp, C>(toBeWrapped)
                 , locator
                 , wrapperItemsNamePrefix
             );
@@ -407,7 +407,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             wrapFacilitioidConnector<Req,Resp>(
                 r
                 , r.getRegisteredName(toBeWrapped)
-                , r.facilityConnector(toBeWrapped)
+                , r.template facilityConnector<Req, Resp, C>(toBeWrapped)
                 , locator
                 , wrapperItemsNamePrefix
             );
@@ -422,7 +422,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             wrapFacilitioidConnector<Req,Resp>(
                 r
                 , r.getRegisteredName(toBeWrapped)
-                , r.facilityConnector(toBeWrapped)
+                , r.template facilityConnector<Req, Resp, C, D>(toBeWrapped)
                 , locator
                 , wrapperItemsNamePrefix
             );
@@ -458,7 +458,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             wrapFacilitioidConnectorWithStringIdentity<Req,Resp>(
                 r
                 , r.getRegisteredName(toBeWrapped)
-                , r.facilityConnector(toBeWrapped)
+                , r.template facilityConnector<std::tuple<std::string,Req>, Resp>(toBeWrapped)
                 , locator
                 , wrapperItemsNamePrefix
             );
@@ -473,7 +473,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             wrapFacilitioidConnectorWithStringIdentity<Req,Resp>(
                 r
                 , r.getRegisteredName(toBeWrapped)
-                , r.facilityConnector(toBeWrapped)
+                , r.template facilityConnector<std::tuple<std::string,Req>, Resp, C>(toBeWrapped)
                 , locator
                 , wrapperItemsNamePrefix
             );
@@ -488,7 +488,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             wrapFacilitioidConnectorWithStringIdentity<Req,Resp>(
                 r
                 , r.getRegisteredName(toBeWrapped)
-                , r.facilityConnector(toBeWrapped)
+                , r.template facilityConnector<std::tuple<std::string,Req>, Resp, C>(toBeWrapped)
                 , locator
                 , wrapperItemsNamePrefix
             );
@@ -503,7 +503,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             wrapFacilitioidConnectorWithStringIdentity<Req,Resp>(
                 r
                 , r.getRegisteredName(toBeWrapped)
-                , r.facilityConnector(toBeWrapped)
+                , r.template facilityConnector<std::tuple<std::string,Req>, Resp, C, D>(toBeWrapped)
                 , locator
                 , wrapperItemsNamePrefix
             );
