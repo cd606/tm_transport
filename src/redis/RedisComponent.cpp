@@ -42,46 +42,56 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
 
             void run() {
                 struct redisReply *reply = nullptr;
+                bool breakBecauseOfEOF = false;
                 while (running_) {
-                    int r = redisGetReply(ctx_, (void **) &reply);
-                    if (!running_) {
-                        break;
-                    }
-                    if (r != REDIS_OK) {
-                        if (ctx_->err == REDIS_ERR_EOF) {
+                    try {
+                        int r = redisGetReply(ctx_, (void **) &reply);
+                        if (!running_) {
                             break;
                         }
-                        if (reply != nullptr) {
-                            freeReplyObject((void *) &reply);
+                        if (r != REDIS_OK) {
+                            if (ctx_->err == REDIS_ERR_EOF) {
+                                breakBecauseOfEOF = true;
+                                break;
+                            }
+                            if (reply != nullptr) {
+                                freeReplyObject((void *) &reply);
+                            }
+                            continue;
                         }
-                        continue;
-                    }
-                    if (reply == nullptr) {
-                        continue;
-                    }
-                    if (reply->type != REDIS_REPLY_ARRAY || (reply->elements != 4 /*&& reply->elements != 3*/)) {
+                        if (reply == nullptr) {
+                            continue;
+                        }
+                        if (reply->type != REDIS_REPLY_ARRAY || (reply->elements != 4 /*&& reply->elements != 3*/)) {
+                            freeReplyObject((void *) reply);
+                            continue;
+                        }
+                        if (reply->element[0]->type != REDIS_REPLY_STRING
+                            ||
+                            std::string(reply->element[0]->str, reply->element[0]->len) != "pmessage") {
+                            freeReplyObject((void *) reply);
+                            continue;
+                        }
+                        std::string topic(reply->element[2]->str, reply->element[2]->len);
+                        std::string content(reply->element[3]->str, reply->element[3]->len);
                         freeReplyObject((void *) reply);
-                        continue;
-                    }
-                    if (reply->element[0]->type != REDIS_REPLY_STRING
-                        ||
-                        std::string(reply->element[0]->str, reply->element[0]->len) != "pmessage") {
-                        freeReplyObject((void *) reply);
-                        continue;
-                    }
-                    std::string topic(reply->element[2]->str, reply->element[2]->len);
-                    std::string content(reply->element[3]->str, reply->element[3]->len);
-                    freeReplyObject((void *) reply);
 
-                    if (!running_) {
+                        if (!running_) {
+                            break;
+                        }
+                        std::lock_guard<std::mutex> _(mutex_);
+                        for (auto const &cb : clients_) {
+                            callClient(cb, {topic, content});
+                        }
+                    } catch (...) {
+                        running_ = false;
+                        breakBecauseOfEOF = false;
                         break;
                     }
-                    std::lock_guard<std::mutex> _(mutex_);
-                    for (auto const &cb : clients_) {
-                        callClient(cb, {topic, content});
-                    }
                 }
-                redisFree(ctx_);
+                if (breakBecauseOfEOF) {
+                    redisFree(ctx_);
+                }
             }
         public:
             OneRedisSubscription(ConnectionLocator const &locator, std::string const &topic) 
