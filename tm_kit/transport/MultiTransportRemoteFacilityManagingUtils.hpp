@@ -995,6 +995,75 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                 }
             )));
         }
+        template <class Request, class Result>
+        static auto setupOneDistinguishedRemoteFacility_NoHeartbeat(
+            R &r 
+            , std::string const &prefix
+            , MultiTransportRemoteFacilityConnectionType connectionType
+            , ConnectionLocator const &connectionLocator
+            , std::function<Request()> requestGenerator
+            , std::function<bool(Request const &, Result const &)> resultChecker
+            , std::optional<ByteDataHookPair> hooks = std::nullopt
+        ) -> DistinguishedRemoteFacility<Request, Result>
+        {
+            auto actionImporter = M::template constFirstPushImporter<
+                std::array<MultiTransportRemoteFacilityAction, 1>
+            >(std::array<MultiTransportRemoteFacilityAction, 1> {
+                MultiTransportRemoteFacilityAction {
+                    MultiTransportRemoteFacilityActionType::Register
+                    , connectionType
+                    , connectionLocator
+                    , prefix+"_provided_connection"
+                }
+            });
+            auto actionSource = r.importItem(prefix+"/actionImporter", actionImporter);
+            auto res = setupDistinguishedRemoteFacilities<
+                std::tuple<
+                    IdentityAndInputAndOutputHolder<
+                        typename DetermineClientSideIdentityForRequest<typename R::EnvironmentType, Request>::IdentityType
+                        , Request
+                        , Result
+                    >
+                >
+            >(
+                r 
+                , std::move(actionSource)
+                , {requestGenerator}
+                , {resultChecker}
+                , {"facility"}
+                , prefix
+                , [hooks](std::string const &, ConnectionLocator const &) {
+                    return hooks;
+                }
+                , false
+                , nullptr
+            );
+            return std::get<0>(res);
+        }
+        template <class Request, class Result>
+        static auto setupOneDistinguishedRemoteFacility_NoHeartbeat(
+            R &r 
+            , std::string const &prefix
+            , std::string const &channelSpec
+            , std::function<Request()> requestGenerator
+            , std::function<bool(Request const &, Result const &)> resultChecker
+            , std::optional<ByteDataHookPair> hooks = std::nullopt
+        ) -> DistinguishedRemoteFacility<Request, Result> {
+            auto parsed = parseMultiTransportRemoteFacilityChannel(channelSpec);
+            if (parsed) {
+                return setupOneDistinguishedRemoteFacility_NoHeartbeat<Request, Result>(
+                    r
+                    , prefix
+                    , std::get<0>(*parsed)
+                    , std::get<1>(*parsed)
+                    , requestGenerator
+                    , resultChecker
+                    , hooks
+                );
+            } else {
+                throw std::runtime_error("[MultiTransportRemoteFacilityManagingUtils::setupOneDistinguishedRemoteFacility_NoHeartbeat] unknown channel spec '"+channelSpec+"'");
+            }
+        }
         template <template <class...> class ProtocolWrapper, class Request, class Result>
         static auto setupOneDistinguishedRemoteFacilityWithProtocol(
             R &r 
@@ -1048,6 +1117,54 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                 return adaptDistinguishedRemoteFacility<
                     ProtocolWrapper, Request, Result
                 >(r, x, facilityRegistrationName);   
+            }
+        }
+        template <template <class...> class ProtocolWrapper, class Request, class Result>
+        static auto setupOneDistinguishedRemoteFacilityWithProtocol_NoHeartbeat(
+            R &r 
+            , std::string const &prefix
+            , MultiTransportRemoteFacilityConnectionType connectionType
+            , ConnectionLocator const &connectionLocator
+            , std::function<Request()> requestGenerator
+            , std::function<bool(Request const &, Result const &)> resultChecker
+            , std::optional<ByteDataHookPair> hooks = std::nullopt
+        ) -> DistinguishedRemoteFacility<Request, Result>
+        {
+            if constexpr (std::is_same_v<basic::WrapFacilitioidConnectorForSerializationHelpers::WrappedType<
+                ProtocolWrapper, Request
+            >, Request>) {
+                return setupOneDistinguishedRemoteFacility_NoHeartbeat<Request,Result>(
+                    r, prefix, connectionType, connectionLocator
+                    , requestGenerator, resultChecker, hooks
+                );
+            } else {
+                auto gen = [requestGenerator]() 
+                    -> basic::WrapFacilitioidConnectorForSerializationHelpers::WrappedType<ProtocolWrapper,Request>
+                {
+                    return basic::WrapFacilitioidConnectorForSerializationHelpers::WrapperUtils<ProtocolWrapper>
+                        ::template enclose<Request>(requestGenerator());
+                };
+                auto checker = [resultChecker](
+                    basic::WrapFacilitioidConnectorForSerializationHelpers::WrappedType<ProtocolWrapper,Request> const &req 
+                    , basic::WrapFacilitioidConnectorForSerializationHelpers::WrappedType<ProtocolWrapper,Result> const &res
+                ) -> bool {
+                    return resultChecker(
+                        basic::WrapFacilitioidConnectorForSerializationHelpers::WrapperUtils<ProtocolWrapper>
+                            ::template extractConst<Request>(req)
+                        , basic::WrapFacilitioidConnectorForSerializationHelpers::WrapperUtils<ProtocolWrapper>
+                            ::template extractConst<Result>(res)
+                    );
+                };
+                auto x = setupOneDistinguishedRemoteFacility_NoHeartbeat<
+                    basic::WrapFacilitioidConnectorForSerializationHelpers::WrappedType<ProtocolWrapper,Request>
+                    , basic::WrapFacilitioidConnectorForSerializationHelpers::WrappedType<ProtocolWrapper,Result>
+                >(
+                    r, prefix, connectionType, connectionLocator
+                    , gen, checker, hooks
+                );
+                return adaptDistinguishedRemoteFacility<
+                    ProtocolWrapper, Request, Result
+                >(r, x, prefix+"/facility");   
             }
         }
         template <class FirstRequest, class FirstResult, class SecondRequest, class SecondResult>

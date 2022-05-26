@@ -48,6 +48,8 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         , std::regex const &serverNameRE
         , std::string const &facilityRegistrationName
         , std::optional<typename R::template Source<ExitSourceType>> &&exitSource
+        , std::chrono::system_clock::duration ttl = std::chrono::seconds(3)
+        , std::chrono::system_clock::duration checkPeriod = std::chrono::seconds(5)
     ) -> typename R::template Source<ConsumerUpdate<Data>>
     {
         using M = typename R::AppType;
@@ -76,6 +78,9 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             , [](typename GS::Input const &, typename GS::Output const &) {
                 return true;
             }
+            , std::nullopt
+            , ttl
+            , checkPeriod
         );
         using FacilityKey = std::tuple<ConnectionLocator, typename GS::Input>;
         auto idRecord = std::make_shared<std::optional<typename Env::IDType>>(std::nullopt);

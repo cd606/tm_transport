@@ -37,17 +37,14 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                 );
         }
 
-        template <class Request, class Result>
-        static auto setupSimpleRemoteFacilityByHeartbeat(
+        static std::string getRemoteFacilityChannelFromHeartbeat(
             infra::SynchronousRunner<M> &r 
             , std::string const &heartbeatSpec
             , std::string const &heartbeatTopic
             , std::regex const &facilityServerHeartbeatIdentityRE
             , std::string const &facilityRegistrationName
-            , std::optional<ByteDataHookPair> hooks = std::nullopt
             , std::optional<WireToUserHook> heartbeatHook = std::nullopt
-        ) ->  typename R::template OnOrderFacilityPtr<Request, Result>
-        {
+        ) {
             auto heartbeatImporter = MultiTransportBroadcastListenerManagingUtils<R>::template oneBroadcastListenerWithTopic<HeartbeatMessage>(
                 r 
                 , heartbeatSpec
@@ -63,7 +60,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                     auto iter = h.timedData.value.content.facilityChannels().find(facilityRegistrationName);
                     return (iter != h.timedData.value.content.facilityChannels().end());
                 }
-            )->back();
+            )->consumeUntilLastFuture().get();
             if (!std::regex_match(heartbeatMsg.timedData.value.content.senderDescription(), facilityServerHeartbeatIdentityRE)) {
                 throw std::runtime_error("[MultiTransportRemoteFacilityManagingUtils (Synchronous Runner)::setupSimpleRemoteFacilityByHeartbeat] Cannot find heartbeat for server that matches the RE");
             }
@@ -71,9 +68,30 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
             if (iter == heartbeatMsg.timedData.value.content.facilityChannels().end()) {
                 throw std::runtime_error("[MultiTransportRemoteFacilityManagingUtils (Synchronous Runner)::setupSimpleRemoteFacilityByHeartbeat] Cannot find heartbeat entry for facility '"+facilityRegistrationName+"'");
             }
+            return iter->second;
+        }
+        template <class Request, class Result>
+        static auto setupSimpleRemoteFacilityByHeartbeat(
+            infra::SynchronousRunner<M> &r 
+            , std::string const &heartbeatSpec
+            , std::string const &heartbeatTopic
+            , std::regex const &facilityServerHeartbeatIdentityRE
+            , std::string const &facilityRegistrationName
+            , std::optional<ByteDataHookPair> hooks = std::nullopt
+            , std::optional<WireToUserHook> heartbeatHook = std::nullopt
+        ) ->  typename R::template OnOrderFacilityPtr<Request, Result>
+        {
+            auto channel = getRemoteFacilityChannelFromHeartbeat(
+                r 
+                , heartbeatSpec
+                , heartbeatTopic
+                , facilityServerHeartbeatIdentityRE
+                , facilityRegistrationName
+                , heartbeatHook
+            );
             return setupSimpleRemoteFacility<Request,Result>(
                 r 
-                , iter->second 
+                , channel
                 , hooks
             );
         }
@@ -105,6 +123,60 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                 }
                 , spec
             );
+        }
+
+        template <class R1, class Request, class Result>
+        static auto setupSimpleRemoteFacilityByHeartbeatForAnotherRunner(
+            infra::SynchronousRunner<M> &r 
+            , R1 &r1
+            , std::string const &heartbeatSpec
+            , std::string const &heartbeatTopic
+            , std::regex const &facilityServerHeartbeatIdentityRE
+            , std::string const &facilityRegistrationName
+            , std::optional<ByteDataHookPair> hooks = std::nullopt
+            , std::optional<WireToUserHook> heartbeatHook = std::nullopt
+        ) {
+            auto channel = getRemoteFacilityChannelFromHeartbeat(
+                r 
+                , heartbeatSpec
+                , heartbeatTopic
+                , heartbeatHook
+                , facilityServerHeartbeatIdentityRE
+                , facilityRegistrationName
+                , heartbeatHook
+            );
+            return MultiTransportRemoteFacilityManagingUtils<R1>::
+                template setupSimpleRemoteFacility<Request, Result>( 
+                    channel, hooks
+                );
+        }
+        template <class R1, class Request, class Result>
+        static auto setupOneDistinguishedFacilityByHeartbeatForAnotherRunner(
+            infra::SynchronousRunner<M> &r 
+            , R1 &r1
+            , std::string const &prefix
+            , std::string const &heartbeatSpec
+            , std::string const &heartbeatTopic
+            , std::regex const &facilityServerHeartbeatIdentityRE
+            , std::string const &facilityRegistrationName
+            , std::function<Request()> requestGenerator
+            , std::function<bool(Request const &, Result const &)> resultChecker
+            , std::optional<ByteDataHookPair> hooks = std::nullopt
+            , std::optional<WireToUserHook> heartbeatHook = std::nullopt
+        ) {
+            auto channel = getRemoteFacilityChannelFromHeartbeat(
+                r 
+                , heartbeatSpec
+                , heartbeatTopic
+                , heartbeatHook
+                , facilityServerHeartbeatIdentityRE
+                , facilityRegistrationName
+                , heartbeatHook
+            );
+            return MultiTransportRemoteFacilityManagingUtils<R1>::
+                template setupOneDistinguishedRemoteFacility_NoHeartbeat<Request, Result>( 
+                    r1, prefix, channel, requestGenerator, resultChecker, hooks
+                );
         }
     };
     
