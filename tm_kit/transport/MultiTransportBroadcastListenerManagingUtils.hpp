@@ -965,8 +965,92 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                 break;
             }
         }
-    };
 
+        static HeartbeatMessage fetchFirstMatchingHeartbeat(
+            Env *env
+            , std::string const &heartbeatChannelSpec
+            , std::string const &heartbeatTopicDescription
+            , std::regex const &heartbeatSenderNameRE
+            , std::function<bool(HeartbeatMessage const &)> furtherPredicates = {}
+            , std::optional<WireToUserHook> heartbeatHook = std::nullopt
+        ) {
+            return fetchTypedFirstUpdateAndDisconnect<HeartbeatMessage>
+                (
+                    env
+                    , heartbeatChannelSpec
+                    , heartbeatTopicDescription
+                    , [heartbeatSenderNameRE,furtherPredicates](HeartbeatMessage const &m) {
+                        if (furtherPredicates) {
+                            return std::regex_match(
+                                m.senderDescription()
+                                , heartbeatSenderNameRE
+                            ) && furtherPredicates(m);
+                        } else {
+                            return std::regex_match(
+                                m.senderDescription()
+                                , heartbeatSenderNameRE
+                            );
+                        }
+                    }
+                    , heartbeatHook
+                ).get().content;
+        }
+
+        static std::optional<std::string> getFacilityConnectionLocatorViaHeartbeat(
+            Env *env
+            , std::string const &heartbeatChannelSpec
+            , std::string const &heartbeatTopicDescription
+            , std::regex const &heartbeatSenderNameRE
+            , std::string const &facilityNameInServer
+            , std::optional<WireToUserHook> heartbeatHook = std::nullopt
+        ) {
+            auto h = fetchFirstMatchingHeartbeat(
+                env
+                , heartbeatChannelSpec
+                , heartbeatTopicDescription
+                , heartbeatSenderNameRE
+                , [facilityNameInServer](HeartbeatMessage const &m) {
+                    auto const &f = m.facilityChannels();
+                    return (f.find(facilityNameInServer) != f.end());
+                }
+                , heartbeatHook
+            );
+            auto const &f = h.facilityChannels();
+            auto iter = f.find(facilityNameInServer);
+            if (iter == f.end()) {
+                return std::nullopt;
+            }
+            return iter->second;
+        }
+
+        static std::vector<std::string> getBroadcastConnectionLocatorsViaHeartbeat(
+            Env *env
+            , std::string const &heartbeatChannelSpec
+            , std::string const &heartbeatTopicDescription
+            , std::regex const &heartbeatSenderNameRE
+            , std::string const &broadcastSourceLookupName
+            , std::optional<WireToUserHook> heartbeatHook = std::nullopt
+        ) {
+            auto h = fetchFirstMatchingHeartbeat(
+                env
+                , heartbeatChannelSpec
+                , heartbeatTopicDescription
+                , heartbeatSenderNameRE
+                , [broadcastSourceLookupName](HeartbeatMessage const &m) {
+                    auto const &b = m.broadcastChannels();
+                    auto iter = b.find(broadcastSourceLookupName);
+                    return (iter != b.end() && !iter->second.empty());
+                }
+                , heartbeatHook
+            );
+            auto const &b = h.broadcastChannels();
+            auto iter = b.find(broadcastSourceLookupName);
+            if (iter == b.end()) {
+                return {};
+            }
+            return iter->second;
+        }
+    };
 } } } }
 
 #endif
