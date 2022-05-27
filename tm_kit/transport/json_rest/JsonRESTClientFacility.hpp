@@ -60,6 +60,72 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         };
         template <class X>
         inline constexpr bool IsEmptyV = IsEmpty<X>::value;
+
+        template <class X>
+        class IsCsv {
+        public:
+            static constexpr bool value = basic::struct_field_info_utils::IsStructFieldInfoBasedCsvCompatibleStruct<X>;
+            using RealType = X;
+            static RealType const &access(X const &x) {
+                return x;
+            }
+        };
+        template <class X>
+        class IsCsv<basic::SingleLayerWrapper<X>> {
+        public:
+            static constexpr bool value = IsCsv<X>::value;
+            using RealType = typename IsCsv<X>::RealType;
+            static RealType const &access(basic::SingleLayerWrapper<X> const &x) {
+                return IsCsv<X>::access(x.value);
+            }
+        }; 
+        template <int32_t ID, class X>
+        class IsCsv<basic::SingleLayerWrapperWithID<ID, X>> {
+        public:
+            static constexpr bool value = IsCsv<X>::value;
+            using RealType = typename IsCsv<X>::RealType;
+            static RealType const &access(basic::SingleLayerWrapperWithID<ID, X> const &x) {
+                return IsCsv<X>::access(x.value);
+            }
+        };
+        template <class Mark, class X>
+        class IsCsv<basic::SingleLayerWrapperWithTypeMark<Mark, X>> {
+        public:
+            static constexpr bool value = IsCsv<X>::value;
+            using RealType = typename IsCsv<X>::RealType;
+            static RealType const &access(basic::SingleLayerWrapperWithTypeMark<Mark, X> const &x) {
+                return IsCsv<X>::access(x.value);
+            }
+        };
+        template <class X>
+        class IsCsv<basic::nlohmann_json_interop::Json<X>> {
+        public:
+            static constexpr bool value = IsCsv<X>::value;
+            using RealType = typename IsCsv<X>::RealType;
+            static RealType const &access(basic::nlohmann_json_interop::Json<X> const &x) {
+                return IsCsv<X>::access(x.value());
+            }
+        };
+        template <class X>
+        class IsCsv<basic::nlohmann_json_interop::Json<X *>> {
+        public:
+            static constexpr bool value = IsCsv<X>::value;
+            using RealType = typename IsCsv<X>::RealType;
+            static RealType const &access(basic::nlohmann_json_interop::Json<X *> const &x) {
+                return IsCsv<X>::access(x.value());
+            }
+        };
+        template <class X>
+        class IsCsv<basic::nlohmann_json_interop::Json<X const *>> {
+        public:
+            static constexpr bool value = IsCsv<X>::value;
+            using RealType = typename IsCsv<X>::RealType;
+            static RealType const &access(basic::nlohmann_json_interop::Json<X const *> const &x) {
+                return IsCsv<X>::access(x.value());
+            }
+        };
+        template <class X>
+        inline constexpr bool IsCsvV = IsCsv<X>::value;
     }
     template <class M, typename=std::enable_if_t<
         infra::app_classification_v<M> == infra::AppClassification::RealTime
@@ -285,17 +351,17 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                         , useGet_(
                             (locator.query("use_get", "false") == "true")
                             && 
-                            (basic::struct_field_info_utils::IsStructFieldInfoBasedCsvCompatibleStruct<Req> || helper::IsEmptyV<Req>)
+                            (helper::IsCsvV<Req> || helper::IsEmptyV<Req>)
                         )
                         , simplePost_(
                             (locator.query("simple_post", "false") == "true")
                             && 
-                            (basic::struct_field_info_utils::IsStructFieldInfoBasedCsvCompatibleStruct<Req> || helper::IsEmptyV<Req>)
+                            (helper::IsCsvV<Req> || helper::IsEmptyV<Req>)
                         )
                         , otherwiseEncodeInUrl_(
                             (locator.query("no_query_body", "false") == "true")
                             && 
-                            (basic::struct_field_info_utils::IsStructFieldInfoBasedCsvCompatibleStruct<Req> || helper::IsEmptyV<Req>)
+                            (helper::IsCsvV<Req> || helper::IsEmptyV<Req>)
                         )
                         , noRequestResponseWrap_(
                             locator.query("no_wrap", "false") == "true"
@@ -310,13 +376,13 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
 
                         nlohmann::json sendData;
                         std::ostringstream oss;
-                        if constexpr (basic::struct_field_info_utils::IsStructFieldInfoBasedCsvCompatibleStruct<Req> || helper::IsEmptyV<Req>) {
+                        if constexpr (helper::IsCsvV<Req> || helper::IsEmptyV<Req>) {
                             if (useGet_ || simplePost_ || otherwiseEncodeInUrl_) {
                                 if constexpr (!helper::IsEmptyV<Req>) {
                                     bool start = true;
-                                    basic::struct_field_info_utils::StructFieldInfoBasedSimpleCsvOutput<Req>
+                                    basic::struct_field_info_utils::StructFieldInfoBasedSimpleCsvOutput<typename helper::IsCsv<Req>::RealType>
                                         ::outputNameValuePairs(
-                                            req.timedData.value.key()
+                                            helper::IsCsv<Req>::access(req.timedData.value.key())
                                             , [&start,&oss](std::string const &name, std::string const &value) {
                                                 if (!start) {
                                                     oss << '&';
@@ -415,17 +481,17 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 bool useGet = (
                     (rpcQueueLocator.query("use_get", "false") == "true")
                     && 
-                    (basic::struct_field_info_utils::IsStructFieldInfoBasedCsvCompatibleStruct<Req> || helper::IsEmptyV<Req>)
+                    (helper::IsCsvV<Req> || helper::IsEmptyV<Req>)
                 );
                 bool simplePost = (
                     (rpcQueueLocator.query("simple_post", "false") == "true")
                     && 
-                    (basic::struct_field_info_utils::IsStructFieldInfoBasedCsvCompatibleStruct<Req> || helper::IsEmptyV<Req>)
+                    (helper::IsCsvV<Req> || helper::IsEmptyV<Req>)
                 );
                 bool otherwiseEncodeInUrl = (
                     (rpcQueueLocator.query("no_query_body", "false") == "true")
                     && 
-                    (basic::struct_field_info_utils::IsStructFieldInfoBasedCsvCompatibleStruct<Req> || helper::IsEmptyV<Req>)
+                    (helper::IsCsvV<Req> || helper::IsEmptyV<Req>)
                 );
                 bool noRequestResponseWrap = (
                     rpcQueueLocator.query("no_wrap", "false") == "true"
@@ -434,13 +500,13 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 auto ret = std::make_shared<std::promise<Resp>>();
                 nlohmann::json sendData;
                 std::ostringstream oss;
-                if constexpr (basic::struct_field_info_utils::IsStructFieldInfoBasedCsvCompatibleStruct<Req> || helper::IsEmptyV<Req>) {
+                if constexpr (helper::IsCsvV<Req> || helper::IsEmptyV<Req>) {
                     if (useGet || simplePost || otherwiseEncodeInUrl) {
                         if constexpr (!helper::IsEmptyV<Req>) {
                             bool start = true;
-                            basic::struct_field_info_utils::StructFieldInfoBasedSimpleCsvOutput<Req>
+                            basic::struct_field_info_utils::StructFieldInfoBasedSimpleCsvOutput<typename helper::IsCsv<Req>::RealType>
                                 ::outputNameValuePairs(
-                                    request
+                                    helper::IsCsv<Req>::access(request)
                                     , [&start,&oss](std::string const &name, std::string const &value) {
                                         if (!start) {
                                             oss << '&';
