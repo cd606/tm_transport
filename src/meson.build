@@ -22,5 +22,10 @@ tm_transport_sources = [
       , 'singlecast/SinglecastComponent.cpp'
       , 'BoostCertifyAdaptor.cpp'
 ]
-tm_transport_lib = static_library('tm_kit_transport', tm_transport_sources, include_directories: inc, dependencies: common_deps, install: true)
-pkg.generate(tm_transport_lib)
+if get_option('buildtype') == 'debug'
+      tm_transport_lib_debug = static_library('tm_kit_transport_debug', tm_transport_sources, include_directories: inc, dependencies: common_deps, install: true)
+      pkg.generate(tm_transport_lib_debug)
+else
+      tm_transport_lib = static_library('tm_kit_transport', tm_transport_sources, include_directories: inc, dependencies: common_deps, install: true)
+      pkg.generate(tm_transport_lib)
+endif

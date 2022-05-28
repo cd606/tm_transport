@@ -170,6 +170,9 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 [session,tableName](
                     std::vector<T> &&data
                 ) {
+                    if (data.empty()) {
+                        return;
+                    }
                     static std::string insertStmt = insertTemplate<T>(tableName);
                     
                     std::vector<std::function<void()>> deletors;
@@ -190,6 +193,10 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         static void writeBatchToTable(std::shared_ptr<soci::session> const &session, std::string const &tableName, std::vector<T> const &batch)
         {
             static std::string insertStmt = insertTemplate<T>(tableName);
+
+            if (batch.empty()) {
+                return;
+            }
             
             std::vector<std::function<void()>> deletors;
             soci::statement stmt(*session);
