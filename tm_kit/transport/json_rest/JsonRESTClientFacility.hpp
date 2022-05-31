@@ -540,15 +540,20 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                         } else if constexpr (std::is_same_v<Resp, RawStringWithStatus>) {
                             ret->set_value({status, std::move(headerFields), std::move(response)});
                         } else {
-                            try {
-                                nlohmann::json x = nlohmann::json::parse(response);
-                                Resp resp;
-                                basic::nlohmann_json_interop::Json<Resp *> r(&resp);
-                                if (r.fromNlohmannJson(noRequestResponseWrap?x:x["response"])) {
-                                    ret->set_value(std::move(resp));
+                            if (status < 200 || status >= 300) {
+                                ret->set_exception(std::make_exception_ptr(std::runtime_error("JSON request failed with status "+std::to_string(status))));
+                            } else {
+                                try {
+                                    nlohmann::json x = nlohmann::json::parse(response);
+                                    Resp resp;
+                                    basic::nlohmann_json_interop::Json<Resp *> r(&resp);
+                                    if (r.fromNlohmannJson(noRequestResponseWrap?x:x["response"])) {
+                                        ret->set_value(std::move(resp));
+                                    }
+                                } catch (...) {
+                                    env->log(infra::LogLevel::Error, "Cannot parse reply string '"+response+"' as json");
+                                    ret->set_exception(std::current_exception());
                                 }
-                            } catch (...) {
-                                env->log(infra::LogLevel::Error, "Cannot parse reply string '"+response+"' as json");
                             }
                         }
                     }
