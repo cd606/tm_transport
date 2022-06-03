@@ -589,7 +589,54 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                 break;
             }
         }
-
+    private:
+        class AddSubscriptionCreator {
+        private:
+            std::unordered_set<std::string> seenLocators_;
+            std::mutex mutex_;
+            std::regex serverNameRE_;
+            std::string lookupName_;
+            std::string topic_;
+        public:
+            AddSubscriptionCreator(std::regex const &serverNameRE, std::string const &lookupName, std::string const &topic) : seenLocators_(), mutex_(), serverNameRE_(serverNameRE), lookupName_(lookupName), topic_(topic) {}
+            AddSubscriptionCreator(AddSubscriptionCreator &&c)
+                : seenLocators_(std::move(c.seenLocators_)), mutex_(), serverNameRE_(std::move(c.serverNameRE_)), lookupName_(std::move(c.lookupName_)), topic_(std::move(c.topic_)) {}
+        private:
+            std::vector<MultiTransportBroadcastListenerInput> handleHeartbeat(HeartbeatMessage const &msg) {
+                std::vector<MultiTransportBroadcastListenerInput> ret;
+                if (!std::regex_match(msg.senderDescription(), serverNameRE_)) {
+                    return ret;
+                }
+                std::lock_guard<std::mutex> _(mutex_);
+                auto iter = msg.broadcastChannels().find(lookupName_);
+                if (iter != msg.broadcastChannels().end() && !iter->second.empty()) {
+                    for (auto const &c : iter->second) {
+                        if (seenLocators_.find(c) == seenLocators_.end()) {
+                            seenLocators_.insert(c);
+                            auto parsed = parseMultiTransportBroadcastChannel(c);
+                            if (parsed) {
+                                ret.push_back(MultiTransportBroadcastListenerInput {
+                                    MultiTransportBroadcastListenerAddSubscription {
+                                        std::get<0>(*parsed)
+                                        , std::get<1>(*parsed)
+                                        , topic_
+                                    }
+                                });
+                            }
+                        }
+                    }
+                }
+                return ret;
+            }
+        public:
+            std::vector<MultiTransportBroadcastListenerInput> operator()(HeartbeatMessage &&msg) {
+                return handleHeartbeat(msg);
+            }
+            std::vector<MultiTransportBroadcastListenerInput> operator()(std::shared_ptr<HeartbeatMessage const> &&msg) {
+                return handleHeartbeat(*msg);
+            }
+        };
+    public:
         //we assume that all the broadcasts under one source lookup name are
         //the same, with the same hook
         template <class InputType>
@@ -607,53 +654,6 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
         ) 
             ->  typename R::template Source<basic::TypedDataWithTopic<InputType>>
         {
-            class AddSubscriptionCreator {
-            private:
-                std::unordered_set<std::string> seenLocators_;
-                std::mutex mutex_;
-                std::regex serverNameRE_;
-                std::string lookupName_;
-                std::string topic_;
-            public:
-                AddSubscriptionCreator(std::regex const &serverNameRE, std::string const &lookupName, std::string const &topic) : seenLocators_(), mutex_(), serverNameRE_(serverNameRE), lookupName_(lookupName), topic_(topic) {}
-                AddSubscriptionCreator(AddSubscriptionCreator &&c)
-                    : seenLocators_(std::move(c.seenLocators_)), mutex_(), serverNameRE_(std::move(c.serverNameRE_)), lookupName_(std::move(c.lookupName_)), topic_(std::move(c.topic_)) {}
-            private:
-                std::vector<MultiTransportBroadcastListenerInput> handleHeartbeat(HeartbeatMessage const &msg) {
-                    std::vector<MultiTransportBroadcastListenerInput> ret;
-                    if (!std::regex_match(msg.senderDescription(), serverNameRE_)) {
-                        return ret;
-                    }
-                    std::lock_guard<std::mutex> _(mutex_);
-                    auto iter = msg.broadcastChannels().find(lookupName_);
-                    if (iter != msg.broadcastChannels().end() && !iter->second.empty()) {
-                        for (auto const &c : iter->second) {
-                            if (seenLocators_.find(c) == seenLocators_.end()) {
-                                seenLocators_.insert(c);
-                                auto parsed = parseMultiTransportBroadcastChannel(c);
-                                if (parsed) {
-                                    ret.push_back(MultiTransportBroadcastListenerInput {
-                                        MultiTransportBroadcastListenerAddSubscription {
-                                            std::get<0>(*parsed)
-                                            , std::get<1>(*parsed)
-                                            , topic_
-                                        }
-                                    });
-                                }
-                            }
-                        }
-                    }
-                    return ret;
-                }
-            public:
-                std::vector<MultiTransportBroadcastListenerInput> operator()(HeartbeatMessage &&msg) {
-                    return handleHeartbeat(msg);
-                }
-                std::vector<MultiTransportBroadcastListenerInput> operator()(std::shared_ptr<HeartbeatMessage const> &&msg) {
-                    return handleHeartbeat(*msg);
-                }
-            };
-
             auto keyify = M::template kleisli<MultiTransportBroadcastListenerInput>(
                 basic::CommonFlowUtilComponents<M>::template keyify<MultiTransportBroadcastListenerInput>()
             );
