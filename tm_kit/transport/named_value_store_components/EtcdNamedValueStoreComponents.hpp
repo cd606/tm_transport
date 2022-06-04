@@ -232,7 +232,9 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             virtual ~DSComponent() {
                 if (running_) {
                     running_ = false;
-                    watchThread_.join();
+                    try {
+                        watchThread_.join();
+                    } catch (...) {}
                 }
             }
             void initialize(Callback *cb) {
