@@ -51,7 +51,14 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 cb_ = cb;
                 std::vector<typename DI::OneUpdateItem> updates;
                 soci::rowset<soci::row> res = 
-                    session_->prepare << ("SELECT "+KF::commaSeparatedFieldNames()+", "+DF::commaSeparatedFieldNames()+" FROM "+tableName_+(whereClause_?(" WHERE "+*whereClause_):std::string{}));
+                    session_->prepare << 
+                        (
+                            (whereClause_ && boost::starts_with(boost::to_upper_copy(boost::trim_copy(*whereClause_)), "SELECT "))
+                            ?
+                            *whereClause_
+                            :
+                            ("SELECT "+KF::commaSeparatedFieldNames()+", "+DF::commaSeparatedFieldNames()+" FROM "+tableName_+(whereClause_?(" WHERE "+*whereClause_):std::string{}))
+                        );
                 for (auto const &r : res) {
                     updates.push_back({
                         typename DI::OneFullUpdateItem {
