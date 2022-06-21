@@ -14,6 +14,7 @@
 #include <boost/asio/strand.hpp>
 #include <boost/asio/socket_base.hpp>
 #include <boost/asio/ip/tcp.hpp>
+#include <boost/asio/system_timer.hpp>
 #include <boost/config.hpp>
 #include <boost/algorithm/string.hpp>
 
@@ -75,7 +76,6 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             boost::beast::flat_buffer buffer_; 
             boost::beast::http::request<boost::beast::http::string_body> req_;
             boost::beast::http::response<boost::beast::http::string_body> res_;
-            std::atomic<bool> ready_;
         public:
             OneClient(
                 JsonRESTComponentImpl *parent
@@ -112,7 +112,6 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 , buffer_()
                 , req_()
                 , res_()
-                , ready_(false)
             {
                 if (sslInfo) {
                     std::string caCert;
@@ -387,9 +386,464 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 return initializationFailure_;
             }
         };
+        class OneKeepAliveClient : public std::enable_shared_from_this<OneKeepAliveClient> {
+        public:
+            struct OneRequest {
+                std::string urlQueryPart;
+                std::string request;
+                std::function<void(unsigned, std::string &&, std::unordered_map<std::string,std::string> &&)> callback;
+                std::optional<std::string> method;
+                std::string contentType;
+            };
+        private:
+            JsonRESTComponentImpl *parent_;
+            ConnectionLocator locator_;
+            int port_;
+            std::mutex requestsMutex_;
+            std::deque<std::unique_ptr<OneRequest>> requests_;
+
+            struct HTTPRequest {
+                boost::beast::http::request<boost::beast::http::string_body> httpReq;
+                boost::beast::flat_buffer buffer; 
+                boost::beast::http::response<boost::beast::http::string_body> res;
+                std::function<void(unsigned, std::string &&, std::unordered_map<std::string,std::string> &&)> callback;
+            };
+            std::deque<std::unique_ptr<HTTPRequest>> processingQueue_;
+
+            boost::asio::io_context *svc_;
+            std::optional<TLSClientInfo> sslInfo_;
+            std::optional<boost::asio::ssl::context> sslCtx_;
+            basic::LoggingComponentBase *logger_;
+            bool initializationFailure_;
+
+            boost::asio::ip::tcp::resolver resolver_;
+            using StreamVariant = std::variant<
+                std::monostate 
+                , boost::beast::tcp_stream
+                , boost::beast::ssl_stream<boost::beast::tcp_stream>
+            >;
+            std::unique_ptr<StreamVariant> stream_;
+
+            std::atomic<bool> running_;
+            std::mutex writeMutex_;
+
+            void buildRequest(
+                boost::beast::http::request<boost::beast::http::string_body> &req
+                , OneRequest &&input
+            ) {
+                req.method(boost::beast::http::verb::post);
+                if (input.method) {
+                    req.method(boost::beast::http::string_to_verb(*(input.method)));
+                } else {
+                    bool useGet = (input.urlQueryPart.length() > 0 && input.request.length() == 0);
+                    req.method(
+                        useGet
+                        ?
+                        boost::beast::http::verb::get
+                        :
+                        boost::beast::http::verb::post
+                    );
+                }
+                std::string target = locator_.identifier();
+                if (!boost::starts_with(target, "/")) {
+                    target = "/"+target;
+                }
+                if (input.urlQueryPart.length() > 0) {
+                    target = target+"?"+input.urlQueryPart;
+                }
+                req.target(target);
+                req.set(boost::beast::http::field::host, locator_.host());
+                req.set(boost::beast::http::field::user_agent, BOOST_BEAST_VERSION_STRING);
+                locator_.for_all_properties([this,&req](std::string const &key, std::string const &value) {
+                    if (boost::starts_with(key, "header/")) {
+                        req.set(key.substr(std::string_view("header/").length()), value);
+                    } else if (boost::starts_with(key, "http_header/")) {
+                        req.set(key.substr(std::string_view("http_header/").length()), value);
+                    }
+                });
+                auto tokenStr = locator_.query("auth_token", "");
+                if (tokenStr != "") {
+                    req.set(boost::beast::http::field::authorization, "Bearer "+tokenStr);
+                } else if (locator_.userName() != "") {
+                    std::string authStringOrig = locator_.userName()+":"+locator_.password();
+                    std::string authString;
+                    authString.resize(boost::beast::detail::base64::encoded_size(authStringOrig.length()));
+                    authString.resize(boost::beast::detail::base64::encode(authString.data(), reinterpret_cast<uint8_t const *>(authStringOrig.data()), authStringOrig.length()));
+
+                    req.set(boost::beast::http::field::authorization, "Basic "+authString);
+                }
+                req.set(boost::beast::http::field::content_type, input.contentType);
+                req.body() = std::move(input.request);
+                req.keep_alive(true);
+                req.prepare_payload();
+            }
+        public:
+            OneKeepAliveClient(
+                JsonRESTComponentImpl *parent
+                , ConnectionLocator const &locator
+                , int port
+                , boost::asio::io_context *svc
+                , std::optional<TLSClientInfo> const &sslInfo
+                , basic::LoggingComponentBase *logger
+                , std::unique_ptr<OneRequest> &&initialRequest
+            )
+                : parent_(parent)
+                , locator_(locator)
+                , port_(port)
+                , requestsMutex_()
+                , requests_()
+                , processingQueue_()
+                , svc_(svc)
+                , sslInfo_(sslInfo)
+                , sslCtx_(
+                    sslInfo
+                    ? std::optional<boost::asio::ssl::context>(boost::asio::ssl::context {boost::asio::ssl::context::tlsv12_client})
+                    : std::nullopt
+                )
+                , logger_(logger)
+                , initializationFailure_(false)
+                , resolver_(boost::asio::make_strand(*svc_))
+                , stream_()
+                , running_(true)
+                , writeMutex_()
+            {
+                {
+                    std::lock_guard<std::mutex> _(requestsMutex_);
+                    requests_.push_back(std::move(initialRequest));
+                }
+                if (sslInfo) {
+                    std::string caCert;
+                    if (sslInfo->caCertificateFile != "") {
+                        std::ifstream ifs(sslInfo->caCertificateFile.c_str());
+                        caCert = std::string(
+                            std::istreambuf_iterator<char>{ifs}, {}
+                        );
+                        ifs.close();
+                        boost::system::error_code ec;
+                        sslCtx_->add_certificate_authority(
+                            boost::asio::buffer(caCert.data(), caCert.length())
+                            , ec
+                        );
+                        if (ec) {
+                            if (logger_) {
+                                logger_->logThroughLoggingComponentBase(
+                                    infra::LogLevel::Error
+                                    , "[JsonRESTComponent::OneKeepAliveClient::(constructor)] ASIO error '"+ec.message()+"' for locator '"+locator_.toSerializationFormat()+"'"
+                                );
+                            }
+                            initializationFailure_ = true;
+                            return;
+                        }
+                    } else {
+                        boost_certify_adaptor::initializeSslCtx(*sslCtx_);
+                    }
+                    
+                    stream_ = std::make_unique<StreamVariant>(
+                        std::in_place_index<2>, boost::asio::make_strand(*svc_), *sslCtx_
+                    );
+                } else {
+                    stream_ = std::make_unique<StreamVariant>(
+                        std::in_place_index<1>, boost::asio::make_strand(*svc_)
+                    );
+                }
+            }
+            ~OneKeepAliveClient() {
+                running_ = false;
+                if (stream_->index() == 1) {
+                    try {
+                        std::get<1>(*stream_).socket().shutdown(
+                            boost::asio::ip::tcp::socket::shutdown_both
+                        );
+                    } catch (...) {
+                    }
+                } else {
+                    try {
+                        std::get<2>(*stream_).shutdown();
+                    } catch (...) {
+                    }
+                }
+            }
+            void run() {
+                if (stream_->index() == 2) {
+                    if (!boost_certify_adaptor::setHostName(std::get<2>(*stream_), locator_.host())) {
+                        if (logger_) {
+                            logger_->logThroughLoggingComponentBase(
+                                infra::LogLevel::Error
+                                , "[JsonRESTComponent::OneKeepAliveClient::run] set_server_hostname error for locator '"+locator_.toSerializationFormat()+"'"
+                            );
+                        }
+                        parent_->removeKeepAliveJsonRESTClient(shared_from_this());
+                        return;
+                    }
+                    if(!SSL_set_tlsext_host_name(std::get<2>(*stream_).native_handle(), locator_.host().data())) {
+                        if (logger_) {
+                            logger_->logThroughLoggingComponentBase(
+                                infra::LogLevel::Error
+                                , "[JsonRESTComponent::OneKeepAliveClient::run] SSL set tlsext host name error for locator '"+locator_.toSerializationFormat()+"'"
+                            );
+                        }
+                        parent_->removeKeepAliveJsonRESTClient(shared_from_this());
+                        return;
+                    }
+                }
+
+                resolver_.async_resolve(
+                    locator_.host()
+                    , std::to_string(port_)
+                    , boost::beast::bind_front_handler(
+                        &OneKeepAliveClient::onResolve
+                        , shared_from_this()
+                    )
+                );
+            }
+            void onResolve(boost::beast::error_code ec, boost::asio::ip::tcp::resolver::results_type results) {
+                if (ec) {
+                    if (logger_) {
+                        logger_->logThroughLoggingComponentBase(
+                            infra::LogLevel::Error
+                            , "[JsonRESTComponent::OneKeepAliveClient::onResolve] ASIO error '"+ec.message()+"' for locator '"+locator_.toSerializationFormat()+"'"
+                        );
+                    }
+                    parent_->removeKeepAliveJsonRESTClient(shared_from_this());
+                    return;
+                }
+                if (stream_->index() == 1) {
+                    std::get<1>(*stream_).expires_after(std::chrono::seconds(30));
+                    std::get<1>(*stream_).async_connect(
+                        results 
+                        , boost::beast::bind_front_handler(
+                            &OneKeepAliveClient::onConnect 
+                            , shared_from_this()
+                        )
+                    );
+                } else {
+                    boost::beast::get_lowest_layer(std::get<2>(*stream_)).expires_after(std::chrono::seconds(30));
+                    boost::beast::get_lowest_layer(std::get<2>(*stream_)).async_connect(
+                        results
+                        , boost::beast::bind_front_handler(
+                            &OneKeepAliveClient::onConnect
+                            , shared_from_this()
+                        )
+                    );
+                }
+            }
+            void onConnect(boost::beast::error_code ec, boost::asio::ip::tcp::resolver::results_type::endpoint_type) {
+                if (ec) {
+                    if (logger_) {
+                        logger_->logThroughLoggingComponentBase(
+                            infra::LogLevel::Error
+                            , "[JsonRESTComponent::OneKeepAliveClient::onConnect] ASIO error '"+ec.message()+"' for locator '"+locator_.toSerializationFormat()+"'"
+                        );
+                    }
+                    parent_->removeKeepAliveJsonRESTClient(shared_from_this());
+                    return;
+                }
+                if (stream_->index() == 1) {
+                    std::lock_guard<std::mutex> _(requestsMutex_);
+                    while (!requests_.empty()) {
+                        processingQueue_.push_back(std::make_unique<HTTPRequest>());
+                        processingQueue_.back()->callback = requests_.front()->callback;
+                        buildRequest(processingQueue_.back()->httpReq, std::move(*requests_.front()));
+                        requests_.pop_front();
+                    }
+                    if (!processingQueue_.empty()) {
+                        {
+                            std::lock_guard<std::mutex> _(writeMutex_);
+                            std::get<1>(*stream_).expires_after(std::chrono::seconds(30));
+                            boost::beast::http::write(
+                                std::get<1>(*stream_)
+                                , processingQueue_.front()->httpReq
+                            );
+                        }
+                        boost::beast::http::async_read(
+                            std::get<1>(*stream_)
+                            , processingQueue_.front()->buffer
+                            , processingQueue_.front()->res
+                            , boost::beast::bind_front_handler(
+                                &OneKeepAliveClient::onRead
+                                , shared_from_this()
+                            )
+                        );
+                    }
+                } else {
+                    std::get<2>(*stream_).async_handshake(
+                        boost::asio::ssl::stream_base::client
+                        , boost::beast::bind_front_handler(
+                            &OneKeepAliveClient::onSSLHandshake
+                            , shared_from_this()
+                        )
+                    );
+                }
+            }
+            void onSSLHandshake(boost::beast::error_code ec) {
+                if (ec) {
+                    if (logger_) {
+                        logger_->logThroughLoggingComponentBase(
+                            infra::LogLevel::Error
+                            , "[JsonRESTComponent::OneKeepAliveClient::onSSLHandshake] ASIO error '"+ec.message()+"' for locator '"+locator_.toSerializationFormat()+"'"
+                        );
+                    }
+                    parent_->removeKeepAliveJsonRESTClient(shared_from_this());
+                    return;
+                }
+                {
+                    std::lock_guard<std::mutex> _(requestsMutex_);
+                    while (!requests_.empty()) {
+                        processingQueue_.push_back(std::make_unique<HTTPRequest>());
+                        processingQueue_.back()->callback = requests_.front()->callback;
+                        buildRequest(processingQueue_.back()->httpReq, std::move(*requests_.front()));
+                        requests_.pop_front();
+                    }
+                    if (!processingQueue_.empty()) {
+                        {
+                            std::lock_guard<std::mutex> _(writeMutex_);
+                            boost::beast::get_lowest_layer(std::get<2>(*stream_)).expires_after(std::chrono::seconds(30));
+                            boost::beast::http::write(
+                                std::get<2>(*stream_)
+                                , processingQueue_.front()->httpReq
+                            );
+                        }
+                        boost::beast::http::async_read(
+                            std::get<2>(*stream_)
+                            , processingQueue_.front()->buffer
+                            , processingQueue_.front()->res
+                            , boost::beast::bind_front_handler(
+                                &OneKeepAliveClient::onRead
+                                , shared_from_this()
+                            )
+                        );
+                    }
+                }
+            }
+            void onRead(boost::beast::error_code ec, std::size_t bytes_transferred) {
+                boost::ignore_unused(bytes_transferred);
+                if (ec) {
+                    if (logger_) {
+                        logger_->logThroughLoggingComponentBase(
+                            infra::LogLevel::Error
+                            , "[JsonRESTComponent::OneKeepAliveClient::onRead] ASIO error '"+ec.message()+"' for locator '"+locator_.toSerializationFormat()+"'"
+                        );
+                    }
+                    if (stream_->index() == 1) {
+                        try {
+                            std::get<1>(*stream_).socket().shutdown(
+                                boost::asio::ip::tcp::socket::shutdown_both
+                            );
+                        } catch (...) {
+                        }
+                        onShutdown(ec);
+                    } else {
+                        try {
+                            boost::beast::get_lowest_layer(std::get<2>(*stream_)).socket().shutdown(
+                                boost::asio::ip::tcp::socket::shutdown_both
+                            );
+                        } catch (...) {
+                        }
+                        onShutdown(ec);
+                    }
+                    return;
+                }
+                {
+                    std::lock_guard<std::mutex> _(requestsMutex_);
+                    if (!processingQueue_.empty()) {
+                        std::unordered_map<std::string,std::string> headerFields;
+                        for (auto &h : processingQueue_.front()->res.base()) {
+                            headerFields.insert(std::make_pair(h.name_string(), h.value()));
+                        }
+                        processingQueue_.front()->callback(
+                            static_cast<unsigned>(processingQueue_.front()->res.result()), std::move(processingQueue_.front()->res.body()), std::move(headerFields)
+                        );
+                        processingQueue_.pop_front();
+                    }
+                }
+                auto timer = std::make_shared<boost::asio::system_timer>(*svc_, std::chrono::system_clock::now()+std::chrono::milliseconds(1));
+                timer->async_wait([this](boost::system::error_code const &) {
+                    checkAndSend();
+                });
+            }
+            void checkAndSend() {
+                std::lock_guard<std::mutex> _(requestsMutex_);
+                while (!requests_.empty()) {
+                    processingQueue_.push_back(std::make_unique<HTTPRequest>());
+                    processingQueue_.back()->callback = requests_.front()->callback;
+                    buildRequest(processingQueue_.back()->httpReq, std::move(*requests_.front()));
+                    requests_.pop_front();
+                }
+                if (!processingQueue_.empty()) {
+                    std::lock_guard<std::mutex> _(writeMutex_);
+                    if (stream_->index() == 1) {
+                        boost::beast::get_lowest_layer(std::get<1>(*stream_)).expires_after(std::chrono::seconds(30));
+                        boost::beast::http::write(
+                            std::get<1>(*stream_)
+                            , processingQueue_.front()->httpReq
+                        );
+                        boost::beast::http::async_read(
+                            std::get<1>(*stream_)
+                            , processingQueue_.front()->buffer
+                            , processingQueue_.front()->res
+                            , boost::beast::bind_front_handler(
+                                &OneKeepAliveClient::onRead
+                                , shared_from_this()
+                            )
+                        );
+                    } else {
+                        boost::beast::get_lowest_layer(std::get<2>(*stream_)).expires_after(std::chrono::seconds(30));
+                        boost::beast::http::write(
+                            std::get<2>(*stream_)
+                            , processingQueue_.front()->httpReq
+                        );
+                        boost::beast::http::async_read(
+                            std::get<2>(*stream_)
+                            , processingQueue_.front()->buffer
+                            , processingQueue_.front()->res
+                            , boost::beast::bind_front_handler(
+                                &OneKeepAliveClient::onRead
+                                , shared_from_this()
+                            )
+                        );
+                    }
+                } else {
+                    auto timer = std::make_shared<boost::asio::system_timer>(*svc_, std::chrono::system_clock::now()+std::chrono::milliseconds(1));
+                    timer->async_wait([this](boost::system::error_code const &) {
+                        checkAndSend();
+                    });
+                }
+            }
+            void onShutdown(boost::beast::error_code ec) {
+                if (running_) {
+                    logger_->logThroughLoggingComponentBase(
+                        infra::LogLevel::Info
+                        , "[JsonRESTComponent::OneKeepAliveClient::onShutdown] Restarting for locator '"+locator_.toSerializationFormat()+"'"
+                    );
+                    if (sslCtx_) {
+                        stream_ = std::make_unique<StreamVariant>(
+                            std::in_place_index<2>, boost::asio::make_strand(*svc_), *sslCtx_
+                        );
+                    } else {
+                        stream_ = std::make_unique<StreamVariant>(
+                            std::in_place_index<1>, boost::asio::make_strand(*svc_)
+                        );
+                    }
+                    run();
+                }
+            }
+            bool initializationFailure() const {
+                return initializationFailure_;
+            }
+            ConnectionLocator const &locator() const {
+                return locator_;
+            }
+            void addRequest(OneRequest &&req) {
+                std::lock_guard<std::mutex> _(requestsMutex_);
+                requests_.push_back(std::make_unique<OneRequest>(std::move(req)));
+            }
+        };
+        
         std::unordered_set<std::shared_ptr<OneClient>> clientSet_;
+        std::unordered_map<ConnectionLocator, std::shared_ptr<OneKeepAliveClient>> keepAliveClientMap_;
         std::mutex clientSetMutex_;
-        boost::asio::io_context clientSvc_;
+        std::mutex keepAliveClientMapMutex_;
+        boost::asio::io_context *clientSvc_;
         std::thread clientThread_;
 
         class Acceptor : public std::enable_shared_from_this<Acceptor> {
@@ -1171,16 +1625,16 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         std::mutex tokenThreadMutex_;
         
     public:
-        JsonRESTComponentImpl() : handlerMap_(), handlerMapMutex_(), docRootMap_(), docRootMapMutex_(), started_(false), clientSet_(), clientSetMutex_(), clientSvc_(), clientThread_(), acceptorMap_(), acceptorMapMutex_(), allPasswords_(), tokenPasswords_(), allPasswordsMutex_(), tokenThreads_(), tokenThreadMutex_() {
+        JsonRESTComponentImpl() : handlerMap_(), handlerMapMutex_(), docRootMap_(), docRootMapMutex_(), started_(false), clientSet_(), clientSetMutex_(), keepAliveClientMap_(), keepAliveClientMapMutex_(), clientSvc_(new boost::asio::io_context), clientThread_(), acceptorMap_(), acceptorMapMutex_(), allPasswords_(), tokenPasswords_(), allPasswordsMutex_(), tokenThreads_(), tokenThreadMutex_() {
             clientThread_ = std::thread([this]() {
-                boost::asio::io_context::work work(clientSvc_);
-                clientSvc_.run();
+                boost::asio::io_context::work work(*clientSvc_);
+                clientSvc_->run();
             });
             clientThread_.detach();
         }
         ~JsonRESTComponentImpl() {
             try {
-                clientSvc_.stop();
+                clientSvc_->stop();
                 clientThread_.join();
             } catch (...) {}
         }
@@ -1199,32 +1653,72 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                     port = 80;
                 }
             }
-            auto client = std::make_shared<OneClient>(
-                this
-                , locator
-                , port
-                , std::move(urlQueryPart)
-                , std::move(request)
-                , clientCallback 
-                , contentType
-                , method
-                , &clientSvc_
-                , (config?config->getConfigurationItem(
-                    TLSClientInfoKey {locator.host(), port}
-                ):std::nullopt)
-                , logger
-            );
-            if (!client->initializationFailure()) {
-                {
-                    std::lock_guard<std::mutex> _(clientSetMutex_);
-                    clientSet_.insert(client);
+            if (locator.query("use_keep_alive_client", "false") == "true") {
+                std::lock_guard<std::mutex> _(keepAliveClientMapMutex_);
+                auto iter = keepAliveClientMap_.find(locator);
+                if (iter == keepAliveClientMap_.end()) {
+                    auto client = std::make_shared<OneKeepAliveClient>(
+                        this
+                        , locator
+                        , port
+                        , clientSvc_
+                        , (config?config->getConfigurationItem(
+                            TLSClientInfoKey {locator.host(), port}
+                        ):std::nullopt)
+                        , logger
+                        , std::make_unique<OneKeepAliveClient::OneRequest>(OneKeepAliveClient::OneRequest {
+                            std::move(urlQueryPart)
+                            , std::move(request)
+                            , clientCallback 
+                            , method
+                            , contentType
+                        })
+                    );
+                    if (!client->initializationFailure()) {
+                        keepAliveClientMap_.insert({client->locator(), client});
+                        client->run();
+                    }
+                } else {
+                    iter->second->addRequest(OneKeepAliveClient::OneRequest {
+                        std::move(urlQueryPart)
+                        , std::move(request)
+                        , clientCallback 
+                        , method
+                        , contentType
+                    });
                 }
-                client->run();
+            } else {
+                auto client = std::make_shared<OneClient>(
+                    this
+                    , locator
+                    , port
+                    , std::move(urlQueryPart)
+                    , std::move(request)
+                    , clientCallback 
+                    , contentType
+                    , method
+                    , clientSvc_
+                    , (config?config->getConfigurationItem(
+                        TLSClientInfoKey {locator.host(), port}
+                    ):std::nullopt)
+                    , logger
+                );
+                if (!client->initializationFailure()) {
+                    {
+                        std::lock_guard<std::mutex> _(clientSetMutex_);
+                        clientSet_.insert(client);
+                    }
+                    client->run();
+                }
             }
         }
         void removeJsonRESTClient(std::shared_ptr<OneClient> const &p) {
             std::lock_guard<std::mutex> _(clientSetMutex_);
             clientSet_.erase(p);
+        }
+        void removeKeepAliveJsonRESTClient(std::shared_ptr<OneKeepAliveClient> const &p) {
+            std::lock_guard<std::mutex> _(keepAliveClientMapMutex_);
+            keepAliveClientMap_.erase(p->locator());
         }
         void registerHandler(ConnectionLocator const &locator, HandlerFunc const &handler, TLSServerConfigurationComponent const *tlsConfig, basic::LoggingComponentBase *logger) {
             int port = locator.port();
