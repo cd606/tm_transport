@@ -15,6 +15,21 @@
 namespace dev { namespace cd606 { namespace tm { namespace transport { namespace redis {
     class RedisComponentImpl {
     private:
+        static void auth(ConnectionLocator const &locator, redisContext *ctx) {
+            if (locator.password() == "") {
+                return;
+            }
+            redisReply *r = nullptr;
+            if (locator.userName() != "") {
+                r = (redisReply *) redisCommand(ctx, "AUTH %s %s", locator.userName().c_str(), locator.password().c_str());
+            } else {
+                r = (redisReply *) redisCommand(ctx, "AUTH %s", locator.password().c_str());
+            }
+            if (!r || r->type == REDIS_REPLY_ERROR) {
+                throw std::runtime_error("Failure to authenticate with Redis server for "+locator.toSerializationFormat());
+            }
+            freeReplyObject((void *) r);
+        }
         class OneRedisSubscription {
         private:
             ConnectionLocator locator_;
@@ -109,6 +124,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             {
                 ctx_ = redisConnect(locator.host().c_str(), locator.port());
                 if (ctx_ != nullptr) {
+                    RedisComponentImpl::auth(locator, ctx_);
                     redisReply *r = (redisReply *) redisCommand(ctx_, "PSUBSCRIBE %s", topic.c_str());
                     freeReplyObject((void *) r);
                     th_ = std::thread(&OneRedisSubscription::run, this);
@@ -192,6 +208,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 : ctx_(nullptr), mutex_()
             {
                 ctx_ = redisConnect(locator.host().c_str(), locator.port());
+                RedisComponentImpl::auth(locator, ctx_);
             }
             ~OneRedisSender() {
                 if (ctx_ && !ctx_->err) {
@@ -331,6 +348,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             {
                 ctx_ = redisConnect(locator.host().c_str(), locator.port());
                 if (ctx_ != nullptr) {
+                    RedisComponentImpl::auth(locator, ctx_);
                     redisReply *r = (redisReply *) redisCommand(ctx_, "SUBSCRIBE %s", myCommunicationID_.c_str());
                     freeReplyObject((void *) r);
                     th_ = std::thread(&OneRedisRPCClientConnection::run, this);
@@ -497,6 +515,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             {
                 ctx_ = redisConnect(locator.host().c_str(), locator.port());
                 if (ctx_ != nullptr) {
+                    RedisComponentImpl::auth(locator, ctx_);
                     redisReply *r = (redisReply *) redisCommand(ctx_, "SUBSCRIBE %s", rpcTopic_.c_str());
                     freeReplyObject((void *) r);
                     th_ = std::thread(&OneRedisRPCServerConnection::run, this);
@@ -554,7 +573,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             }
             auto innerIter = subscriptionIter->second.find(topic);
             if (innerIter == subscriptionIter->second.end()) {
-                innerIter = subscriptionIter->second.insert({topic, std::make_unique<OneRedisSubscription>(hostAndPort, topic)}).first;
+                innerIter = subscriptionIter->second.insert({topic, std::make_unique<OneRedisSubscription>(d, topic)}).first;
             }
             return innerIter->second.get();
         }
@@ -565,7 +584,8 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 //std::cerr << p << ": is being stopped\n";
                 p->unsubscribe();
                 //std::cerr << p << " is being removed from subscriptionn map '" << p->locator().toPrintFormat() << "'\n";
-                subscriptions_.erase(p->locator());
+                ConnectionLocator hostAndPort {p->locator().host(), p->locator().port()};
+                subscriptions_.erase(hostAndPort);
                 //std::cerr << subscriptions_.size() << '\n';
             }
         }
@@ -577,7 +597,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             ConnectionLocator hostAndPort {d.host(), d.port()};
             auto senderIter = senders_.find(hostAndPort);
             if (senderIter == senders_.end()) {
-                senderIter = senders_.insert({hostAndPort, std::make_unique<OneRedisSender>(hostAndPort)}).first;
+                senderIter = senders_.insert({hostAndPort, std::make_unique<OneRedisSender>(d)}).first;
             }
             return senderIter->second.get();
         }
