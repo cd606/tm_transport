@@ -757,7 +757,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                     }
                 }
                 auto timer = std::make_shared<boost::asio::system_timer>(*svc_, std::chrono::system_clock::now()+std::chrono::milliseconds(1));
-                timer->async_wait([this](boost::system::error_code const &) {
+                timer->async_wait([this,timer](boost::system::error_code const &) {
                     checkAndSend();
                 });
             }
@@ -804,7 +804,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                     }
                 } else {
                     auto timer = std::make_shared<boost::asio::system_timer>(*svc_, std::chrono::system_clock::now()+std::chrono::milliseconds(1));
-                    timer->async_wait([this](boost::system::error_code const &) {
+                    timer->async_wait([this,timer](boost::system::error_code const &) {
                         checkAndSend();
                     });
                 }
