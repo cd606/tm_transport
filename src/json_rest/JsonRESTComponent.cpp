@@ -389,6 +389,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         class OneKeepAliveClient : public std::enable_shared_from_this<OneKeepAliveClient> {
         public:
             struct OneRequest {
+                ConnectionLocator reqLocator;
                 std::string urlQueryPart;
                 std::string request;
                 std::function<void(unsigned, std::string &&, std::unordered_map<std::string,std::string> &&)> callback;
@@ -397,7 +398,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             };
         private:
             JsonRESTComponentImpl *parent_;
-            ConnectionLocator locator_;
+            std::string host_;
             int port_;
             std::mutex requestsMutex_;
             std::deque<std::unique_ptr<OneRequest>> requests_;
@@ -444,7 +445,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                         boost::beast::http::verb::post
                     );
                 }
-                std::string target = locator_.identifier();
+                std::string target = input.reqLocator.identifier();
                 if (!boost::starts_with(target, "/")) {
                     target = "/"+target;
                 }
@@ -452,20 +453,20 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                     target = target+"?"+input.urlQueryPart;
                 }
                 req.target(target);
-                req.set(boost::beast::http::field::host, locator_.host());
+                req.set(boost::beast::http::field::host, host_);
                 req.set(boost::beast::http::field::user_agent, BOOST_BEAST_VERSION_STRING);
-                locator_.for_all_properties([this,&req](std::string const &key, std::string const &value) {
+                input.reqLocator.for_all_properties([this,&req](std::string const &key, std::string const &value) {
                     if (boost::starts_with(key, "header/")) {
                         req.set(key.substr(std::string_view("header/").length()), value);
                     } else if (boost::starts_with(key, "http_header/")) {
                         req.set(key.substr(std::string_view("http_header/").length()), value);
                     }
                 });
-                auto tokenStr = locator_.query("auth_token", "");
+                auto tokenStr = input.reqLocator.query("auth_token", "");
                 if (tokenStr != "") {
                     req.set(boost::beast::http::field::authorization, "Bearer "+tokenStr);
-                } else if (locator_.userName() != "") {
-                    std::string authStringOrig = locator_.userName()+":"+locator_.password();
+                } else if (input.reqLocator.userName() != "") {
+                    std::string authStringOrig = input.reqLocator.userName()+":"+input.reqLocator.password();
                     std::string authString;
                     authString.resize(boost::beast::detail::base64::encoded_size(authStringOrig.length()));
                     authString.resize(boost::beast::detail::base64::encode(authString.data(), reinterpret_cast<uint8_t const *>(authStringOrig.data()), authStringOrig.length()));
@@ -480,7 +481,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         public:
             OneKeepAliveClient(
                 JsonRESTComponentImpl *parent
-                , ConnectionLocator const &locator
+                , std::string const &host
                 , int port
                 , boost::asio::io_context *svc
                 , std::optional<TLSClientInfo> const &sslInfo
@@ -488,7 +489,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 , std::unique_ptr<OneRequest> &&initialRequest
             )
                 : parent_(parent)
-                , locator_(locator)
+                , host_(host)
                 , port_(port)
                 , requestsMutex_()
                 , requests_()
@@ -528,7 +529,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                             if (logger_) {
                                 logger_->logThroughLoggingComponentBase(
                                     infra::LogLevel::Error
-                                    , "[JsonRESTComponent::OneKeepAliveClient::(constructor)] ASIO error '"+ec.message()+"' for locator '"+locator_.toSerializationFormat()+"'"
+                                    , "[JsonRESTComponent::OneKeepAliveClient::(constructor)] ASIO error '"+ec.message()+"' for locator '"+locator().toSerializationFormat()+"'"
                                 );
                             }
                             initializationFailure_ = true;
@@ -565,21 +566,21 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             }
             void run() {
                 if (stream_->index() == 2) {
-                    if (!boost_certify_adaptor::setHostName(std::get<2>(*stream_), locator_.host())) {
+                    if (!boost_certify_adaptor::setHostName(std::get<2>(*stream_), host_)) {
                         if (logger_) {
                             logger_->logThroughLoggingComponentBase(
                                 infra::LogLevel::Error
-                                , "[JsonRESTComponent::OneKeepAliveClient::run] set_server_hostname error for locator '"+locator_.toSerializationFormat()+"'"
+                                , "[JsonRESTComponent::OneKeepAliveClient::run] set_server_hostname error for locator '"+locator().toSerializationFormat()+"'"
                             );
                         }
                         parent_->removeKeepAliveJsonRESTClient(shared_from_this());
                         return;
                     }
-                    if(!SSL_set_tlsext_host_name(std::get<2>(*stream_).native_handle(), locator_.host().data())) {
+                    if(!SSL_set_tlsext_host_name(std::get<2>(*stream_).native_handle(), host_.data())) {
                         if (logger_) {
                             logger_->logThroughLoggingComponentBase(
                                 infra::LogLevel::Error
-                                , "[JsonRESTComponent::OneKeepAliveClient::run] SSL set tlsext host name error for locator '"+locator_.toSerializationFormat()+"'"
+                                , "[JsonRESTComponent::OneKeepAliveClient::run] SSL set tlsext host name error for locator '"+locator().toSerializationFormat()+"'"
                             );
                         }
                         parent_->removeKeepAliveJsonRESTClient(shared_from_this());
@@ -588,7 +589,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 }
 
                 resolver_.async_resolve(
-                    locator_.host()
+                    host_
                     , std::to_string(port_)
                     , boost::beast::bind_front_handler(
                         &OneKeepAliveClient::onResolve
@@ -601,7 +602,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                     if (logger_) {
                         logger_->logThroughLoggingComponentBase(
                             infra::LogLevel::Error
-                            , "[JsonRESTComponent::OneKeepAliveClient::onResolve] ASIO error '"+ec.message()+"' for locator '"+locator_.toSerializationFormat()+"'"
+                            , "[JsonRESTComponent::OneKeepAliveClient::onResolve] ASIO error '"+ec.message()+"' for locator '"+locator().toSerializationFormat()+"'"
                         );
                     }
                     parent_->removeKeepAliveJsonRESTClient(shared_from_this());
@@ -632,7 +633,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                     if (logger_) {
                         logger_->logThroughLoggingComponentBase(
                             infra::LogLevel::Error
-                            , "[JsonRESTComponent::OneKeepAliveClient::onConnect] ASIO error '"+ec.message()+"' for locator '"+locator_.toSerializationFormat()+"'"
+                            , "[JsonRESTComponent::OneKeepAliveClient::onConnect] ASIO error '"+ec.message()+"' for locator '"+locator().toSerializationFormat()+"'"
                         );
                     }
                     parent_->removeKeepAliveJsonRESTClient(shared_from_this());
@@ -680,7 +681,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                     if (logger_) {
                         logger_->logThroughLoggingComponentBase(
                             infra::LogLevel::Error
-                            , "[JsonRESTComponent::OneKeepAliveClient::onSSLHandshake] ASIO error '"+ec.message()+"' for locator '"+locator_.toSerializationFormat()+"'"
+                            , "[JsonRESTComponent::OneKeepAliveClient::onSSLHandshake] ASIO error '"+ec.message()+"' for locator '"+locator().toSerializationFormat()+"'"
                         );
                     }
                     parent_->removeKeepAliveJsonRESTClient(shared_from_this());
@@ -721,7 +722,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                     if (logger_) {
                         logger_->logThroughLoggingComponentBase(
                             infra::LogLevel::Error
-                            , "[JsonRESTComponent::OneKeepAliveClient::onRead] ASIO error '"+ec.message()+"' for locator '"+locator_.toSerializationFormat()+"'"
+                            , "[JsonRESTComponent::OneKeepAliveClient::onRead] ASIO error '"+ec.message()+"' for locator '"+locator().toSerializationFormat()+"'"
                         );
                     }
                     if (stream_->index() == 1) {
@@ -813,7 +814,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 if (running_) {
                     logger_->logThroughLoggingComponentBase(
                         infra::LogLevel::Info
-                        , "[JsonRESTComponent::OneKeepAliveClient::onShutdown] Restarting for locator '"+locator_.toSerializationFormat()+"'"
+                        , "[JsonRESTComponent::OneKeepAliveClient::onShutdown] Restarting for locator '"+locator().toSerializationFormat()+"'"
                     );
                     if (sslCtx_) {
                         stream_ = std::make_unique<StreamVariant>(
@@ -830,8 +831,8 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             bool initializationFailure() const {
                 return initializationFailure_;
             }
-            ConnectionLocator const &locator() const {
-                return locator_;
+            ConnectionLocator locator() const {
+                return ConnectionLocator(host_, port_);
             }
             void addRequest(OneRequest &&req) {
                 std::lock_guard<std::mutex> _(requestsMutex_);
@@ -1655,11 +1656,12 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             }
             if (locator.query("use_keep_alive_client", "false") == "true") {
                 std::lock_guard<std::mutex> _(keepAliveClientMapMutex_);
-                auto iter = keepAliveClientMap_.find(locator);
+                ConnectionLocator hostAndPort {locator.host(), port};
+                auto iter = keepAliveClientMap_.find(hostAndPort);
                 if (iter == keepAliveClientMap_.end()) {
                     auto client = std::make_shared<OneKeepAliveClient>(
                         this
-                        , locator
+                        , locator.host()
                         , port
                         , clientSvc_
                         , (config?config->getConfigurationItem(
@@ -1667,7 +1669,8 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                         ):std::nullopt)
                         , logger
                         , std::make_unique<OneKeepAliveClient::OneRequest>(OneKeepAliveClient::OneRequest {
-                            std::move(urlQueryPart)
+                            locator
+                            , std::move(urlQueryPart)
                             , std::move(request)
                             , clientCallback 
                             , method
@@ -1675,12 +1678,13 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                         })
                     );
                     if (!client->initializationFailure()) {
-                        keepAliveClientMap_.insert({client->locator(), client});
+                        keepAliveClientMap_.insert({hostAndPort, client});
                         client->run();
                     }
                 } else {
                     iter->second->addRequest(OneKeepAliveClient::OneRequest {
-                        std::move(urlQueryPart)
+                        locator
+                        , std::move(urlQueryPart)
                         , std::move(request)
                         , clientCallback 
                         , method
