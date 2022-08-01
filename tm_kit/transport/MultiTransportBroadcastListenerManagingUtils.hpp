@@ -995,6 +995,41 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                     , heartbeatHook
                 ).get().content;
         }
+        static std::optional<HeartbeatMessage> fetchFirstMatchingHeartbeatWithTimeOut(
+            Env *env
+            , std::string const &heartbeatChannelSpec
+            , std::string const &heartbeatTopicDescription
+            , std::regex const &heartbeatSenderNameRE
+            , std::chrono::system_clock::duration const &timeOut
+            , std::function<bool(HeartbeatMessage const &)> furtherPredicates = {}
+            , std::optional<WireToUserHook> heartbeatHook = std::nullopt
+        ) {
+            auto f = fetchTypedFirstUpdateAndDisconnect<HeartbeatMessage>
+                (
+                    env
+                    , heartbeatChannelSpec
+                    , heartbeatTopicDescription
+                    , [heartbeatSenderNameRE,furtherPredicates](HeartbeatMessage const &m) {
+                        if (furtherPredicates) {
+                            return std::regex_match(
+                                m.senderDescription()
+                                , heartbeatSenderNameRE
+                            ) && furtherPredicates(m);
+                        } else {
+                            return std::regex_match(
+                                m.senderDescription()
+                                , heartbeatSenderNameRE
+                            );
+                        }
+                    }
+                    , heartbeatHook
+                );
+            if (f.wait_for(timeOut) == std::future_status::ready) {
+                return {std::move(f.get().content)};
+            } else {
+                return std::nullopt;
+            }
+        }
 
         static std::optional<std::string> getFacilityConnectionLocatorViaHeartbeat(
             Env *env

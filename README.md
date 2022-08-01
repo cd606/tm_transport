@@ -20,6 +20,10 @@ This package builds upon tm_infra and tm_basic, and provides the following pre-p
 
   - Direct socket connection (via boost asio library)
 
+  - JSON (via boost beast and/or curlpp)
+
+  - Websocket (via boost beast)
+
 * Shared chain implemented with
 
   - Etcd3 (via Offscale libetcd library)
@@ -61,6 +65,8 @@ The requirements of tm_transport are, in addition to requirements of tm_infra an
 * libsodium
 
 * boost_certify (https://github.com/djarek/certify) 
+
+* curlpp
 
 Most of these can be installed through vcpkg. After installing the packages through vcpkg, sometimes a hand-written pkg-config file might be needed for meson to find the package, especially on Windows.
 

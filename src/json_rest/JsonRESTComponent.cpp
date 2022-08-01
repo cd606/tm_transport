@@ -37,10 +37,20 @@
 
 #include "../BoostCertifyAdaptor.hpp"
 
+#include <curlpp/cURLpp.hpp>
+#include <curlpp/Easy.hpp>
+#include <curlpp/Options.hpp>
+#include <curlpp/Infos.hpp>
+#include <curlpp/Exception.hpp>
+
 namespace dev { namespace cd606 { namespace tm { namespace transport { namespace json_rest {
 
     class JsonRESTComponentImpl {
     private:
+        curlpp::Cleanup cleaner_;
+        curlpp::Easy curlppEasy_;
+        std::mutex curlppEasyMutex_;
+
         using HandlerFunc = std::function<
             bool(std::string const &, std::string const &, std::unordered_map<std::string, std::vector<std::string>> const &, std::function<void(std::string const &)> const &)
         >;
@@ -1626,7 +1636,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         std::mutex tokenThreadMutex_;
         
     public:
-        JsonRESTComponentImpl() : handlerMap_(), handlerMapMutex_(), docRootMap_(), docRootMapMutex_(), started_(false), clientSet_(), clientSetMutex_(), keepAliveClientMap_(), keepAliveClientMapMutex_(), clientSvc_(new boost::asio::io_context), clientThread_(), acceptorMap_(), acceptorMapMutex_(), allPasswords_(), tokenPasswords_(), allPasswordsMutex_(), tokenThreads_(), tokenThreadMutex_() {
+        JsonRESTComponentImpl() : cleaner_(), curlppEasy_(), curlppEasyMutex_(), handlerMap_(), handlerMapMutex_(), docRootMap_(), docRootMapMutex_(), started_(false), clientSet_(), clientSetMutex_(), keepAliveClientMap_(), keepAliveClientMapMutex_(), clientSvc_(new boost::asio::io_context), clientThread_(), acceptorMap_(), acceptorMapMutex_(), allPasswords_(), tokenPasswords_(), allPasswordsMutex_(), tokenThreads_(), tokenThreadMutex_() {
             clientThread_ = std::thread([this]() {
                 boost::asio::io_context::work work(*clientSvc_);
                 clientSvc_->run();
@@ -1646,6 +1656,10 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         , std::optional<std::string> const &method
         , TLSClientConfigurationComponent const *config
         , basic::LoggingComponentBase *logger) {
+            if (locator.query("use_curlpp", "false") == "true") {
+                addJsonRESTClientViaCurlpp(locator, std::move(urlQueryPart), std::move(request), clientCallback, contentType, method, config, logger);
+                return;
+            }
             int port = locator.port();
             if (port == 0) {
                 if (config) {
@@ -1714,6 +1728,104 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                     }
                     client->run();
                 }
+            }
+        }
+        void addJsonRESTClientViaCurlpp(ConnectionLocator const &locator, std::string &&urlQueryPart, std::string &&request, std::function<
+            void(unsigned, std::string &&, std::unordered_map<std::string,std::string> &&)
+        > const &clientCallback
+        , std::string const &contentType
+        , std::optional<std::string> const &method
+        , TLSClientConfigurationComponent const *config
+        , basic::LoggingComponentBase *logger) {
+            try {
+                std::lock_guard<std::mutex> _(curlppEasyMutex_);
+                curlppEasy_.reset();
+
+                std::ostringstream urlSS;
+                urlSS << (config?"https://":"http://");
+                urlSS << locator.host();
+                if (locator.port() != 0) {
+                    urlSS << ':' << locator.port();
+                }
+                if (!boost::starts_with(locator.identifier(), "/")) {
+                    urlSS << '/';
+                }
+                urlSS << locator.identifier();
+                if (urlQueryPart != "") {
+                    urlSS << '?' << urlQueryPart;
+                }
+                curlppEasy_.setOpt(new curlpp::options::Url(urlSS.str()));
+                std::string methodStr = "";
+                if (method) {
+                    methodStr = *method;
+                } else {
+                    if (urlQueryPart.length() > 0 && request.length() == 0) {
+                        methodStr = "GET";
+                    } else {
+                        methodStr = "POST";
+                    }
+                }
+                if (methodStr != "GET" && methodStr != "POST") {
+                    curlppEasy_.setOpt(new curlpp::options::CustomRequest(methodStr));
+                }
+                std::list<std::string> header;
+                header.push_back("Content-Type: "+contentType);
+                locator.for_all_properties([this,&header](std::string const &key, std::string const &value) {
+                    if (boost::starts_with(key, "header/")) {
+                        header.push_back(key.substr(std::string_view("header/").length())+": "+value);
+                    } else if (boost::starts_with(key, "http_header/")) {
+                        header.push_back(key.substr(std::string_view("http_header/").length())+": "+value);
+                    }
+                });
+
+                auto tokenStr = locator.query("auth_token", "");
+                if (tokenStr != "") {
+                    header.push_back("Authorization: Bearer "+tokenStr);
+                } else if (locator.userName() != "") {
+                    std::string authStringOrig = locator.userName()+":"+locator.password();
+                    std::string authString;
+                    authString.resize(boost::beast::detail::base64::encoded_size(authStringOrig.length()));
+                    authString.resize(boost::beast::detail::base64::encode(authString.data(), reinterpret_cast<uint8_t const *>(authStringOrig.data()), authStringOrig.length()));
+
+                    header.push_back("Authorization: Basic "+authString);
+                }
+                curlppEasy_.setOpt(new curlpp::options::HttpHeader(header));
+
+                if (methodStr == "POST") {
+                    curlppEasy_.setOpt(new curlpp::options::Post(1));
+                    curlppEasy_.setOpt(new curlpp::options::PostFields(request));
+                    curlppEasy_.setOpt(new curlpp::options::PostFieldSize(request.length()));
+                }
+
+                std::unordered_map<std::string, std::string> retHeaders;
+                curlppEasy_.setOpt(new curlpp::options::HeaderFunction(
+                    [&retHeaders] (char* buffer, size_t size, size_t items) -> size_t {
+                        std::string s(buffer, size * items); 
+                        std::vector<std::string> parts;
+                        boost::split(parts, s, boost::is_any_of(":"));
+                        if (parts.size() >= 2) {
+                            retHeaders[boost::trim_copy(parts[0])] = boost::trim_copy(parts[1]);
+                        }
+                        return size * items;
+                    }
+                ));
+
+                std::ostringstream response;
+                curlppEasy_.setOpt(new curlpp::options::WriteStream(&response));
+
+                curlppEasy_.perform();
+
+                clientCallback(
+                    curlpp::infos::ResponseCode::get(curlppEasy_)
+                    , response.str()
+                    , std::move(retHeaders)
+                );
+            } catch (curlpp::LogicError const &e) {
+                std::cerr << e.what() << '\n';
+                clientCallback(500, e.what(), {});
+            } catch (curlpp::RuntimeError const &e) {
+                std::cerr << e.what() << '\n';
+                clientCallback(500, e.what(), {});
             }
         }
         void removeJsonRESTClient(std::shared_ptr<OneClient> const &p) {

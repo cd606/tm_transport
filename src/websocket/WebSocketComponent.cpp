@@ -40,6 +40,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             bool ignoreTopic_;
             std::string handshakeHost_;
             boost::asio::io_context svc_;
+            std::optional<TLSClientInfo> sslInfo_;
             std::optional<boost::asio::ssl::context> sslCtx_;
             struct ClientCB {
                 uint32_t id;
@@ -73,6 +74,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 , protocolReactor_(protocolReactor)
                 , ignoreTopic_(locator.query("ignoreTopic","false")=="true")
                 , svc_()
+                , sslInfo_(sslInfo)
                 , sslCtx_(
                     sslInfo
                     ? std::optional<boost::asio::ssl::context>(boost::asio::ssl::context {boost::asio::ssl::context::tlsv12_client})
@@ -117,16 +119,36 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 }
             }
             ~OneSubscriber() {
-                if (stream_.index() == 1) {
-                    std::get<1>(stream_).close(boost::beast::websocket::close_code::normal);
-                } else if (stream_.index() == 2) {
-                    std::get<2>(stream_).close(boost::beast::websocket::close_code::normal);
-                }
+                try {
+                    if (stream_.index() == 1) {
+                        std::get<1>(stream_).close(boost::beast::websocket::close_code::normal);
+                    } else if (stream_.index() == 2) {
+                        std::get<2>(stream_).close(boost::beast::websocket::close_code::normal);
+                    }
+                } catch (...) {}
                 if (running_) {
                     running_ = false;
-                    svc_.stop();
-                    th_.join();
+                    try {
+                        svc_.stop();
+                        th_.join();
+                    } catch (...) {}
                 }
+            }
+            std::shared_ptr<OneSubscriber> moveToNewOne() {
+                auto p = std::make_shared<OneSubscriber>(
+                    parent_
+                    , locator_
+                    , std::move(initialData_)
+                    , protocolReactor_
+                    , sslInfo_
+                );
+                {
+                    std::lock_guard<std::mutex> _(clientsMutex_);
+                    p->noFilterClients_ = std::move(noFilterClients_);
+                    p->stringMatchClients_ = std::move(stringMatchClients_);
+                    p->regexMatchClients_ = std::move(regexMatchClients_);
+                }
+                return p;
             }
             void run() {
                 running_ = true;
@@ -1872,7 +1894,10 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         //signature forces copy
         void removeSubscriber(ConnectionLocator locator) {
             std::lock_guard<std::mutex> _(subscriberMapMutex_);
-            subscriberMap_.erase(locator);
+            auto iter = subscriberMap_.find(locator);
+            if (iter != subscriberMap_.end()) {
+                iter->second = iter->second->moveToNewOne();
+            }
         }
         void removePublisher(int port) {
             std::lock_guard<std::mutex> _(publisherMapMutex_);
