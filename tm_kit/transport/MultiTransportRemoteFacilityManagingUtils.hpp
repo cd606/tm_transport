@@ -829,16 +829,18 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                     };
                 }
             );
+            using WReq = basic::WrapFacilitioidConnectorForSerializationHelpers::WrappedType<ProtocolWrapper,Request>;
+            using WRes = basic::WrapFacilitioidConnectorForSerializationHelpers::WrappedType<ProtocolWrapper,Result>;
             auto feedResults = M::template liftPure<
                 typename M::template KeyedData<
-                    std::tuple<ConnectionLocator, basic::WrapFacilitioidConnectorForSerializationHelpers::WrappedType<ProtocolWrapper,Request>>
-                    , basic::WrapFacilitioidConnectorForSerializationHelpers::WrappedType<ProtocolWrapper,Result>
+                    std::tuple<ConnectionLocator, WReq>
+                    , WRes
                 >
             >(
                 [](typename M::template KeyedData<
-                        std::tuple<ConnectionLocator, basic::WrapFacilitioidConnectorForSerializationHelpers::WrappedType<ProtocolWrapper,Request>>
-                        , basic::WrapFacilitioidConnectorForSerializationHelpers::WrappedType<ProtocolWrapper,Result>
-                    > &&x
+                    std::tuple<ConnectionLocator, WReq>
+                    , WRes
+                > &&x
                 ) -> typename M::template KeyedData<
                     std::tuple<ConnectionLocator, Request>
                     , Result
@@ -1089,15 +1091,17 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                     , hooks, ttl, checkPeriod
                 );
             } else {
+                using WReq = basic::WrapFacilitioidConnectorForSerializationHelpers::WrappedType<ProtocolWrapper,Request>;
                 auto gen = [requestGenerator]() 
-                    -> basic::WrapFacilitioidConnectorForSerializationHelpers::WrappedType<ProtocolWrapper,Request>
+                    -> WReq
                 {
                     return basic::WrapFacilitioidConnectorForSerializationHelpers::WrapperUtils<ProtocolWrapper>
                         ::template enclose<Request>(requestGenerator());
                 };
+                using WRes = basic::WrapFacilitioidConnectorForSerializationHelpers::WrappedType<ProtocolWrapper,Result>;
                 auto checker = [resultChecker](
-                    basic::WrapFacilitioidConnectorForSerializationHelpers::WrappedType<ProtocolWrapper,Request> const &req 
-                    , basic::WrapFacilitioidConnectorForSerializationHelpers::WrappedType<ProtocolWrapper,Result> const &res
+                    WReq const &req 
+                    , WRes const &res
                 ) -> bool {
                     return resultChecker(
                         basic::WrapFacilitioidConnectorForSerializationHelpers::WrapperUtils<ProtocolWrapper>
@@ -1107,8 +1111,8 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                     );
                 };
                 auto x = setupOneDistinguishedRemoteFacility<
-                    basic::WrapFacilitioidConnectorForSerializationHelpers::WrappedType<ProtocolWrapper,Request>
-                    , basic::WrapFacilitioidConnectorForSerializationHelpers::WrappedType<ProtocolWrapper,Result>
+                    WReq
+                    , WRes
                 >(
                     r, std::move(heartbeatSource), serverNameRE
                     , facilityRegistrationName, gen, checker
@@ -1138,15 +1142,17 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                     , requestGenerator, resultChecker, hooks
                 );
             } else {
+                using WReq = basic::WrapFacilitioidConnectorForSerializationHelpers::WrappedType<ProtocolWrapper,Request>;
                 auto gen = [requestGenerator]() 
-                    -> basic::WrapFacilitioidConnectorForSerializationHelpers::WrappedType<ProtocolWrapper,Request>
+                    -> WReq
                 {
                     return basic::WrapFacilitioidConnectorForSerializationHelpers::WrapperUtils<ProtocolWrapper>
                         ::template enclose<Request>(requestGenerator());
                 };
+                using WRes = basic::WrapFacilitioidConnectorForSerializationHelpers::WrappedType<ProtocolWrapper,Result>;
                 auto checker = [resultChecker](
-                    basic::WrapFacilitioidConnectorForSerializationHelpers::WrappedType<ProtocolWrapper,Request> const &req 
-                    , basic::WrapFacilitioidConnectorForSerializationHelpers::WrappedType<ProtocolWrapper,Result> const &res
+                    WReq const &req 
+                    , WRes const &res
                 ) -> bool {
                     return resultChecker(
                         basic::WrapFacilitioidConnectorForSerializationHelpers::WrapperUtils<ProtocolWrapper>
@@ -1156,8 +1162,8 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                     );
                 };
                 auto x = setupOneDistinguishedRemoteFacility_NoHeartbeat<
-                    basic::WrapFacilitioidConnectorForSerializationHelpers::WrappedType<ProtocolWrapper,Request>
-                    , basic::WrapFacilitioidConnectorForSerializationHelpers::WrappedType<ProtocolWrapper,Result>
+                    WReq
+                    , WRes
                 >(
                     r, prefix, connectionType, connectionLocator
                     , gen, checker, hooks
@@ -1277,15 +1283,17 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                     )
                 };
             } else {
+                using WFirstReq = basic::WrapFacilitioidConnectorForSerializationHelpers::WrappedType<FirstProtocolWrapper,FirstRequest>;
                 auto gen = [firstRequestGenerator]() 
-                    -> basic::WrapFacilitioidConnectorForSerializationHelpers::WrappedType<FirstProtocolWrapper,FirstRequest>
+                    -> WFirstReq
                 {
                     return basic::WrapFacilitioidConnectorForSerializationHelpers::WrapperUtils<FirstProtocolWrapper>
                         ::template enclose<FirstRequest>(firstRequestGenerator());
                 };
+                using WFirstRes = basic::WrapFacilitioidConnectorForSerializationHelpers::WrappedType<FirstProtocolWrapper,FirstResult>;
                 auto checker = [firstResultChecker](
-                    basic::WrapFacilitioidConnectorForSerializationHelpers::WrappedType<FirstProtocolWrapper,FirstRequest> const &req 
-                    , basic::WrapFacilitioidConnectorForSerializationHelpers::WrappedType<FirstProtocolWrapper,FirstResult> const &res
+                    WFirstReq const &req 
+                    , WFirstRes const &res
                 ) -> bool {
                     return firstResultChecker(
                         basic::WrapFacilitioidConnectorForSerializationHelpers::WrapperUtils<FirstProtocolWrapper>
@@ -1294,11 +1302,13 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                             ::template extractConst<FirstResult>(res)
                     );
                 };
+                using WSecondReq = basic::WrapFacilitioidConnectorForSerializationHelpers::WrappedType<SecondProtocolWrapper, SecondRequest>;
+                using WSecondRes = basic::WrapFacilitioidConnectorForSerializationHelpers::WrappedType<SecondProtocolWrapper, SecondResult>;
                 auto x = setupTwoStepRemoteFacility<
-                    basic::WrapFacilitioidConnectorForSerializationHelpers::WrappedType<FirstProtocolWrapper, FirstRequest>
-                    , basic::WrapFacilitioidConnectorForSerializationHelpers::WrappedType<FirstProtocolWrapper, FirstResult>
-                    , basic::WrapFacilitioidConnectorForSerializationHelpers::WrappedType<SecondProtocolWrapper, SecondRequest>
-                    , basic::WrapFacilitioidConnectorForSerializationHelpers::WrappedType<SecondProtocolWrapper, SecondResult>
+                    WFirstReq
+                    , WFirstRes
+                    , WSecondReq
+                    , WSecondRes
                 >(
                     r, std::move(heartbeatSource), serverNameRE
                     , facilityRegistrationNames, gen, checker
@@ -1575,8 +1585,9 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                         };
                     }
                 );
+                using WR = basic::WrapFacilitioidConnectorForSerializationHelpers::WrappedType<ProtocolWrapper,Result>;
                 auto decodingAction = R::AppType::template liftPure<typename R::AppType::template Key<basic::WrapFacilitioidConnectorForSerializationHelpers::WrappedType<ProtocolWrapper,Result>>>(
-                    [](typename R::AppType::template Key<basic::WrapFacilitioidConnectorForSerializationHelpers::WrappedType<ProtocolWrapper,Result>> &&key) -> typename R::AppType::template Key<Result> {
+                    [](typename R::AppType::template Key<WR> &&key) -> typename R::AppType::template Key<Result> {
                         return {
                             key.id()
                             , basic::WrapFacilitioidConnectorForSerializationHelpers::WrapperUtils<

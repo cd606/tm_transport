@@ -130,7 +130,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                         , reactorMap_()
                         , reactorMapMutex_()
                     {
-                        auto serviceInfo = connection_locator_utils::parseServiceInfo(locator);
+                        GrpcServiceInfo serviceInfo = connection_locator_utils::parseServiceInfo(locator);
                         serviceInfoStr_ = grpcServiceInfoAsEndPointString(serviceInfo);
                         isSingleCallback_ = serviceInfo.isSingleRpcCall;
                         this->startThread();

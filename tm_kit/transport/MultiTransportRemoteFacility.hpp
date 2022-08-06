@@ -617,7 +617,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                                     if constexpr (basic::struct_field_info_utils::IsStructFieldInfoBasedCsvCompatibleStruct<A>) {
                                         if (useGet) {
                                             bool start = true;
-                                            basic::struct_field_info_utils::StructFieldInfoBasedSimpleCsvOutput<A>
+                                            basic::struct_field_info_utils::StructFieldInfoBasedSimpleCsvOutput<A, void>
                                                 ::outputNameValuePairs(
                                                     data
                                                     , [&start,&oss](std::string const &name, std::string const &value) {

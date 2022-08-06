@@ -1131,9 +1131,10 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
         ) {
             if constexpr (DetermineServerSideIdentityForRequest<Env, A>::HasIdentity) {
                 using Identity = typename DetermineServerSideIdentityForRequest<Env, A>::IdentityType;
+                using WA = typename basic::WrapFacilitioidConnectorForSerializationHelpers::WrappedType<ProtocolWrapper,A>;
+                using WB = typename basic::WrapFacilitioidConnectorForSerializationHelpers::WrappedType<ProtocolWrapper,B>;
                 wrap<
-                    typename basic::WrapFacilitioidConnectorForSerializationHelpers::WrappedType<ProtocolWrapper,A>
-                    ,typename basic::WrapFacilitioidConnectorForSerializationHelpers::WrappedType<ProtocolWrapper,B>
+                    WA,WB
                 >(
                     runner 
                     , registeredNameForFacilitioid
