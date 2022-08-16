@@ -29,7 +29,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
         if (parts.size() > 5) {
             std::ostringstream idPartOss;
             idPartOss << parts[4];
-            for (int ii=5; ii<parts.size(); ++ii) {
+            for (std::size_t ii=5; ii<parts.size(); ++ii) {
                 idPartOss << ':' << parts[ii];
             }
             parts[4] = idPartOss.str();

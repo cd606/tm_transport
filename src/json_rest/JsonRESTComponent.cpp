@@ -465,7 +465,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 req.target(target);
                 req.set(boost::beast::http::field::host, host_);
                 req.set(boost::beast::http::field::user_agent, BOOST_BEAST_VERSION_STRING);
-                input.reqLocator.for_all_properties([this,&req](std::string const &key, std::string const &value) {
+                input.reqLocator.for_all_properties([&req](std::string const &key, std::string const &value) {
                     if (boost::starts_with(key, "header/")) {
                         req.set(key.substr(std::string_view("header/").length()), value);
                     } else if (boost::starts_with(key, "http_header/")) {
@@ -851,8 +851,8 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         };
         
         std::unordered_set<std::shared_ptr<OneClient>> clientSet_;
-        std::unordered_map<ConnectionLocator, std::shared_ptr<OneKeepAliveClient>> keepAliveClientMap_;
         std::mutex clientSetMutex_;
+        std::unordered_map<ConnectionLocator, std::shared_ptr<OneKeepAliveClient>> keepAliveClientMap_;
         std::mutex keepAliveClientMapMutex_;
         boost::asio::io_context *clientSvc_;
         std::thread clientThread_;
@@ -1770,7 +1770,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 }
                 std::list<std::string> header;
                 header.push_back("Content-Type: "+contentType);
-                locator.for_all_properties([this,&header](std::string const &key, std::string const &value) {
+                locator.for_all_properties([&header](std::string const &key, std::string const &value) {
                     if (boost::starts_with(key, "header/")) {
                         header.push_back(key.substr(std::string_view("header/").length())+": "+value);
                     } else if (boost::starts_with(key, "http_header/")) {
@@ -2193,7 +2193,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 int diffs = 0;
                 char *parts2Ptr = parts[2].data();
                 std::size_t parts2Length = parts[2].length();
-                for (int ii=0; ii<64; ++ii) {
+                for (std::size_t ii=0; ii<64; ++ii) {
                     if (parts2Length <= ii) {
                         diffs += 1;
                     } else {

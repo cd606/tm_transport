@@ -76,7 +76,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                 msg.SerializeToString(&buf);
                 (*publisher_)({heartbeatTopic, std::move(buf)});
                 auto sz = extraHandlers_.size();
-                for (int ii=0; ii<sz; ++ii) {
+                for (std::size_t ii=0; ii<sz; ++ii) {
                     if (ii == sz-1) {
                         (extraHandlers_[ii])(std::move(msg));
                     } else {

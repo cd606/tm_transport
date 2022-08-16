@@ -195,7 +195,7 @@ namespace dev { namespace cd606 { namespace tm { namespace basic { namespace nlo
                         return false;
                     }
                 }
-            } catch (simdjson::simdjson_error) {
+            } catch (simdjson::simdjson_error const &) {
                 data = boost::uuids::uuid {};
                 return false;
             }

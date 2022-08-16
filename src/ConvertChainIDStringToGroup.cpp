@@ -18,16 +18,16 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
             );
             uint32_t ret = 0;
             if (totalGroups <= 256) {
-                for (int ii=0; ii<crypto_generichash_BYTES; ++ii) {
+                for (std::size_t ii=0; ii<crypto_generichash_BYTES; ++ii) {
                     ret = ret ^ ((uint32_t) hash[ii]);
                 }
             } else if (totalGroups <= 65536) {
-                for (int ii=0; ii<crypto_generichash_BYTES; ii+=2) {
+                for (std::size_t ii=0; ii<crypto_generichash_BYTES; ii+=2) {
                     uint32_t x = (uint32_t) *(reinterpret_cast<const uint16_t *>(&hash[ii]));
                     ret = ret ^ x;
                 }
             } else {
-                for (int ii=0; ii<crypto_generichash_BYTES; ii+=4) {
+                for (std::size_t ii=0; ii<crypto_generichash_BYTES; ii+=4) {
                     uint32_t x = *(reinterpret_cast<const uint32_t *>(&hash[ii]));
                     ret = ret ^ x;
                 }
