@@ -87,7 +87,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 if (basic::bytedata_utils::RunDeserializer<X>::applyInPlace(
                     *x, std::string_view(parsed->content)
                 )) {
-                    return std::move(x);
+                    return x;
                 } else {
                     return std::nullopt;
                 }
@@ -95,7 +95,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 if (basic::bytedata_utils::RunDeserializer<X>::applyInPlace(
                     *x, std::string_view(r->str, r->len)
                 )) {
-                    return std::move(x);
+                    return x;
                 } else {
                     return std::nullopt;
                 }

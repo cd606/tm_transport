@@ -594,7 +594,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 if (b) {
                     std::optional<ExtraData> e {ExtraData {}};
                     if (basic::bytedata_utils::RunDeserializer<ExtraData>::applyInPlace(*e, std::string_view {b->content})) {
-                        return std::move(e);
+                        return e;
                     } else {
                         return std::nullopt;
                     }
@@ -1109,7 +1109,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 if (b) {
                     std::optional<ExtraData> e {ExtraData {}};
                     if (basic::bytedata_utils::RunDeserializer<ExtraData>::applyInPlace(*e, b->content)) {
-                        return std::move(e);
+                        return e;
                     } else {
                         return std::nullopt;
                     }

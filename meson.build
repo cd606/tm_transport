@@ -1,4 +1,4 @@
-project('TM kit transport', 'cpp', default_options: ['cpp_std=c++17'])
+project('TM kit transport', 'cpp', default_options: ['cpp_std=c++17', 'warning_level=3'])
 
 inc = include_directories('.')
 thread_dep = dependency('threads')
