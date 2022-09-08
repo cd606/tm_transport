@@ -41,7 +41,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         }
     private:
         template <class FirstT, class... RemainingTs>
-        static constexpr allHaveGeneratedStructFieldInfo() {
+        static constexpr bool allHaveGeneratedStructFieldInfo() {
             if constexpr (sizeof...(RemainingTs) == 0) {
                 return true;
             } else {
