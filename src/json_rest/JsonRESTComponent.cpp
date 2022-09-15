@@ -389,7 +389,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                     );
                 }
             }
-            void onShutdown(boost::beast::error_code ec) {
+            void onShutdown(boost::beast::error_code) {
                 parent_->removeJsonRESTClient(shared_from_this());
             }
             bool initializationFailure() const {
@@ -820,7 +820,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                     });
                 }
             }
-            void onShutdown(boost::beast::error_code ec) {
+            void onShutdown(boost::beast::error_code) {
                 if (running_) {
                     logger_->logThroughLoggingComponentBase(
                         infra::LogLevel::Info
@@ -985,7 +985,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                     }
                     return oss.str();
                 }
-                void onRead(boost::beast::error_code ec, std::size_t bytes_transferred) {
+                void onRead(boost::beast::error_code ec, std::size_t) {
                     if (ec) {
                         if (ec != boost::beast::http::make_error_code(boost::beast::http::error::end_of_stream)) {
                             parent_->log(
@@ -1037,7 +1037,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                                 boost::beast::http::async_write(
                                     std::get<1>(stream_)
                                     , *res
-                                    , [x=shared_from_this(),res](boost::system::error_code const &write_ec, std::size_t bytes_written) {
+                                    , [x=shared_from_this(),res](boost::system::error_code const &, std::size_t) {
                                         delete res;
                                         x->doRead();
                                     }
@@ -1046,7 +1046,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                                 boost::beast::http::async_write(
                                     std::get<2>(stream_)
                                     , *res
-                                    , [x=shared_from_this(),res](boost::system::error_code const &write_ec, std::size_t bytes_written) {
+                                    , [x=shared_from_this(),res](boost::system::error_code const &, std::size_t) {
                                         delete res;
                                         x->doRead();
                                     }
@@ -1131,7 +1131,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                                 boost::beast::http::async_write(
                                     std::get<1>(stream_)
                                     , *res
-                                    , [x=shared_from_this(),res](boost::system::error_code const &write_ec, std::size_t bytes_written) {
+                                    , [x=shared_from_this(),res](boost::system::error_code const &, std::size_t) {
                                         delete res;
                                         x->doRead();
                                     }
@@ -1140,7 +1140,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                                 boost::beast::http::async_write(
                                     std::get<2>(stream_)
                                     , *res
-                                    , [x=shared_from_this(),res](boost::system::error_code const &write_ec, std::size_t bytes_written) {
+                                    , [x=shared_from_this(),res](boost::system::error_code const &, std::size_t) {
                                         delete res;
                                         x->doRead();
                                     }
@@ -1162,7 +1162,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                                 boost::beast::http::async_write(
                                     std::get<1>(stream_)
                                     , *res
-                                    , [x=shared_from_this(),res](boost::system::error_code const &write_ec, std::size_t bytes_written) {
+                                    , [x=shared_from_this(),res](boost::system::error_code const &, std::size_t) {
                                         delete res;
                                         x->doRead();
                                     }
@@ -1171,7 +1171,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                                 boost::beast::http::async_write(
                                     std::get<2>(stream_)
                                     , *res
-                                    , [x=shared_from_this(),res](boost::system::error_code const &write_ec, std::size_t bytes_written) {
+                                    , [x=shared_from_this(),res](boost::system::error_code const &, std::size_t) {
                                         delete res;
                                         x->doRead();
                                     }
@@ -1190,7 +1190,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                             boost::beast::http::async_write(
                                 std::get<1>(stream_)
                                 , *res
-                                , [x=shared_from_this(),res](boost::system::error_code const &write_ec, std::size_t bytes_written) {
+                                , [x=shared_from_this(),res](boost::system::error_code const &, std::size_t) {
                                     delete res;
                                     x->doRead();
                                 }
@@ -1199,7 +1199,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                             boost::beast::http::async_write(
                                 std::get<2>(stream_)
                                 , *res
-                                , [x=shared_from_this(),res](boost::system::error_code const &write_ec, std::size_t bytes_written) {
+                                , [x=shared_from_this(),res](boost::system::error_code const &, std::size_t) {
                                     delete res;
                                     x->doRead();
                                 }
@@ -1232,7 +1232,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                                     boost::beast::http::async_write(
                                         std::get<1>(stream_)
                                         , *res
-                                        , [x=shared_from_this(),res](boost::system::error_code const &write_ec, std::size_t bytes_written) {
+                                        , [x=shared_from_this(),res](boost::system::error_code const &, std::size_t) {
                                             delete res;
                                             x->doClose(boost::beast::error_code());
                                         }
@@ -1241,7 +1241,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                                     boost::beast::http::async_write(
                                         std::get<2>(stream_)
                                         , *res
-                                        , [x=shared_from_this(),res](boost::system::error_code const &write_ec, std::size_t bytes_written) {
+                                        , [x=shared_from_this(),res](boost::system::error_code const &, std::size_t) {
                                             delete res;
                                             x->doClose(boost::beast::error_code());
                                         }
@@ -1260,7 +1260,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                                         boost::beast::http::async_write(
                                             std::get<1>(stream_)
                                             , *res
-                                            , [x=shared_from_this(),res](boost::system::error_code const &write_ec, std::size_t bytes_written) {
+                                            , [x=shared_from_this(),res](boost::system::error_code const &, std::size_t) {
                                                 delete res;
                                                 x->doClose(boost::beast::error_code());
                                             }
@@ -1269,7 +1269,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                                         boost::beast::http::async_write(
                                             std::get<2>(stream_)
                                             , *res
-                                            , [x=shared_from_this(),res](boost::system::error_code const &write_ec, std::size_t bytes_written) {
+                                            , [x=shared_from_this(),res](boost::system::error_code const &, std::size_t) {
                                                 delete res;
                                                 x->doClose(boost::beast::error_code());
                                             }
@@ -1290,7 +1290,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                                         boost::beast::http::async_write(
                                             std::get<1>(stream_)
                                             , *res
-                                            , [x=shared_from_this(),res](boost::system::error_code const &write_ec, std::size_t bytes_written) {
+                                            , [x=shared_from_this(),res](boost::system::error_code const &, std::size_t) {
                                                 delete res;
                                                 x->doClose(boost::beast::error_code());
                                             }
@@ -1299,7 +1299,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                                         boost::beast::http::async_write(
                                             std::get<2>(stream_)
                                             , *res
-                                            , [x=shared_from_this(),res](boost::system::error_code const &write_ec, std::size_t bytes_written) {
+                                            , [x=shared_from_this(),res](boost::system::error_code const &, std::size_t) {
                                                 delete res;
                                                 x->doClose(boost::beast::error_code());
                                             }
@@ -1315,7 +1315,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                                 boost::beast::http::async_write(
                                     std::get<1>(stream_)
                                     , *res
-                                    , [x=shared_from_this(),res](boost::system::error_code const &write_ec, std::size_t bytes_written) {
+                                    , [x=shared_from_this(),res](boost::system::error_code const &, std::size_t) {
                                         delete res;
                                         x->doClose(boost::beast::error_code());
                                     }
@@ -1324,7 +1324,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                                 boost::beast::http::async_write(
                                     std::get<2>(stream_)
                                     , *res
-                                    , [x=shared_from_this(),res](boost::system::error_code const &write_ec, std::size_t bytes_written) {
+                                    , [x=shared_from_this(),res](boost::system::error_code const &, std::size_t) {
                                         delete res;
                                         x->doClose(boost::beast::error_code());
                                     }
@@ -1350,7 +1350,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                                 boost::beast::http::async_write(
                                     std::get<1>(stream_)
                                     , *res
-                                    , [x=shared_from_this(),res](boost::system::error_code const &write_ec, std::size_t bytes_written) {
+                                    , [x=shared_from_this(),res](boost::system::error_code const &, std::size_t) {
                                         delete res;
                                         x->doClose(boost::beast::error_code());
                                     }
@@ -1359,7 +1359,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                                 boost::beast::http::async_write(
                                     std::get<2>(stream_)
                                     , *res
-                                    , [x=shared_from_this(),res](boost::system::error_code const &write_ec, std::size_t bytes_written) {
+                                    , [x=shared_from_this(),res](boost::system::error_code const &, std::size_t) {
                                         delete res;
                                         x->doClose(boost::beast::error_code());
                                     }
@@ -1375,7 +1375,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                         boost::beast::http::async_write(
                             std::get<1>(stream_)
                             , *res
-                            , [x=shared_from_this(),res](boost::system::error_code const &write_ec, std::size_t bytes_written) {
+                            , [x=shared_from_this(),res](boost::system::error_code const &, std::size_t) {
                                 delete res;
                                 x->doClose(boost::beast::error_code());
                             }
@@ -1384,7 +1384,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                         boost::beast::http::async_write(
                             std::get<2>(stream_)
                             , *res
-                            , [x=shared_from_this(),res](boost::system::error_code const &write_ec, std::size_t bytes_written) {
+                            , [x=shared_from_this(),res](boost::system::error_code const &, std::size_t) {
                                 delete res;
                                 x->doClose(boost::beast::error_code());
                             }
@@ -1397,7 +1397,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                         boost::beast::http::async_write(
                             std::get<1>(stream_)
                             , *res
-                            , [x=shared_from_this(),res](boost::system::error_code const &write_ec, std::size_t bytes_written) {
+                            , [x=shared_from_this(),res](boost::system::error_code const &, std::size_t) {
                                 delete res;
                                 x->doRead();
                             }
@@ -1406,7 +1406,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                         boost::beast::http::async_write(
                             std::get<2>(stream_)
                             , *res
-                            , [x=shared_from_this(),res](boost::system::error_code const &write_ec, std::size_t bytes_written) {
+                            , [x=shared_from_this(),res](boost::system::error_code const &, std::size_t) {
                                 delete res;
                                 x->doRead();
                             }
@@ -1821,10 +1821,10 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                     , std::move(retHeaders)
                 );
             } catch (curlpp::LogicError const &e) {
-                std::cerr << e.what() << '\n';
+                logger->logThroughLoggingComponentBase(infra::LogLevel::Error, e.what());
                 clientCallback(500, e.what(), {});
             } catch (curlpp::RuntimeError const &e) {
-                std::cerr << e.what() << '\n';
+                logger->logThroughLoggingComponentBase(infra::LogLevel::Error, e.what());
                 clientCallback(500, e.what(), {});
             }
         }

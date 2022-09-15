@@ -4,7 +4,7 @@
 #include <iostream>
 #include <fstream>
 
-int main(int argc, char **argv) {
+int main(int, char **argv) {
     std::ofstream ofs(argv[1]);
     ofs << "#ifndef TM_KIT_TRANSPORT_GRPC_INTEROP_GRPC_VERSION_INFO_HPP_\n";
     ofs << "#define TM_KIT_TRANSPORT_GRPC_INTEROP_GRPC_VERSION_INFO_HPP_\n";

@@ -230,7 +230,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
         }
     };
 
-    inline constexpr char const * const multiTransportListenerDefaultTopic(MultiTransportBroadcastListenerConnectionType connType) {
+    inline constexpr char const * multiTransportListenerDefaultTopic(MultiTransportBroadcastListenerConnectionType connType) {
         switch (connType) {
         case MultiTransportBroadcastListenerConnectionType::RabbitMQ:
             return "#";

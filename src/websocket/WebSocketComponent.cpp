@@ -667,7 +667,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                         }
                     }
                 }
-                void onRead(boost::beast::error_code ec, std::size_t bytes_transferred) {
+                void onRead(boost::beast::error_code ec, std::size_t) {
                     if (ec) {
                         good_ = false;
                         parent_->removeClientHandler(shared_from_this());
@@ -712,7 +712,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                         parent_->removeClientHandler(shared_from_this());
                     }
                 }
-                void onWrite(boost::beast::error_code ec, std::size_t bytes_transferred) {
+                void onWrite(boost::beast::error_code ec, std::size_t) {
                     if (ec) {
                         good_ = false;
                         parent_->removeClientHandler(shared_from_this());
@@ -1416,7 +1416,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                         }
                     }
                 }
-                void onRead(boost::beast::error_code ec, std::size_t bytes_transferred) {
+                void onRead(boost::beast::error_code ec, std::size_t) {
                     if (ec) {
                         good_ = false;
                         parent_->removeClientHandler(shared_from_this());
@@ -1467,7 +1467,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                         parent_->removeClientHandler(shared_from_this());
                     }
                 }
-                void onWrite(boost::beast::error_code ec, std::size_t bytes_transferred) {
+                void onWrite(boost::beast::error_code ec, std::size_t) {
                     if (ec) {
                         good_ = false;
                         parent_->removeClientHandler(shared_from_this());

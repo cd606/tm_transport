@@ -56,7 +56,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
     template <class Env, class TransportComponent>
     class HeartbeatAndAlertComponentInitializer {
     public:
-        void operator()(Env *env, std::string const &identity, ConnectionLocator const &locator, std::optional<UserToWireHook> hook=std::nullopt) {
+        void operator()(Env *env, std::string const &identity, ConnectionLocator const &, std::optional<UserToWireHook> =std::nullopt) {
             env->HeartbeatAndAlertComponent::assignIdentity(HeartbeatAndAlertComponent {
                 static_cast<basic::real_time_clock::ClockComponent *>(env)
                 , identity
