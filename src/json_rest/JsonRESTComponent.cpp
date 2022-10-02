@@ -1993,14 +1993,14 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             if (ret.length() > 0) {
                 boost::replace_all(ret, "+", "-");
                 boost::replace_all(ret, "/", "_");
-                auto s = ret.length()-1;
+                int s = (int) ret.length()-1;
                 for (int ii=0; ii<4 && s>=0; ++ii,--s) {
                     if (ret[s] != '=') {
                         break;
                     }
                 }
                 ++s;
-                if (s != ret.length()) {
+                if (s != (int) ret.length()) {
                     ret = ret.substr(0, s);
                 }
             }
