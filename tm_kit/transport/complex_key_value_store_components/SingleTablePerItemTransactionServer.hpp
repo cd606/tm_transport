@@ -160,7 +160,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             template <int FieldCount, int FieldIndex>
             static void sociBindKey_internal(soci::statement &stmt, ItemKey const &k) {
                 if constexpr (FieldIndex>=0 && FieldIndex<FieldCount) {
-                    stmt.exchange(soci::use(k.*(basic::StructFieldTypeInfo<ItemKey,FieldIndex>::fieldPointer()), std::string(basic::StructFieldInfo<ItemKey>::FIELD_NAMES[FieldIndex])));
+                    stmt.exchange(soci::use(basic::StructFieldTypeInfo<ItemKey,FieldIndex>::constAccess(k), std::string(basic::StructFieldInfo<ItemKey>::FIELD_NAMES[FieldIndex])));
                     if constexpr (FieldIndex < FieldCount-1) {
                         sociBindKey_internal<FieldCount,FieldIndex+1>(stmt, k);
                     }
@@ -172,7 +172,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             template <int FieldCount, int FieldIndex>
             static void sociBindData_internal(soci::statement &stmt, ItemData const &d) {
                 if constexpr (FieldIndex>=0 && FieldIndex<FieldCount) {
-                    stmt.exchange(soci::use(d.*(basic::StructFieldTypeInfo<ItemData,FieldIndex>::fieldPointer()), std::string(basic::StructFieldInfo<ItemData>::FIELD_NAMES[FieldIndex])));
+                    stmt.exchange(soci::use(basic::StructFieldTypeInfo<ItemData,FieldIndex>::constAccess(d), std::string(basic::StructFieldInfo<ItemData>::FIELD_NAMES[FieldIndex])));
                     if constexpr (FieldIndex < FieldCount-1) {
                         sociBindData_internal<FieldCount,FieldIndex+1>(stmt, d);
                     }

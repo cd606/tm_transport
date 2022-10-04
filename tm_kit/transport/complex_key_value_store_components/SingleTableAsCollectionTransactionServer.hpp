@@ -146,7 +146,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 if constexpr (FieldIndex>=0 && FieldIndex<FieldCount) {
                     auto *v = new std::vector<typename basic::StructFieldTypeInfo<ItemKey,FieldIndex>::TheType>();
                     for (auto const &x : k) {
-                        v->push_back(x.*(basic::StructFieldTypeInfo<ItemKey,FieldIndex>::fieldPointer()));
+                        v->push_back(basic::StructFieldTypeInfo<ItemKey,FieldIndex>::constAccess(x));
                     }
                     stmt.exchange(soci::use(*v, std::string(basic::StructFieldInfo<ItemKey>::FIELD_NAMES[FieldIndex])));
                     deletors.push_back([v]() {delete v;});
@@ -163,7 +163,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 if constexpr (FieldIndex>=0 && FieldIndex<FieldCount) {
                     auto * v= new std::vector<typename basic::StructFieldTypeInfo<ItemData,FieldIndex>::TheType>();
                     for (auto const &x : d) {
-                        v->push_back(x.*(basic::StructFieldTypeInfo<ItemData,FieldIndex>::fieldPointer()));
+                        v->push_back(basic::StructFieldTypeInfo<ItemData,FieldIndex>::constAccess(x));
                     }
                     stmt.exchange(soci::use(*v, std::string(basic::StructFieldInfo<ItemData>::FIELD_NAMES[FieldIndex])));
                     deletors.push_back([v]() {delete v;});

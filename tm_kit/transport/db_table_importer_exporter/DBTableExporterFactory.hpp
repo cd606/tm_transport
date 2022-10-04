@@ -54,7 +54,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             if constexpr (FieldIndex>=0 && FieldIndex<FieldCount) {
                 if constexpr (std::is_same_v<typename basic::StructFieldTypeInfo<T,FieldIndex>::TheType, basic::DateHolder>) {
                     std::tm t;
-                    auto const &x = data.*(basic::StructFieldTypeInfo<T,FieldIndex>::fieldPointer());
+                    auto const &x = basic::StructFieldTypeInfo<T,FieldIndex>::constAccess(data);
                     t.tm_year = ((x.year==0)?0:x.year-1900);
                     t.tm_mon = ((x.month==0)?0:x.month-1);
                     t.tm_mday = ((x.day==0)?1:x.day);
@@ -64,10 +64,10 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                     t.tm_isdst = -1;
                     stmt.exchange(soci::use(t, std::string(basic::StructFieldInfo<T>::FIELD_NAMES[FieldIndex])));
                 } else if constexpr (std::is_same_v<typename basic::StructFieldTypeInfo<T,FieldIndex>::TheType, std::chrono::system_clock::time_point>) {
-                    std::string s = infra::withtime_utils::localTimeString(data.*(basic::StructFieldTypeInfo<T,FieldIndex>::fieldPointer()));
+                    std::string s = infra::withtime_utils::localTimeString(basic::StructFieldTypeInfo<T,FieldIndex>::constAccess(data));
                     stmt.exchange(soci::use(s, std::string(basic::StructFieldInfo<T>::FIELD_NAMES[FieldIndex])));
                 } else {
-                    stmt.exchange(soci::use(data.*(basic::StructFieldTypeInfo<T,FieldIndex>::fieldPointer()), std::string(basic::StructFieldInfo<T>::FIELD_NAMES[FieldIndex])));
+                    stmt.exchange(soci::use(basic::StructFieldTypeInfo<T,FieldIndex>::constAccess(data), std::string(basic::StructFieldInfo<T>::FIELD_NAMES[FieldIndex])));
                 }
                 if constexpr (FieldIndex < FieldCount-1) {
                     sociBindFields_internal<T,FieldCount,FieldIndex+1>(stmt, data);
@@ -84,7 +84,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 if constexpr (std::is_same_v<typename basic::StructFieldTypeInfo<T,FieldIndex>::TheType, basic::DateHolder>) {
                     auto *v = new std::vector<std::tm>();
                     for (auto const &x : data) {
-                        auto const &y = x.*(basic::StructFieldTypeInfo<T,FieldIndex>::fieldPointer());
+                        auto const &y = basic::StructFieldTypeInfo<T,FieldIndex>::constAccess(x);
                         std::tm t;
                         t.tm_year = ((y.year==0)?0:y.year-1900);
                         t.tm_mon = ((y.month==0)?0:y.month-1);
@@ -100,7 +100,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 } else if constexpr (std::is_same_v<typename basic::StructFieldTypeInfo<T,FieldIndex>::TheType, std::chrono::system_clock::time_point>) {
                     auto *v = new std::vector<std::string>();
                     for (auto const &x : data) {
-                        auto const &y = x.*(basic::StructFieldTypeInfo<T,FieldIndex>::fieldPointer());
+                        auto const &y = basic::StructFieldTypeInfo<T,FieldIndex>::constAccess(x);
                         v->push_back(infra::withtime_utils::localTimeString(y));
                     }
                     stmt.exchange(soci::use(*v, std::string(basic::StructFieldInfo<T>::FIELD_NAMES[FieldIndex])));
@@ -108,7 +108,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 } else {
                     auto *v = new std::vector<typename basic::StructFieldTypeInfo<T,FieldIndex>::TheType>();
                     for (auto const &x : data) {
-                        v->push_back(x.*(basic::StructFieldTypeInfo<T,FieldIndex>::fieldPointer()));
+                        v->push_back(basic::StructFieldTypeInfo<T,FieldIndex>::constAccess(x));
                     }
                     stmt.exchange(soci::use(*v, std::string(basic::StructFieldInfo<T>::FIELD_NAMES[FieldIndex])));
                     deletors.push_back([v]() {delete v;});

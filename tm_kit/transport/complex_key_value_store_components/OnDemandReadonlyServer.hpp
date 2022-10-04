@@ -42,7 +42,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         template <class ItemKey, int FieldCount, int FieldIndex>
         static void sociBindWhereClause_internal(soci::statement &stmt, ItemKey const &k) {
             if constexpr (FieldIndex>=0 && FieldIndex<FieldCount) {
-                stmt.exchange(soci::use(k.*(basic::StructFieldTypeInfo<ItemKey,FieldIndex>::fieldPointer()), std::string(basic::StructFieldInfo<ItemKey>::FIELD_NAMES[FieldIndex])));
+                stmt.exchange(soci::use(basic::StructFieldTypeInfo<ItemKey,FieldIndex>::constAccess(k), std::string(basic::StructFieldInfo<ItemKey>::FIELD_NAMES[FieldIndex])));
                 if constexpr (FieldIndex < FieldCount-1) {
                     sociBindWhereClause_internal<ItemKey,FieldCount,FieldIndex+1>(stmt, k);
                 }
