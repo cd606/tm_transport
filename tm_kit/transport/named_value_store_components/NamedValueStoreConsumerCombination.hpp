@@ -56,7 +56,12 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         using Env = typename M::EnvironmentType;
 
         using DI = basic::transaction::named_value_store::DI<Data>;
+#ifdef _MSC_VER
+        using IDType = typename Env::IDType;
+        using GS = basic::transaction::named_value_store::GS<IDType, Data>;
+#else
         using GS = basic::transaction::named_value_store::GS<typename Env::IDType, Data>;
+#endif
 
         auto facilityInfo =  transport::MultiTransportRemoteFacilityManagingUtils<R>
         ::template setupOneDistinguishedRemoteFacilityWithProtocol<
