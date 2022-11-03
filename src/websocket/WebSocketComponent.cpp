@@ -2,6 +2,7 @@
 #include <tm_kit/transport/TLSConfigurationComponent.hpp>
 
 #include <tm_kit/basic/ByteData.hpp>
+#include <tm_kit/basic/LoggingComponentBase.hpp>
 
 #include <boost/beast/core.hpp>
 #include <boost/beast/http.hpp>
@@ -61,6 +62,9 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             > stream_;
             boost::beast::flat_buffer buffer_;
             bool initializationFailure_;
+            basic::LoggingComponentBase *loggingBase_;
+            int logPerMessageCount_;
+            uint64_t messageCount_;
         public:
             OneSubscriber(
                 WebSocketComponentImpl *parent
@@ -68,6 +72,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 , std::optional<basic::ByteData> &&initialData
                 , std::function<std::optional<basic::ByteData>(basic::ByteDataView const &)> const &protocolReactor
                 , std::optional<TLSClientInfo> const &sslInfo
+                , basic::LoggingComponentBase *loggingBase
             )
                 : parent_(parent), locator_(locator)
                 , initialData_(std::move(initialData))
@@ -86,9 +91,19 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 , stream_()
                 , buffer_()
                 , initializationFailure_(false)
+                , loggingBase_(loggingBase)
+                , logPerMessageCount_(std::stoi(locator.query("logPerMessageCount", "-1")))
+                , messageCount_(0)
             {
                 bool binary = (locator.query("binary", "true") == "true");
-                //std::cerr << "connection binary is " << binary << "\n";
+                if (loggingBase_) {
+                    loggingBase_->logThroughLoggingComponentBase(infra::LogLevel::Info, std::string("[WebSocketComponentImpl::OneSubscriber::(constructor)] connection binary is ")+(binary?"true":"false"));
+                    if (logPerMessageCount_ > 0) {
+                        loggingBase_->logThroughLoggingComponentBase(infra::LogLevel::Info, std::string("[WebSocketComponentImpl::OneSubscriber::(constructor)] logging message count for every ")+std::to_string(logPerMessageCount_)+" messages");
+                    } else {
+                        loggingBase_->logThroughLoggingComponentBase(infra::LogLevel::Info, std::string("[WebSocketComponentImpl::OneSubscriber::(constructor)] not logging message count"));
+                    }
+                }
                 if (sslInfo) {
                     std::string caCert;
                     if (sslInfo->caCertificateFile != "") {
@@ -113,9 +128,16 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                     
                     stream_.emplace<2>(boost::asio::make_strand(svc_), *sslCtx_);
                     std::get<2>(stream_).binary(binary);
+
+                    if (loggingBase_) {
+                        loggingBase_->logThroughLoggingComponentBase(infra::LogLevel::Info, std::string("[WebSocketComponentImpl::OneSubscriber::(constructor)] wss (TLS) stream initialized"));
+                    }
                 } else {
                     stream_.emplace<1>(boost::asio::make_strand(svc_));
                     std::get<1>(stream_).binary(binary);
+                    if (loggingBase_) {
+                        loggingBase_->logThroughLoggingComponentBase(infra::LogLevel::Info, std::string("[WebSocketComponentImpl::OneSubscriber::(constructor)] ws stream initialized"));
+                    }
                 }
             }
             ~OneSubscriber() {
@@ -135,12 +157,16 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 }
             }
             std::shared_ptr<OneSubscriber> moveToNewOne() {
+                if (loggingBase_) {
+                    loggingBase_->logThroughLoggingComponentBase(infra::LogLevel::Info, std::string("[WebSocketComponentImpl::OneSubscriber::moveToNewOne] websocket subscriber moving to new one"));
+                }
                 auto p = std::make_shared<OneSubscriber>(
                     parent_
                     , locator_
                     , std::move(initialData_)
                     , protocolReactor_
                     , sslInfo_
+                    , loggingBase_
                 );
                 {
                     std::lock_guard<std::mutex> _(clientsMutex_);
@@ -167,7 +193,9 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                         return;
                     }
                 }
-                //std::cerr << "Will resolve\n";
+                if (loggingBase_) {
+                    loggingBase_->logThroughLoggingComponentBase(infra::LogLevel::Info, std::string("[WebSocketComponentImpl::OneSubscriber::run] websocket subscriber starting to resolve"));
+                }
                 resolver_.async_resolve(
                     locator_.host()
                     , std::to_string(locator_.port())
@@ -179,10 +207,15 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             }
             void onResolve(boost::beast::error_code ec, boost::asio::ip::tcp::resolver::results_type results) {
                 if (ec) {
+                    if (loggingBase_) {
+                        loggingBase_->logThroughLoggingComponentBase(infra::LogLevel::Error, std::string("[WebSocketComponentImpl::OneSubscriber::onResolve] websocket subscriber resolving failure ")+ec.message());
+                    }
                     parent_->removeSubscriber(locator_);
                     return;
                 }
-                //std::cerr << "Will connect " << stream_.index() << "\n";
+                if (loggingBase_) {
+                    loggingBase_->logThroughLoggingComponentBase(infra::LogLevel::Info, std::string("[WebSocketComponentImpl::OneSubscriber::onResolve] websocket subscriber resolution succeeded."));
+                }
                 if (stream_.index() == 1) {
                     boost::beast::get_lowest_layer(std::get<1>(stream_)).expires_after(std::chrono::seconds(30));
                     boost::beast::get_lowest_layer(std::get<1>(stream_)).async_connect(
@@ -205,11 +238,15 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             }
             void onConnect(boost::beast::error_code ec, boost::asio::ip::tcp::resolver::results_type::endpoint_type ep) {
                 if (ec) {
-                    //std::cerr << "connect error\n";
+                    if (loggingBase_) {
+                        loggingBase_->logThroughLoggingComponentBase(infra::LogLevel::Error, std::string("[WebSocketComponentImpl::OneSubscriber::onConnect] websocket subscriber connection failure ")+ec.message());
+                    }
                     parent_->removeSubscriber(locator_);
                     return;
                 }
-                //std::cerr << "Will handshake\n";
+                if (loggingBase_) {
+                    loggingBase_->logThroughLoggingComponentBase(infra::LogLevel::Info, std::string("[WebSocketComponentImpl::OneSubscriber::onConnect] websocket subscriber connection succeeded."));
+                }
                 handshakeHost_ = locator_.host()+":"+std::to_string(ep.port());
                 if (stream_.index() == 1) {
                     boost::beast::get_lowest_layer(std::get<1>(stream_)).expires_never();
@@ -255,11 +292,15 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             }
             void onSSLHandshake(boost::beast::error_code ec) {
                 if (ec) {
-                    //std::cerr << "ssl handshake wrong " << ec.message() << '\n';
+                    if (loggingBase_) {
+                        loggingBase_->logThroughLoggingComponentBase(infra::LogLevel::Error, std::string("[WebSocketComponentImpl::OneSubscriber::onSSLHandshake] websocket subscriber SSL handshake failure ")+ec.message());
+                    }
                     parent_->removeSubscriber(locator_);
                     return;
                 }
-                //std::cerr << "Will websocket handshake\n";
+                if (loggingBase_) {
+                    loggingBase_->logThroughLoggingComponentBase(infra::LogLevel::Info, std::string("[WebSocketComponentImpl::OneSubscriber::onSSLHandshake] websocket subscriber SSL handshake succeeded."));
+                }
                 boost::beast::get_lowest_layer(std::get<2>(stream_)).expires_never();
                 std::get<2>(stream_).set_option(
                     boost::beast::websocket::stream_base::timeout::suggested(
@@ -293,16 +334,21 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             }
             void onWebSocketHandshake(boost::beast::error_code ec) {
                 if (ec) {
+                    if (loggingBase_) {
+                        loggingBase_->logThroughLoggingComponentBase(infra::LogLevel::Error, std::string("[WebSocketComponentImpl::OneSubscriber::onWebSocketHandshake] websocket subscriber ws handshake failure ")+ec.message());
+                    }
                     parent_->removeSubscriber(locator_);
                     return;
                 }
-                
-                /*
-                std::cerr << "Will send initial data\n";
-                if (initialData_) {
-                    std::cerr << "initial data is " << *initialData_ << '\n';
+
+                if (loggingBase_) {
+                    loggingBase_->logThroughLoggingComponentBase(infra::LogLevel::Info, std::string("[WebSocketComponentImpl::OneSubscriber::onWebSocketHandshake] websocket subscriber ws handshake succeeded."));
+                    if (initialData_) {
+                        loggingBase_->logThroughLoggingComponentBase(infra::LogLevel::Info, std::string("[WebSocketComponentImpl::OneSubscriber::onWebSocketHandshake] will send initial data of ")+std::to_string(initialData_->content.size()));
+                    } else {
+                        loggingBase_->logThroughLoggingComponentBase(infra::LogLevel::Info, std::string("[WebSocketComponentImpl::OneSubscriber::onWebSocketHandshake] no initial data to send."));
+                    }
                 }
-                */
                 
                 if (stream_.index() == 1) {
                     if (initialData_) {
@@ -310,7 +356,13 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                             std::get<1>(stream_).write(
                                 boost::asio::buffer(reinterpret_cast<const char *>(initialData_->content.data()), initialData_->content.size())
                             );
+                            if (loggingBase_) {
+                                loggingBase_->logThroughLoggingComponentBase(infra::LogLevel::Info, std::string("[WebSocketComponentImpl::OneSubscriber::onWebSocketHandshake] initial data written."));
+                            }
                         } catch (...) {
+                            if (loggingBase_) {
+                                loggingBase_->logThroughLoggingComponentBase(infra::LogLevel::Error, std::string("[WebSocketComponentImpl::OneSubscriber::onWebSocketHandshake] write initial data failure."));
+                            }
                             parent_->removeSubscriber(locator_);
                             return;
                         }
@@ -328,8 +380,13 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                             std::get<2>(stream_).write(
                                 boost::asio::buffer(reinterpret_cast<const char *>(initialData_->content.data()), initialData_->content.size())
                             );
-                            //std::cerr << "sent initial data\n";
+                            if (loggingBase_) {
+                                loggingBase_->logThroughLoggingComponentBase(infra::LogLevel::Info, std::string("[WebSocketComponentImpl::OneSubscriber::onWebSocketHandshake] initial data written."));
+                            }
                         } catch (...) {
+                            if (loggingBase_) {
+                                loggingBase_->logThroughLoggingComponentBase(infra::LogLevel::Error, std::string("[WebSocketComponentImpl::OneSubscriber::onWebSocketHandshake] write initial data failure."));
+                            }
                             parent_->removeSubscriber(locator_);
                             return;
                         }
@@ -354,11 +411,22 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 }
             }
             void onRead(boost::beast::error_code ec, std::size_t bytes_transferred) {
-                //std::cerr << "onRead " << bytes_transferred << "\n";
                 boost::ignore_unused(bytes_transferred);
                 if (ec) {
+                    if (loggingBase_) {
+                        loggingBase_->logThroughLoggingComponentBase(infra::LogLevel::Error, std::string("[WebSocketComponentImpl::OneSubscriber::onRead] websocket subscriber read failure ")+ec.message());
+                    }
                     parent_->removeSubscriber(locator_);
                     return;
+                }
+
+                if (logPerMessageCount_ > 0 && loggingBase_) {
+                    ++messageCount_;
+                    if ((messageCount_ % ((uint64_t) logPerMessageCount_)) == 0) {
+                        if (loggingBase_) {
+                            loggingBase_->logThroughLoggingComponentBase(infra::LogLevel::Info, std::string("[WebSocketComponentImpl::OneSubscriber::onRead] received ")+std::to_string(messageCount_)+ " messages so far.");
+                        }
+                    }
                 }
 
                 auto input = boost::beast::buffers_to_string(buffer_.data());
@@ -402,6 +470,9 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                                 boost::asio::buffer(reinterpret_cast<const char *>(reactorRes->content.data()), reactorRes->content.size())
                             );
                         } catch (...) {
+                            if (loggingBase_) {
+                                loggingBase_->logThroughLoggingComponentBase(infra::LogLevel::Error, std::string("[WebSocketComponentImpl::OneSubscriber::onRead] write reactor response failure."));
+                            }
                             parent_->removeSubscriber(locator_);
                             return;
                         }
@@ -420,6 +491,9 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                                 boost::asio::buffer(reinterpret_cast<const char *>(reactorRes->content.data()), reactorRes->content.size())
                             );
                         } catch (...) {
+                            if (loggingBase_) {
+                                loggingBase_->logThroughLoggingComponentBase(infra::LogLevel::Error, std::string("[WebSocketComponentImpl::OneSubscriber::onRead] write reactor response failure."));
+                            }
                             parent_->removeSubscriber(locator_);
                             return;
                         }
@@ -1675,7 +1749,8 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             std::optional<WireToUserHook> wireToUserHook,
             std::optional<basic::ByteData> &&initialData,
             std::function<std::optional<basic::ByteData>(basic::ByteDataView const &)> const &protocolReactor,
-            TLSClientConfigurationComponent *config) 
+            TLSClientConfigurationComponent *config,
+            basic::LoggingComponentBase *loggingBase) 
         {
             int port = locator.port();
             if (port == 0) {
@@ -1701,6 +1776,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                                 , std::move(initialData)
                                 , protocolReactor
                                 , (config?config->getConfigurationItem(TLSClientInfoKey {actualLocator.host(), actualLocator.port()}):std::nullopt)
+                                , loggingBase
                             )
                         }
                     ).first;
@@ -1962,6 +2038,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             , std::move(initialData)
             , protocolReactor
             , dynamic_cast<TLSClientConfigurationComponent *>(this)
+            , dynamic_cast<basic::LoggingComponentBase *>(this)
         );
     }
     void WebSocketComponent::websocket_removeSubscriptionClient(uint32_t id) {
