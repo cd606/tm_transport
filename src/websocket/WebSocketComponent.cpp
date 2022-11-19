@@ -174,6 +174,16 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                     p->stringMatchClients_ = std::move(stringMatchClients_);
                     p->regexMatchClients_ = std::move(regexMatchClients_);
                 }
+                if (!p->initializationFailure()) {
+                    if (loggingBase_) {
+                        loggingBase_->logThroughLoggingComponentBase(infra::LogLevel::Info, std::string("[WebSocketComponentImpl::OneSubscriber::moveToNewOne] starting the new one"));
+                    }
+                    p->run();
+                } else {
+                    if (loggingBase_) {
+                        loggingBase_->logThroughLoggingComponentBase(infra::LogLevel::Error, std::string("[WebSocketComponentImpl::OneSubscriber::moveToNewOne] the new one has initialization failure"));
+                    }
+                }
                 return p;
             }
             void run() {
