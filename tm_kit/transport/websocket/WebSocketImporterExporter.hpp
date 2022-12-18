@@ -126,7 +126,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             };
             return M::importer(new LocalI(locator, topic, wireToUserHook, std::move(initialMessage), protocolReactor, protocolRestartReactor));
         }
-        static std::shared_ptr<typename M::template Exporter<basic::ByteDataWithTopic>> createExporter(ConnectionLocator const &locator, std::optional<UserToWireHook> userToWireHook=std::nullopt, std::string const &heartbeatName = "") {
+        static std::shared_ptr<typename M::template Exporter<basic::ByteDataWithTopic>> createExporter(ConnectionLocator const &locator, std::optional<UserToWireHook> userToWireHook=std::nullopt, std::string const &heartbeatName = "", std::function<std::function<std::optional<basic::ByteData>(basic::ByteDataView const &, std::atomic<bool> &)>()> const &protocolReactorFactory = {}) {
             class LocalE final : public M::template AbstractExporter<basic::ByteDataWithTopic> {
             private:
                 ConnectionLocator locator_;
@@ -134,14 +134,15 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 std::function<void(basic::ByteDataWithTopic &&)> publisher_;
                 std::optional<UserToWireHook> userToWireHook_;
                 std::string heartbeatName_;
+                std::function<std::function<std::optional<basic::ByteData>(basic::ByteDataView const &, std::atomic<bool> &)>()> protocolReactorFactory_;
             public:
-                LocalE(ConnectionLocator const &locator, std::optional<UserToWireHook> userToWireHook, std::string const &heartbeatName)
-                    : locator_(locator), env_(nullptr), publisher_(), userToWireHook_(userToWireHook), heartbeatName_(heartbeatName)
+                LocalE(ConnectionLocator const &locator, std::optional<UserToWireHook> userToWireHook, std::string const &heartbeatName, std::function<std::function<std::optional<basic::ByteData>(basic::ByteDataView const &, std::atomic<bool> &)>()> const &protocolReactorFactory)
+                    : locator_(locator), env_(nullptr), publisher_(), userToWireHook_(userToWireHook), heartbeatName_(heartbeatName), protocolReactorFactory_(protocolReactorFactory)
                 {
                 }
                 virtual void start(Env *env) override final {
                     env_ = env;
-                    publisher_ = env->websocket_getPublisher(locator_, userToWireHook_);
+                    publisher_ = env->websocket_getPublisher(locator_, userToWireHook_, protocolReactorFactory_);
                     if constexpr (std::is_convertible_v<
                         Env *
                         , HeartbeatAndAlertComponent *
@@ -159,10 +160,10 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                     }
                 }
             };
-            return M::exporter(new LocalE(locator, userToWireHook, heartbeatName));
+            return M::exporter(new LocalE(locator, userToWireHook, heartbeatName, protocolReactorFactory));
         }
         template <class T>
-        static std::shared_ptr<typename M::template Exporter<basic::TypedDataWithTopic<T>>> createTypedExporter(ConnectionLocator const &locator, std::optional<UserToWireHook> userToWireHook=std::nullopt, std::string const &heartbeatName = "") {
+        static std::shared_ptr<typename M::template Exporter<basic::TypedDataWithTopic<T>>> createTypedExporter(ConnectionLocator const &locator, std::optional<UserToWireHook> userToWireHook=std::nullopt, std::string const &heartbeatName = "", std::function<std::function<std::optional<basic::ByteData>(basic::ByteDataView const &, std::atomic<bool> &)>()> const &protocolReactorFactory = {}) {
             class LocalE final : public M::template AbstractExporter<basic::TypedDataWithTopic<T>> {
             private:
                 ConnectionLocator locator_;
@@ -170,9 +171,10 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 std::function<void(basic::ByteDataWithTopic &&)> publisher_;
                 std::optional<UserToWireHook> userToWireHook_;
                 std::string heartbeatName_;
+                std::function<std::function<std::optional<basic::ByteData>(basic::ByteDataView const &, std::atomic<bool> &)>()> protocolReactorFactory_;
             public:
-                LocalE(ConnectionLocator const &locator, std::optional<UserToWireHook> userToWireHook, std::string const &heartbeatName)
-                    : locator_(locator), env_(nullptr), publisher_(), userToWireHook_(userToWireHook), heartbeatName_(heartbeatName)
+                LocalE(ConnectionLocator const &locator, std::optional<UserToWireHook> userToWireHook, std::string const &heartbeatName, std::function<std::function<std::optional<basic::ByteData>(basic::ByteDataView const &, std::atomic<bool> &)>()> const &protocolReactorFactory)
+                    : locator_(locator), env_(nullptr), publisher_(), userToWireHook_(userToWireHook), heartbeatName_(heartbeatName), protocolReactorFactory_(protocolReactorFactory)
                 {
                 }
                 virtual void start(Env *env) override final {
@@ -180,7 +182,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                     if (!userToWireHook_) {
                         userToWireHook_ = DefaultHookFactory<Env>::template outgoingHook<T>(env);
                     }
-                    publisher_ = env->websocket_getPublisher(locator_, userToWireHook_);
+                    publisher_ = env->websocket_getPublisher(locator_, userToWireHook_, protocolReactorFactory_);
                     if constexpr (std::is_convertible_v<
                         Env *
                         , HeartbeatAndAlertComponent *
@@ -199,7 +201,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                     }
                 }
             };
-            return M::exporter(new LocalE(locator, userToWireHook, heartbeatName));
+            return M::exporter(new LocalE(locator, userToWireHook, heartbeatName, protocolReactorFactory));
         }
         static std::future<basic::ByteDataWithTopic> fetchFirstUpdateAndDisconnect(Env *env, ConnectionLocator const &locator, std::variant<WebSocketComponent::NoTopicSelection, std::string, std::regex> const &topic, std::optional<WireToUserHook> hook = std::nullopt) {
             std::shared_ptr<std::promise<basic::ByteDataWithTopic>> ret = std::make_shared<std::promise<basic::ByteDataWithTopic>>();

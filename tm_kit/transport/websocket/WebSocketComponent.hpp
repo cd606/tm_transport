@@ -29,7 +29,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                         std::function<std::optional<basic::ByteData>(basic::ByteDataView const &)> const &protocolReactor = {},
                         std::function<void()> const &protocolRestartReactor = {});
         void websocket_removeSubscriptionClient(uint32_t id);
-        std::function<void(basic::ByteDataWithTopic &&)> websocket_getPublisher(ConnectionLocator const &locator, std::optional<UserToWireHook> userToWireHook = std::nullopt);
+        std::function<void(basic::ByteDataWithTopic &&)> websocket_getPublisher(ConnectionLocator const &locator, std::optional<UserToWireHook> userToWireHook = std::nullopt, std::function<std::function<std::optional<basic::ByteData>(basic::ByteDataView const &, std::atomic<bool> &)>()> const &protocolReactorFactory = {});
         std::function<void(basic::ByteDataWithID &&)> websocket_setRPCClient(ConnectionLocator const &locator,
                         std::function<void(bool, basic::ByteDataWithID &&)> client,
                         std::optional<ByteDataHookPair> hookPair = std::nullopt,

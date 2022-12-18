@@ -606,12 +606,15 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 std::string targetPath_;
                 std::atomic<bool> good_;
                 std::mutex writeMutex_;
+                std::function<std::optional<basic::ByteData>(basic::ByteDataView const &, std::atomic<bool> &)> protocolReactor_;
+                std::atomic<bool> writeAuthorized_;
             public:
                 OneClientHandler(
                     OnePublisher *parent
                     , boost::asio::ip::tcp::socket &&socket
                     , std::optional<boost::asio::ssl::context> &sslCtx
                     , bool *needToRun
+                    , std::function<std::optional<basic::ByteData>(basic::ByteDataView const &, std::atomic<bool> &)> const &protocolReactor = {}
                 ) 
                     : parent_(parent)
                     , stream_()
@@ -620,6 +623,8 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                     , targetPath_()
                     , good_(false)
                     , writeMutex_()
+                    , protocolReactor_(protocolReactor)
+                    , writeAuthorized_(!protocolReactor)
                 {
                     if (sslCtx) {
                         stream_.emplace<2>(std::move(socket), *sslCtx);
@@ -766,6 +771,29 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                         good_ = false;
                         parent_->removeClientHandler(shared_from_this());
                     } else {
+                        if (protocolReactor_) {
+                            auto input = boost::beast::buffers_to_string(buffer_.data());
+                            std::optional<basic::ByteData> reactorRes = std::nullopt;
+                            reactorRes = protocolReactor_(basic::ByteDataView {std::string_view {input}}, writeAuthorized_);
+                            if (reactorRes) {
+                                try {
+                                    std::lock_guard<std::mutex> _(writeMutex_);
+                                    if (stream_.index() == 1) {
+                                        std::get<1>(stream_).write(
+                                            boost::asio::buffer(reinterpret_cast<const char *>(reactorRes->content.data()), reactorRes->content.size())
+                                        );
+                                    } else {
+                                        std::get<2>(stream_).write(
+                                            boost::asio::buffer(reinterpret_cast<const char *>(reactorRes->content.data()), reactorRes->content.size())
+                                        );
+                                    }
+                                } catch (...) {
+                                    good_ = false;
+                                    parent_->removeClientHandler(shared_from_this());
+                                    return;
+                                }
+                            }
+                        }
                         buffer_.clear(); 
                         if (stream_.index() == 1) {
                             std::get<1>(stream_).async_read(
@@ -788,6 +816,9 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 }
                 void doPublish(std::string_view const &data) {
                     if (!good_) {
+                        return;
+                    }
+                    if (!writeAuthorized_) {
                         return;
                     }
                     try {
@@ -829,6 +860,8 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             std::unordered_set<std::shared_ptr<OneClientHandler>> clientHandlers_;
             std::unordered_map<std::string, std::unordered_set<OneClientHandler *>> pathToClientMap_;
             std::mutex clientHandlersMutex_;
+
+            std::function<std::function<std::optional<basic::ByteData>(basic::ByteDataView const &, std::atomic<bool> &)>()> protocolReactorFactory_;
         
             void doPublish(std::unordered_set<OneClientHandler *> &handlers, std::string_view const &data) {
                 for (auto *h : handlers) {
@@ -836,7 +869,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 }
             }
         public:
-            OnePublisher(WebSocketComponentImpl *parent, int port, bool ignoreTopic, std::optional<TLSServerInfo> const &sslInfo) 
+            OnePublisher(WebSocketComponentImpl *parent, int port, bool ignoreTopic, std::optional<TLSServerInfo> const &sslInfo, std::function<std::function<std::optional<basic::ByteData>(basic::ByteDataView const &, std::atomic<bool> &)>()> const &protocolReactorFactory = {}) 
                 : parent_(parent), port_(port), ignoreTopic_(ignoreTopic)
                 , svc_()
                 , sslCtx_(
@@ -847,6 +880,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 , th_(), running_(false)
                 , acceptor_(svc_)
                 , clientHandlers_(), pathToClientMap_(), clientHandlersMutex_()
+                , protocolReactorFactory_(protocolReactorFactory)
             {
                 auto addr = boost::asio::ip::make_address("0.0.0.0");
                 if (sslCtx_) {
@@ -916,7 +950,12 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             void onAccept(boost::beast::error_code ec, boost::asio::ip::tcp::socket socket) {
                 if (!ec) {
                     bool needToRun;
-                    auto h = std::make_shared<OneClientHandler>(this, std::move(socket), sslCtx_, &needToRun);
+                    std::shared_ptr<OneClientHandler> h;
+                    if (protocolReactorFactory_) {
+                        h = std::make_shared<OneClientHandler>(this, std::move(socket), sslCtx_, &needToRun, protocolReactorFactory_());
+                    } else {
+                        h = std::make_shared<OneClientHandler>(this, std::move(socket), sslCtx_, &needToRun, std::function<std::optional<basic::ByteData>(basic::ByteDataView const &, std::atomic<bool> &)> {});
+                    }
                     if (needToRun) {
                         {
                             std::lock_guard<std::mutex> _(clientHandlersMutex_);
@@ -1827,7 +1866,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 subscriberClientIDToSubscriberLocatorMap_.erase(iter);
             }
         }
-        std::function<void(basic::ByteDataWithTopic &&)> getPublisher(ConnectionLocator const &locator, std::optional<UserToWireHook> userToWireHook, TLSServerConfigurationComponent *config) {
+        std::function<void(basic::ByteDataWithTopic &&)> getPublisher(ConnectionLocator const &locator, std::optional<UserToWireHook> userToWireHook, TLSServerConfigurationComponent *config, std::function<std::function<std::optional<basic::ByteData>(basic::ByteDataView const &, std::atomic<bool> &)>()> const &protocolReactorFactory = {}) {
             std::lock_guard<std::mutex> _(publisherMapMutex_);
             auto iter = publisherMap_.find(locator.port());
             if (iter == publisherMap_.end()) {
@@ -1838,6 +1877,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                         , locator.port()
                         , (locator.query("ignoreTopic","false")=="true")
                         , (config?config->getConfigurationItem(TLSServerInfoKey {locator.port()}):std::nullopt)
+                        , protocolReactorFactory
                     )
                 }).first;
                 if (started_) {
@@ -2068,8 +2108,8 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
     void WebSocketComponent::websocket_removeSubscriptionClient(uint32_t id) {
         impl_->websocket_removeSubscriptionClient(id);
     }
-    std::function<void(basic::ByteDataWithTopic &&)> WebSocketComponent::websocket_getPublisher(ConnectionLocator const &locator, std::optional<UserToWireHook> userToWireHook) {
-        return impl_->getPublisher(locator, userToWireHook, dynamic_cast<TLSServerConfigurationComponent *>(this));
+    std::function<void(basic::ByteDataWithTopic &&)> WebSocketComponent::websocket_getPublisher(ConnectionLocator const &locator, std::optional<UserToWireHook> userToWireHook, std::function<std::function<std::optional<basic::ByteData>(basic::ByteDataView const &, std::atomic<bool> &)>()> const &protocolReactorFactory) {
+        return impl_->getPublisher(locator, userToWireHook, dynamic_cast<TLSServerConfigurationComponent *>(this), protocolReactorFactory);
     }
     std::function<void(basic::ByteDataWithID &&)> WebSocketComponent::websocket_setRPCClient(ConnectionLocator const &locator,
                     std::function<void(bool, basic::ByteDataWithID &&)> client,
