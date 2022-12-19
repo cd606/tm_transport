@@ -1,6 +1,7 @@
 tm_transport_named_value_store_components_headers = [
     'EtcdNamedValueStoreComponents.hpp'
     , 'EtcdHelper.hpp'
+    , 'EtcdLocalImporter.hpp'
     , 'NamedValueStoreConsumerCombination.hpp'
   ]
   

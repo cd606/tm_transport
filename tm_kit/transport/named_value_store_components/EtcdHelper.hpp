@@ -33,6 +33,40 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                     return std::nullopt;
                 }
             }
+            static void setLocal(std::string const &key, std::string const &value) {
+                etcdserverpb::TxnRequest txn;
+                auto *action = txn.add_success();
+                auto *put = action->mutable_request_put();
+                put->set_key(key);
+                put->set_value(value);
+
+                etcdserverpb::TxnResponse txnResp;
+
+                auto channel = grpc::CreateChannel("127.0.0.1:2379", grpc::InsecureChannelCredentials());
+                auto stub = etcdserverpb::KV::NewStub(channel);
+                
+                grpc::ClientContext txnCtx;
+                txnCtx.set_deadline(std::chrono::system_clock::now()+std::chrono::hours(24));
+                stub->Txn(&txnCtx, txn, &txnResp);
+            }
+            static void putLocal(std::string const &key, std::string const &value) {
+                setLocal(key, value);
+            }
+            static void deleteLocal(std::string const &key) {
+                etcdserverpb::TxnRequest txn;
+                auto *action = txn.add_success();
+                auto *del = action->mutable_request_delete_range();
+                del->set_key(key);
+
+                etcdserverpb::TxnResponse txnResp;
+
+                auto channel = grpc::CreateChannel("127.0.0.1:2379", grpc::InsecureChannelCredentials());
+                auto stub = etcdserverpb::KV::NewStub(channel);
+                
+                grpc::ClientContext txnCtx;
+                txnCtx.set_deadline(std::chrono::system_clock::now()+std::chrono::hours(24));
+                stub->Txn(&txnCtx, txn, &txnResp);
+            }
         };
     }
 } } } } }
