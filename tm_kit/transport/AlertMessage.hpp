@@ -25,6 +25,12 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
 
         void SerializeToString(std::string *s) const;
         bool ParseFromString(std::string const &s);
+        std::chrono::system_clock::time_point alertTime() const {return alertTime_;}
+        std::string const &host() const {return host_;}
+        int64_t pid() const {return pid_;}
+        std::string const &senderDescription() const {return senderDescription_;}
+        infra::LogLevel level() const {return level_;}
+        std::string const &message() const {return message_;}
     };
 } } } }
 
