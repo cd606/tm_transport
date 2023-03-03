@@ -33,6 +33,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
     class HeartbeatAndAlertComponent {
     private:
         std::unique_ptr<HeartbeatAndAlertComponentImpl> impl_;
+        void sendCustomMessage_internal(std::string const &messageTopic, std::function<std::string(std::chrono::system_clock::time_point, std::string const &, int64_t, std::string const &)> const &messageFunc);
     public:
         HeartbeatAndAlertComponent();
         HeartbeatAndAlertComponent(basic::real_time_clock::ClockComponent *clock, std::string const &identity);
@@ -47,6 +48,25 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
         void sendAlert(std::string const &alertTopic, infra::LogLevel level, std::string const &message);
         void publishHeartbeat(std::string const &heartbeatTopic);
         void addExtraHeartbeatHandler(std::function<void(HeartbeatMessage &&)> handler);
+        template <class T>
+        void sendCustomMessage(std::string const &messageTopic, T &&t) {
+            sendCustomMessage_internal(
+                messageTopic
+                , [t=std::move(t)](std::chrono::system_clock::time_point tp, std::string const &host, int64_t pid, std::string const &senderDescription) mutable {
+                    return basic::bytedata_utils::RunCBORSerializer<
+                        CustomDataMessageThroughAlertChannel<T>
+                    >::apply(
+                        CustomDataMessageThroughAlertChannel<T> {
+                            tp
+                            , host
+                            , pid
+                            , senderDescription
+                            , std::move(t)
+                        }
+                    );
+                }
+            );
+        }
     };
 
     //Please note that the hook passed to the initializer will be used for

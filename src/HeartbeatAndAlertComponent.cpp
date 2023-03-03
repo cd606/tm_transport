@@ -56,6 +56,11 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                 (*publisher_)({alertTopic, std::move(buf)});
             }
         }
+        void sendCustomMessage_internal(std::string const &messageTopic, std::function<std::string(std::chrono::system_clock::time_point, std::string const &, int64_t, std::string const &)> const &messageFunc) {
+            if (publisher_ && clock_) {
+                (*publisher_)({messageTopic, messageFunc(clock_->now(), host_, pid_, identity_)});
+            }
+        }
         void publishHeartbeat(std::string const &heartbeatTopic) {
             if (publisher_ && clock_) {
                 HeartbeatMessage msg;
@@ -122,6 +127,9 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
     }
     void HeartbeatAndAlertComponent::addExtraHeartbeatHandler(std::function<void(HeartbeatMessage &&)> handler) {
         impl_->addExtraHeartbeatHandler(handler);
+    }
+    void HeartbeatAndAlertComponent::sendCustomMessage_internal(std::string const &messageTopic, std::function<std::string(std::chrono::system_clock::time_point, std::string const &, int64_t, std::string const &)> const &messageFunc) {
+        impl_->sendCustomMessage_internal(messageTopic, messageFunc);
     }
 
 } } } }

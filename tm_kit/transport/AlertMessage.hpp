@@ -5,6 +5,7 @@
 #include <chrono>
 
 #include <tm_kit/infra/LogLevel.hpp>
+#include <tm_kit/basic/SerializationHelperMacros.hpp>
 
 namespace dev { namespace cd606 { namespace tm { namespace transport {
     class AlertMessage {
@@ -32,6 +33,17 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
         infra::LogLevel level() const {return level_;}
         std::string const &message() const {return message_;}
     };
+
+#define CUSTOM_DATA_MESSAGE_THROUGH_ALERT_CHANNEL_FIELDS \
+    ((std::chrono::system_clock::time_point, messageTime)) \
+    ((std::string, host)) \
+    ((int64_t, pid)) \
+    ((std::string, senderDescription)) \
+    ((T, data))
+
+    TM_BASIC_CBOR_CAPABLE_TEMPLATE_STRUCT(((typename, T)), CustomDataMessageThroughAlertChannel, CUSTOM_DATA_MESSAGE_THROUGH_ALERT_CHANNEL_FIELDS);
 } } } }
+
+TM_BASIC_CBOR_CAPABLE_TEMPLATE_STRUCT_SERIALIZE(((typename, T)), dev::cd606::tm::transport::CustomDataMessageThroughAlertChannel, CUSTOM_DATA_MESSAGE_THROUGH_ALERT_CHANNEL_FIELDS);
 
 #endif
