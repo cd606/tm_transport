@@ -651,6 +651,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
             , std::string const &broadcastTopic
             , std::string const &prefix
             , std::optional<WireToUserHook> const &hook = std::nullopt
+            , std::function<bool(basic::TypedDataWithTopic<InputType> const &)> stopCriteria = {}
         ) 
             ->  typename R::template Source<basic::TypedDataWithTopic<InputType>>
         {
@@ -686,6 +687,27 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
             );
             r.registerOnOrderFacilityWithExternalEffects(prefix+"/listener", listener);
             r.placeOrderWithFacilityWithExternalEffectsAndForget(r.actionAsSource(keyify), listener);
+            if (stopCriteria) {
+                auto stopChecker = infra::GenericLift<M>::lift(
+                    [stopCriteria](basic::TypedDataWithTopic<InputType> &&data) 
+                    -> std::optional<typename M::template Key<MultiTransportBroadcastListenerInput>> {
+                        if (stopCriteria(data)) {
+                            return typename M::template Key<MultiTransportBroadcastListenerInput> {
+                                MultiTransportBroadcastListenerInput {
+                                    MultiTransportBroadcastListenerRemoveAllSubscriptions {}
+                                }
+                            };
+                        } else {
+                            return std::nullopt;
+                        }
+                    }
+                );
+                r.registerAction(prefix+"/stopChecker", stopChecker);
+                r.placeOrderWithFacilityWithExternalEffectsAndForget(
+                    r.execute(stopChecker, r.facilityWithExternalEffectsAsSource(listener))
+                    , listener
+                );
+            }
             return r.facilityWithExternalEffectsAsSource(listener);
         }
 
@@ -701,11 +723,12 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
             , std::string const &broadcastTopic
             , std::string const &prefix
             , std::optional<WireToUserHook> const &hook = std::nullopt
+            , std::function<bool(basic::TypedDataWithTopic<InputType> const &)> stopCriteria = {}
         ) 
             ->  typename R::template Source<InputType>
         {
             auto s = setupBroadcastListenerWithTopicThroughHeartbeat<InputType>(
-                r, std::move(heartbeatSource), serverNameRE, broadcastSourceLookupName, broadcastTopic, prefix, hook
+                r, std::move(heartbeatSource), serverNameRE, broadcastSourceLookupName, broadcastTopic, prefix, hook, stopCriteria
             );
             auto removeTopic = M::template liftPure<basic::TypedDataWithTopic<InputType>>(
                 [](basic::TypedDataWithTopic<InputType> &&d) -> InputType {
