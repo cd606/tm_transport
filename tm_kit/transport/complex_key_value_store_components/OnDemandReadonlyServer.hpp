@@ -4,6 +4,7 @@
 #include <tm_kit/basic/CalculationsOnInit.hpp>
 #include <tm_kit/basic/StructFieldInfoUtils.hpp>
 #include <tm_kit/basic/transaction/complex_key_value_store/VersionlessDataModel.hpp>
+#include <tm_kit/transport/db_table_importer_exporter/StructFieldInfoUtils_SociHelper.hpp>
 
 #include <soci/soci.h>
 
@@ -60,8 +61,8 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         )
         {
             using DBDataStorage = basic::transaction::complex_key_value_store::as_collection::Collection<ItemKey,ItemData>;
-            using KF = basic::struct_field_info_utils::StructFieldInfoBasedDataFiller<ItemKey>;
-            using DF = basic::struct_field_info_utils::StructFieldInfoBasedDataFiller<ItemData>;
+            using KF = transport::struct_field_info_utils::db_table_importer_exporter::StructFieldInfoBasedDataFiller<ItemKey>;
+            using DF = transport::struct_field_info_utils::db_table_importer_exporter::StructFieldInfoBasedDataFiller<ItemData>;
             auto x = selectMainPartFromCriteria(OnDemandReadonlyServer<M>::template sociWhereClause<ItemKey>());
             if (!boost::starts_with(boost::to_upper_copy(boost::trim_copy(x)), "FROM ")) {
                 x = "FROM "+x;
@@ -108,8 +109,8 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             , std::string const &selectMainPart
         ) 
         {
-            using KF = basic::struct_field_info_utils::StructFieldInfoBasedDataFiller<ItemKey>;
-            using DF = basic::struct_field_info_utils::StructFieldInfoBasedDataFiller<ItemData>;
+            using KF = transport::struct_field_info_utils::db_table_importer_exporter::StructFieldInfoBasedDataFiller<ItemKey>;
+            using DF = transport::struct_field_info_utils::db_table_importer_exporter::StructFieldInfoBasedDataFiller<ItemData>;
             auto x = selectMainPart;
             if (!boost::starts_with(boost::to_upper_copy(boost::trim_copy(x)), "FROM ")) {
                 x = "FROM "+x;
@@ -152,8 +153,8 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             , std::function<std::string(QueryType &&)> dynamicWhereFunc
         ) 
         {
-            using KF = basic::struct_field_info_utils::StructFieldInfoBasedDataFiller<ItemKey>;
-            using DF = basic::struct_field_info_utils::StructFieldInfoBasedDataFiller<ItemData>;
+            using KF = transport::struct_field_info_utils::db_table_importer_exporter::StructFieldInfoBasedDataFiller<ItemKey>;
+            using DF = transport::struct_field_info_utils::db_table_importer_exporter::StructFieldInfoBasedDataFiller<ItemData>;
             auto x = selectMainPart;
             
             std::string query;
@@ -204,7 +205,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             , std::function<std::string(QueryType &&)> dynamicWhereFunc
         ) 
         {
-            using DF = basic::struct_field_info_utils::StructFieldInfoBasedDataFiller<RowType>;
+            using DF = transport::struct_field_info_utils::db_table_importer_exporter::StructFieldInfoBasedDataFiller<RowType>;
             auto x = selectMainPart;
             
             std::string query;

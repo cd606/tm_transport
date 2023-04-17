@@ -3,6 +3,7 @@
 
 #include <tm_kit/basic/StructFieldInfoUtils.hpp>
 #include <tm_kit/basic/DateHolder.hpp>
+#include <tm_kit/transport/db_table_importer_exporter/StructFieldInfoUtils_SociHelper.hpp>
 
 #include <soci/soci.h>
 
@@ -15,7 +16,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
     private:
         template <class T>
         static std::string insertTemplate(std::string const &tableName) {
-            using DF = basic::struct_field_info_utils::StructFieldInfoBasedDataFiller<T>;
+            using DF = transport::struct_field_info_utils::db_table_importer_exporter::StructFieldInfoBasedDataFiller<T>;
             std::ostringstream oss;
             oss << "INSERT INTO " << tableName << '(';
             oss << DF::commaSeparatedFieldNames();
@@ -27,8 +28,8 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         }
         template <class ItemKey, class ItemData>
         static std::string insertTemplateWithDuplicateCheck(std::string const &tableName) {
-            using KF = basic::struct_field_info_utils::StructFieldInfoBasedDataFiller<ItemKey>;
-            using DF = basic::struct_field_info_utils::StructFieldInfoBasedDataFiller<ItemData>;
+            using KF = transport::struct_field_info_utils::db_table_importer_exporter::StructFieldInfoBasedDataFiller<ItemKey>;
+            using DF = transport::struct_field_info_utils::db_table_importer_exporter::StructFieldInfoBasedDataFiller<ItemData>;
             std::ostringstream oss;
             oss << "INSERT INTO " << tableName << '(';
             oss << KF::commaSeparatedFieldNames();

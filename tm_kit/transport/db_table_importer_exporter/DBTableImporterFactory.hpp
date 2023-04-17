@@ -3,18 +3,45 @@
 
 #include <tm_kit/infra/AppClassifier.hpp>
 #include <tm_kit/basic/StructFieldInfoUtils.hpp>
+#include <tm_kit/transport/db_table_importer_exporter/StructFieldInfoUtils_SociHelper.hpp>
 
 #include <boost/algorithm/string.hpp>
 
 #include <soci/soci.h>
 
 namespace dev { namespace cd606 { namespace tm { namespace transport { namespace db_table_importer_exporter {
+    namespace db_traits
+    {
+        class MysqlTraits
+        {
+        public:
+            static constexpr bool HasDateFormatSupport = true;
+            static std::string ISO8601FormatedField(std::string_view fieldName)
+            {
+                std::ostringstream oss;
+                oss << "DATE_FORMAT(" << fieldName << ",'%Y-%m-%dT%H:%i:%S.%f')";
+                return oss.str();
+            }
+        };
+
+        class Sqlite3Traits
+        {
+        public:
+            static constexpr bool HasDateFormatSupport = true;
+            static std::string ISO8601FormatedField(std::string_view fieldName)
+            {
+                std::ostringstream oss;
+                oss << "strftime('%Y-%m-%dT%H:%M:%S.%f'," << fieldName << ')';
+                return oss.str();
+            }
+        };
+    }
+
     template <class M>
     class DBTableImporterFactory {
     private:
-        template <class T>
-        static std::string selectStatement(std::string const &input) {
-            using DF = basic::struct_field_info_utils::StructFieldInfoBasedDataFiller<T>;
+        template <class T, typename DF>
+        static std::string selectStatement_internal(std::string const &input) {
             std::string s = boost::trim_copy(input);
             std::string s1 = boost::to_upper_copy(s);
             if (boost::starts_with(s1, "SELECT ")) {
@@ -25,19 +52,51 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             }
             return ("SELECT "+DF::commaSeparatedFieldNamesForSelect()+" FROM "+s);
         }
-    public:
-        template <class T, typename = std::enable_if_t<basic::StructFieldInfo<T>::HasGeneratedStructFieldInfo>>
-        static auto getTableData(std::shared_ptr<soci::session> const &session, std::string const &importerInput)
+        template <class T>
+        static std::string selectStatement(std::shared_ptr<soci::session> const& session, std::string const &input) {
+            if (dynamic_cast<soci::mysql_session_backend*>(session->get_backend()))
+            {
+                return selectStatement_internal<T, transport::struct_field_info_utils::db_table_importer_exporter::StructFieldInfoBasedDataFiller<T, db_traits::MysqlTraits>>(input);
+            }
+            else if (dynamic_cast<soci::sqlite3_session_backend*>(session->get_backend()))
+            {
+                return selectStatement_internal<T, transport::struct_field_info_utils::db_table_importer_exporter::StructFieldInfoBasedDataFiller<T, db_traits::Sqlite3Traits>>(input);
+            }
+            else
+            {
+                return selectStatement_internal<T, transport::struct_field_info_utils::db_table_importer_exporter::StructFieldInfoBasedDataFiller<T>>(input);
+            }
+        }
+
+        template <class T, typename DF>
+        static auto getTableData_internal(std::shared_ptr<soci::session> const &session, std::string const &importerInput)
             -> std::vector<T>
         {
-            using DF = basic::struct_field_info_utils::StructFieldInfoBasedDataFiller<T>;
             std::vector<T> value;
             soci::rowset<soci::row> queryRes = 
-                session->prepare << selectStatement<T>(importerInput);
+                session->prepare << selectStatement_internal<T, DF>(importerInput);
             for (auto const &r : queryRes) {
                 value.push_back(DF::retrieveData(r,0));
             }
             return value;
+        }
+
+    public:
+        template <class T, typename = std::enable_if_t<basic::StructFieldInfo<T>::HasGeneratedStructFieldInfo>>
+        static auto getTableData(std::shared_ptr<soci::session> const& session, std::string const& importerInput) -> std::vector<T>
+        {
+            if (dynamic_cast<soci::mysql_session_backend*>(session->get_backend()))
+            {
+                return getTableData_internal<T, transport::struct_field_info_utils::db_table_importer_exporter::StructFieldInfoBasedDataFiller<T, db_traits::MysqlTraits>>(session, importerInput);
+            }
+            else if (dynamic_cast<soci::sqlite3_session_backend*>(session->get_backend()))
+            {
+                return getTableData_internal<T, transport::struct_field_info_utils::db_table_importer_exporter::StructFieldInfoBasedDataFiller<T, db_traits::Sqlite3Traits>>(session, importerInput);
+            }
+            else
+            {
+                return getTableData_internal<T, transport::struct_field_info_utils::db_table_importer_exporter::StructFieldInfoBasedDataFiller<T>>(session, importerInput);
+            }
         }
     private:
         template <class FirstT, class... RemainingTs>
@@ -52,40 +111,55 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 }
             }
         }
-        template <std::size_t Idx, class FirstT, class... RemainingTs>
+        template <typename Trait, std::size_t Idx, class FirstT, class... RemainingTs>
         static void commaSeparatedFieldNamesForSelect_combined_internal(std::ostringstream &oss) {
             if constexpr (Idx > 0) {
                 oss << ", ";
             }
-            using DF = basic::struct_field_info_utils::StructFieldInfoBasedDataFiller<FirstT>;
+            using DF = transport::struct_field_info_utils::db_table_importer_exporter::StructFieldInfoBasedDataFiller<FirstT,Trait>;
             oss << DF::commaSeparatedFieldNamesForSelect();
             if constexpr (sizeof...(RemainingTs) == 0) {
                 return;
             } else {
-                commaSeparatedFieldNamesForSelect_combined_internal<Idx+1, RemainingTs...>(oss);
+                commaSeparatedFieldNamesForSelect_combined_internal<Trait, Idx+1, RemainingTs...>(oss);
             }
         }
-        template <class... Ts>
+        template <typename Trait, class... Ts>
         static std::string commaSeparatedFieldNamesForSelect_combined() {
             std::ostringstream oss;
-            commaSeparatedFieldNamesForSelect_combined_internal<0, Ts...>(oss);
+            commaSeparatedFieldNamesForSelect_combined_internal<Trait, 0, Ts...>(oss);
             return oss.str();
         }
-        template <class... Ts>
-        static std::string selectStatementForCombined(std::string const &input) {
+        template <typename Trait, class... Ts>
+        static std::string selectStatementForCombined_internal(std::string const &input) {
             std::string s = boost::trim_copy(input);
             std::string s1 = boost::to_upper_copy(s);
             if (boost::starts_with(s1, "SELECT ")) {
                 return s;
             }
             if (boost::starts_with(s1, "FROM ")) {
-                return ("SELECT "+commaSeparatedFieldNamesForSelect_combined<Ts...>()+" "+s);
+                return ("SELECT "+commaSeparatedFieldNamesForSelect_combined<Trait,Ts...>()+" "+s);
             }
-            return ("SELECT "+commaSeparatedFieldNamesForSelect_combined<Ts...>()+" FROM "+s);
+            return ("SELECT "+commaSeparatedFieldNamesForSelect_combined<Trait,Ts...>()+" FROM "+s);
+        }
+        template <class... Ts>
+        static std::string selectStatementForCombined(std::shared_ptr<soci::session> const &session, std::string const &input) {
+            if (dynamic_cast<soci::mysql_session_backend*>(session->get_backend()))
+            {
+                return selectStatementForCombined_internal<db_traits::MysqlTraits, Ts...>(input);
+            }
+            else if (dynamic_cast<soci::sqlite3_session_backend*>(session->get_backend()))
+            {
+                return selectStatementForCombined_internal<db_traits::Sqlite3Traits, Ts...>(input);
+            }
+            else
+            {
+                return selectStatementForCombined_internal<void, Ts...>(input);
+            }
         }
         template <std::size_t Idx1, std::size_t Idx2, class Tuple, class FirstT, class... RemainingTs>
         static void retrieveDataForCombined_internal(Tuple &output, soci::row const &r) {
-            using DF = basic::struct_field_info_utils::StructFieldInfoBasedDataFiller<FirstT>;
+            using DF = transport::struct_field_info_utils::db_table_importer_exporter::StructFieldInfoBasedDataFiller<FirstT>;
             std::get<Idx1>(output) = DF::retrieveData(r, Idx2);
             if constexpr (sizeof...(RemainingTs) == 0) {
                 return;
@@ -105,7 +179,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             static_assert(allHaveGeneratedStructFieldInfo<Ts...>(), "the types must all have generated struct field info");
             std::vector<std::tuple<Ts...>> value;
             soci::rowset<soci::row> queryRes = 
-                session->prepare << selectStatementForCombined<Ts...>(importerInput);
+                session->prepare << selectStatementForCombined<Ts...>(session, importerInput);
             for (auto const &r : queryRes) {
                 std::tuple<Ts...> v;
                 retrieveDataForCombined<Ts...>(v, r);
@@ -122,10 +196,10 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 [session,importerInput](
                     typename M::EnvironmentType *env
                 ) -> std::tuple<bool, typename M::template Data<std::vector<T>>> {
-                    using DF = basic::struct_field_info_utils::StructFieldInfoBasedDataFiller<T>;
+                    using DF = transport::struct_field_info_utils::db_table_importer_exporter::StructFieldInfoBasedDataFiller<T>;
                     std::vector<T> value;
                     soci::rowset<soci::row> queryRes = 
-                        session->prepare << selectStatement<T>(importerInput);
+                        session->prepare << selectStatement<T>(session, importerInput);
                     for (auto const &r : queryRes) {
                         value.push_back(DF::retrieveData(r,0));
                     }
@@ -152,7 +226,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 [session,importerInput,interval](
                     typename M::EnvironmentType *env
                 ) -> std::tuple<bool, typename M::template Data<std::vector<T>>> {
-                    using DF = basic::struct_field_info_utils::StructFieldInfoBasedDataFiller<T>;
+                    using DF = transport::struct_field_info_utils::db_table_importer_exporter::StructFieldInfoBasedDataFiller<T>;
                     static bool first = true;
                     if (!first) {
                         std::this_thread::sleep_for(interval);
@@ -161,7 +235,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                     try {
                         std::vector<T> value;
                         soci::rowset<soci::row> queryRes = 
-                            session->prepare << selectStatement<T>(importerInput);
+                            session->prepare << selectStatement<T>(session, importerInput);
                         for (auto const &r : queryRes) {
                             value.push_back(DF::retrieveData(r,0));
                         }
@@ -191,7 +265,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 [session,importerInput,interval,keyExtractor=std::move(keyExtractor)](
                     typename M::EnvironmentType *env
                 ) mutable -> std::tuple<bool, typename M::template Data<std::vector<T>>> {
-                    using DF = basic::struct_field_info_utils::StructFieldInfoBasedDataFiller<T>;
+                    using DF = transport::struct_field_info_utils::db_table_importer_exporter::StructFieldInfoBasedDataFiller<T>;
                     using Key = std::decay_t<decltype(keyExtractor(std::declval<T>()))>;
                     static bool first = true;
                     static std::unordered_set<Key, basic::struct_field_info_utils::StructFieldInfoBasedHash<Key>> seen;
@@ -203,7 +277,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                     try {
                         std::vector<T> value;
                         soci::rowset<soci::row> queryRes = 
-                            session->prepare << selectStatement<T>(importerInput);
+                            session->prepare << selectStatement<T>(session, importerInput);
                         for (auto const &r : queryRes) {
                             auto d = DF::retrieveData(r, 0);
                             auto k = keyExtractor(d);

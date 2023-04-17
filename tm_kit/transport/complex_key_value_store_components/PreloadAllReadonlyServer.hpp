@@ -4,6 +4,7 @@
 #include <tm_kit/basic/CalculationsOnInit.hpp>
 #include <tm_kit/basic/StructFieldInfoUtils.hpp>
 #include <tm_kit/basic/transaction/complex_key_value_store/VersionlessDataModel.hpp>
+#include <tm_kit/transport/db_table_importer_exporter/StructFieldInfoUtils_SociHelper.hpp>
 
 #include <soci/soci.h>
 
@@ -19,8 +20,8 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
     private:
         template <class ItemKey, class ItemData>
         static std::string selectStatement(std::string const &input) {
-            using KF = basic::struct_field_info_utils::StructFieldInfoBasedDataFiller<ItemKey>;
-            using DF = basic::struct_field_info_utils::StructFieldInfoBasedDataFiller<ItemData>;
+            using KF = transport::struct_field_info_utils::db_table_importer_exporter::StructFieldInfoBasedDataFiller<ItemKey>;
+            using DF = transport::struct_field_info_utils::db_table_importer_exporter::StructFieldInfoBasedDataFiller<ItemData>;
 
             std::string s = boost::trim_copy(input);
             std::string s1 = boost::to_upper_copy(s);
@@ -44,8 +45,8 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 [session,selectInput](std::function<void(infra::LogLevel, std::string const &)> logger)
                     -> DBDataStorage
                 {
-                    using KF = basic::struct_field_info_utils::StructFieldInfoBasedDataFiller<ItemKey>;
-                    using DF = basic::struct_field_info_utils::StructFieldInfoBasedDataFiller<ItemData>;
+                    using KF = transport::struct_field_info_utils::db_table_importer_exporter::StructFieldInfoBasedDataFiller<ItemKey>;
+                    using DF = transport::struct_field_info_utils::db_table_importer_exporter::StructFieldInfoBasedDataFiller<ItemData>;
                     soci::rowset<soci::row> res = 
                         session->prepare << selectStatement<ItemKey,ItemData>(selectInput);
                     DBDataStorage ret;
@@ -80,8 +81,8 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 [session,selectInput](std::function<void(infra::LogLevel, std::string const &)> logger)
                     -> basic::transaction::complex_key_value_store::FullDataResult<ItemKey,ItemData>
                 {
-                    using KF = basic::struct_field_info_utils::StructFieldInfoBasedDataFiller<ItemKey>;
-                    using DF = basic::struct_field_info_utils::StructFieldInfoBasedDataFiller<ItemData>;
+                    using KF = transport::struct_field_info_utils::db_table_importer_exporter::StructFieldInfoBasedDataFiller<ItemKey>;
+                    using DF = transport::struct_field_info_utils::db_table_importer_exporter::StructFieldInfoBasedDataFiller<ItemData>;
                     soci::rowset<soci::row> res = 
                         session->prepare << selectStatement<ItemKey,ItemData>(selectInput);
                     basic::transaction::complex_key_value_store::FullDataResult<ItemKey,ItemData> ret;

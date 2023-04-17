@@ -5,6 +5,7 @@
 #include <tm_kit/basic/StructFieldInfoUtils.hpp>
 #include <tm_kit/basic/transaction/complex_key_value_store/VersionlessDataModel.hpp>
 #include <tm_kit/basic/transaction/v2/TransactionLogicCombination.hpp>
+#include <tm_kit/transport/db_table_importer_exporter/StructFieldInfoUtils_SociHelper.hpp>
 
 #include <soci/soci.h>
 
@@ -21,8 +22,8 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         template <class IDType>
         using GS = basic::transaction::complex_key_value_store::per_item::GS<IDType, ItemKey, ItemData>;
 
-        using KF = basic::struct_field_info_utils::StructFieldInfoBasedDataFiller<ItemKey>;
-        using DF = basic::struct_field_info_utils::StructFieldInfoBasedDataFiller<ItemData>;
+        using KF = transport::struct_field_info_utils::db_table_importer_exporter::StructFieldInfoBasedDataFiller<ItemKey>;
+        using DF = transport::struct_field_info_utils::db_table_importer_exporter::StructFieldInfoBasedDataFiller<ItemData>;
                 
         class DSComponent : public basic::transaction::v2::DataStreamEnvComponent<DI> {
         private:
