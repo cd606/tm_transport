@@ -80,6 +80,19 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                     return std::nullopt;
                 }
             }
+#ifndef _MSC_VER
+            if (boost::starts_with(s, "/dev/shm/")) {
+                try {
+                    auto locator = ConnectionLocator::parse("::::"+s.substr(std::string("/dev/shm/").length()));                   
+                    return std::tuple<SharedChainProtocol, ConnectionLocator> {
+                        SharedChainProtocol::InSharedMemoryLockFree
+                        , locator
+                    };
+                } catch (ConnectionLocatorParseError const &) {
+                    return std::nullopt;
+                }
+            }
+#endif
             return std::nullopt;
         }
 
