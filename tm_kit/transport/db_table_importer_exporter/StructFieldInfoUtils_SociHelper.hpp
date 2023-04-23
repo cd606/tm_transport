@@ -20,6 +20,11 @@
 #include <soci/mysql/soci-mysql.h>
 #include <soci/sqlite3/soci-sqlite3.h>
 
+#ifdef _MSC_VER
+#undef max
+#undef min
+#endif
+
 namespace dev::cd606::tm::transport::struct_field_info_utils::db_table_importer_exporter
 {
     namespace soci_helper
