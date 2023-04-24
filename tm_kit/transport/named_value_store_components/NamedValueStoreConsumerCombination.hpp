@@ -23,6 +23,104 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         , ConsumerInsertOrUpdateKey<Data>
     >>;
 
+#ifdef _MSC_VER
+    namespace internal {
+        template <typename R>
+        using IDType = typename R::AppType::EnvironmentType::IDType;
+
+        template <typename R, typename Data>
+        using GS = typename basic::transaction::named_value_store::template GS<IDType<R>, Data>;
+
+        template <typename Data>
+        using DI = typename basic::transaction::named_value_store::DI<Data>;
+
+        template <typename R, typename Data>
+        using FacilityKey = std::tuple<ConnectionLocator, typename GS<R,Data>::Input>;
+
+        template <class R, typename Data>
+        std::vector<ConsumerUpdate<Data>> handleFacilityOutput(
+            typename R::AppType::template KeyedData<
+                FacilityKey<R, Data>
+                , typename GS<R,Data>::Output
+            > &&input
+            , std::shared_ptr<std::optional<IDType<R>>> const &idRecord
+            , bool hasExitDataSource
+            , typename R::AppType::EnvironmentType *env
+        ) {
+            auto const &key = input.key;
+            return std::visit([&key,idRecord,hasExitDataSource,env](auto &&x) -> std::vector<ConsumerUpdate<Data>> {
+                using T = std::decay_t<decltype(x)>;
+                if constexpr (std::is_same_v<T, typename GS<R,Data>::SubscriptionUpdate>) {
+                    std::vector<ConsumerUpdate<Data>> result;
+                    for (auto &item : x.data) {
+                        std::visit([&result](auto &&y) {
+                            using U = std::decay_t<decltype(y)>;
+                            if constexpr (std::is_same_v<U, typename DI<Data>::OneFullUpdateItem>) {
+                                if (y.data) {
+                                    for (auto &&dataPiece : *(y.data)) {
+                                        result.push_back({{
+                                            ConsumerInsertOrUpdateKey<Data> {
+                                                .key = dataPiece.first
+                                                , .data = std::move(dataPiece.second)
+                                            }
+                                        }});
+                                    }
+                                }
+                            } else if constexpr (std::is_same_v<U, typename DI<Data>::OneDeltaUpdateItem>) {
+                                for (auto const &deletedKey : std::get<2>(y).deletes) {
+                                    result.push_back({{
+                                        ConsumerDeleteKey {
+                                            .key = deletedKey
+                                        }
+                                    }});
+                                }
+                                for (auto &&update : std::get<2>(y).inserts_updates) {
+                                    result.push_back({{
+                                        ConsumerInsertOrUpdateKey<Data> {
+                                            .key = std::move(std::get<0>(update))
+                                            , .data = std::move(std::get<1>(update))
+                                        }
+                                    }});
+                                }
+                            }
+                        }, std::move(item.value));
+                    }
+                    return result;
+                } else if constexpr (std::is_same_v<T, typename GS<R,Data>::Subscription>) {
+                    if (hasExitDataSource) {
+                        *idRecord = key.id();
+                    }
+                    return {};
+                } else if constexpr (std::is_same_v<T, typename GS<R,Data>::Unsubscription>) {
+                    if (hasExitDataSource) {
+                        *idRecord = std::nullopt;
+                        env->exit();
+                    }
+                    return {};
+                } else {
+                    return {};
+                }
+             }, std::move(input.data.value));
+        }
+    }
+#endif
+
+#if __cplusplus >= 202002L
+    template <
+        class R
+        , template <class...> class ProtocolWrapper
+        , typename Data
+        , typename ExitSourceType=basic::VoidStruct
+    > requires(
+        std::is_convertible_v<
+            typename R::AppType::EnvironmentType *
+            , ClientSideAbstractIdentityAttacherComponent<
+                std::string
+                , typename basic::transaction::named_value_store::GS<typename R::AppType::EnvironmentType::IDType, Data>::Input
+            > *
+        >
+    )
+#else
     template <
         class R
         , template <class...> class ProtocolWrapper
@@ -38,6 +136,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             >
         >
     >
+#endif
     auto consumerCombination(
         R &r
         , std::string const &prefix
@@ -96,6 +195,14 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             [idRecord,hasExitDataSource,env](typename M::template KeyedData<FacilityKey, typename GS::Output> &&input)
                 -> std::vector<ConsumerUpdate<Data>>
             {
+#ifdef _MSC_VER
+                return internal::handleFacilityOutput<R,Data>(
+                    std::move(input)
+                    , idRecord
+                    , hasExitDataSource
+                    , env
+                );
+#else
                 auto const &key = input.key;
                 return std::visit([idRecord,hasExitDataSource,env,&key](auto &&x) -> std::vector<ConsumerUpdate<Data>> {
                     using T = std::decay_t<decltype(x)>;
@@ -150,6 +257,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                         return std::vector<ConsumerUpdate<Data>> {};
                     }
                 }, std::move(input.data.value));
+#endif
             }
         );
         r.registerAction(prefix+"/handler", handler);
