@@ -224,7 +224,26 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                 if (boost::starts_with(s, "r/") && boost::ends_with(s, "/") && s.length() > 3) {
                     return std::regex {s.substr(2, s.length()-3)};
                 } else {
-                    return s;
+                    std::ostringstream oss;
+                    bool rabbitMQStyle = false;
+                    for (char c : s) {
+                        if (c == '#') {
+                            oss << ".+";
+                            rabbitMQStyle = true;
+                        } else if (c == '*') {
+                            oss << "[^\\.]+";
+                            rabbitMQStyle = true;
+                        } else if (c == '.') {
+                            oss << "\\.";
+                        } else {
+                            oss << c;
+                        }
+                    }
+                    if (rabbitMQStyle) {
+                        return std::regex {oss.str()};
+                    } else {
+                        return s;
+                    }
                 }
             }
         }
