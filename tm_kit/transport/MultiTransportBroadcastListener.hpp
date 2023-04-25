@@ -219,30 +219,44 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
             typename Component::NoTopicSelection, std::string, std::regex
         > parseTopic(std::string const &s) {
             if (s == "") {
-                return typename Component::NoTopicSelection {};
-            } else {
-                if (boost::starts_with(s, "r/") && boost::ends_with(s, "/") && s.length() > 3) {
-                    return std::regex {s.substr(2, s.length()-3)};
+                if constexpr(std::is_same_v<Component, rabbitmq::RabbitMQComponent>) {
+                    return "#";
+                } else if constexpr (std::is_same_v<Component, redis::RedisComponent>) {
+                    return "*";
                 } else {
-                    std::ostringstream oss;
-                    bool rabbitMQStyle = false;
-                    for (char c : s) {
-                        if (c == '#') {
-                            oss << ".+";
-                            rabbitMQStyle = true;
-                        } else if (c == '*') {
-                            oss << "[^\\.]+";
-                            rabbitMQStyle = true;
-                        } else if (c == '.') {
-                            oss << "\\.";
-                        } else {
-                            oss << c;
-                        }
-                    }
-                    if (rabbitMQStyle) {
-                        return std::regex {oss.str()};
+                    return typename Component::NoTopicSelection {};
+                }
+            } else {
+                if constexpr(
+                    std::is_same_v<Component, rabbitmq::RabbitMQComponent>
+                    ||
+                    std::is_same_v<Component, redis::RedisComponent>
+                ) {
+                    return s;
+                } else {
+                    if (boost::starts_with(s, "r/") && boost::ends_with(s, "/") && s.length() > 3) {
+                        return std::regex {s.substr(2, s.length()-3)};
                     } else {
-                        return s;
+                        std::ostringstream oss;
+                        bool rabbitMQStyle = false;
+                        for (char c : s) {
+                            if (c == '#') {
+                                oss << ".+";
+                                rabbitMQStyle = true;
+                            } else if (c == '*') {
+                                oss << "[^\\.]+";
+                                rabbitMQStyle = true;
+                            } else if (c == '.') {
+                                oss << "\\.";
+                            } else {
+                                oss << c;
+                            }
+                        }
+                        if (rabbitMQStyle) {
+                            return std::regex {oss.str()};
+                        } else {
+                            return s;
+                        }
                     }
                 }
             }
