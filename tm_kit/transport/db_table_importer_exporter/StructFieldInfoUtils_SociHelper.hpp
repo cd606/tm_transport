@@ -144,11 +144,11 @@ namespace dev::cd606::tm::transport::struct_field_info_utils::db_table_importer_
                 switch (props.get_data_type())
                 {
                 case soci::dt_integer:
-                    return extractInternal(row.get<int>(index));
+                    return extractInternal<T>(row.get<int>(index));
                 case soci::dt_long_long:
-                    return extractInternal(row.get<long long>(index));
+                    return extractInternal<T>(row.get<long long>(index));
                 case soci::dt_unsigned_long_long:
-                    return extractInternal(row.get<unsigned long long>(index));
+                    return extractInternal<T>(row.get<unsigned long long>(index));
                 case soci::dt_string:
                     return boost::lexical_cast<T>(row.get<std::string>(index));
                 default:
@@ -160,13 +160,17 @@ namespace dev::cd606::tm::transport::struct_field_info_utils::db_table_importer_
             template <typename U>
             static T extractInternal(U u)
             {
-                if (u <= std::numeric_limits<T>::max() && u >= std::numeric_limits<T>::min())
-                {
-                    return (T)u;
-                }
-                else
-                {
-                    throw std::runtime_error("data range exceeds");
+                if constexpr (std::is_same_v<T, U>) {
+                    return u;
+                } else {
+                    if (u <= std::numeric_limits<T>::max() && u >= std::numeric_limits<T>::min())
+                    {
+                        return (T)u;
+                    }
+                    else
+                    {
+                        throw std::runtime_error("data range exceeds");
+                    }
                 }
             }
         };
@@ -181,31 +185,17 @@ namespace dev::cd606::tm::transport::struct_field_info_utils::db_table_importer_
                 switch (props.get_data_type())
                 {
                 case soci::dt_integer:
-                    return extractInternal(row.get<int>(index));
+                    return static_cast<T>(row.get<int>(index));
                 case soci::dt_long_long:
-                    return extractInternal(row.get<long long>(index));
+                    return static_cast<T>(row.get<long long>(index));
                 case soci::dt_unsigned_long_long:
-                    return extractInternal(row.get<unsigned long long>(index));
+                    return static_cast<T>(row.get<unsigned long long>(index));
                 case soci::dt_double:
-                    return extractInternal(row.get<double>(index));
+                    return static_cast<T>(row.get<double>(index));
                 case soci::dt_string:
                     return boost::lexical_cast<T>(row.get<std::string>(index));
                 default:
                     throw std::runtime_error(std::string("cannot convert from '") + sociDataTypeString(props.get_data_type()) + "' to floating point value");
-                }
-            }
-
-        private:
-            template <typename U>
-            static T extractInternal(U u)
-            {
-                if (u <= std::numeric_limits<T>::max() && u >= std::numeric_limits<T>::min())
-                {
-                    return (T)u;
-                }
-                else
-                {
-                    throw std::runtime_error("data range exceeds");
                 }
             }
         };
