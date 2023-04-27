@@ -154,7 +154,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                         if constexpr (std::is_convertible_v<Env *, redis::RedisComponent *>) {
                             sub = redis::RedisImporterExporter<Env>::template createTypedImporter<FirstInputType>(
                                 std::get<1>(*parsedSpec)
-                                , getTopic_internal(std::get<0>(*parsedSpec), spec.topicDescription)
+                                , MultiTransportBroadcastListenerRedisTopicHelper::redisTopicHelper(getTopic_internal(std::get<0>(*parsedSpec), spec.topicDescription))
                                 , hookFactory(spec.name)
                             );
                             r.registerImporter(prefix+"/"+spec.name, sub);
@@ -510,7 +510,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                 if constexpr (std::is_convertible_v<Env *, redis::RedisComponent *>) {
                     auto sub = redis::RedisImporterExporter<Env>::createImporter(
                         std::get<1>(*parsed)
-                        , getTopic_internal(std::get<0>(*parsed), topicDescription)
+                        , MultiTransportBroadcastListenerRedisTopicHelper::redisTopicHelper(getTopic_internal(std::get<0>(*parsed), topicDescription))
                         , hook
                     );
                     r.registerImporter(name, sub);
@@ -792,7 +792,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                     return redis::RedisImporterExporter<Env>::fetchFirstUpdateAndDisconnect(
                         env
                         , std::get<1>(*parsed)
-                        , getTopic_internal(std::get<0>(*parsed), topicDescription)
+                        , MultiTransportBroadcastListenerRedisTopicHelper::redisTopicHelper(getTopic_internal(std::get<0>(*parsed), topicDescription))
                         , hook
                     );
                 } else {
@@ -910,7 +910,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                     return redis::RedisImporterExporter<Env>::template fetchTypedFirstUpdateAndDisconnect<T>(
                         env
                         , std::get<1>(*parsed)
-                        , getTopic_internal(std::get<0>(*parsed), topicDescription)
+                        , MultiTransportBroadcastListenerRedisTopicHelper::redisTopicHelper(getTopic_internal(std::get<0>(*parsed), topicDescription))
                         , predicate
                         , hook
                     );
