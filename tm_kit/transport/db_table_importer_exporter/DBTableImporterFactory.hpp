@@ -10,33 +10,6 @@
 #include <soci/soci.h>
 
 namespace dev { namespace cd606 { namespace tm { namespace transport { namespace db_table_importer_exporter {
-    namespace db_traits
-    {
-        class MysqlTraits
-        {
-        public:
-            static constexpr bool HasDateFormatSupport = true;
-            static std::string ISO8601FormatedField(std::string_view fieldName)
-            {
-                std::ostringstream oss;
-                oss << "DATE_FORMAT(" << fieldName << ",'%Y-%m-%dT%H:%i:%S.%f')";
-                return oss.str();
-            }
-        };
-
-        class Sqlite3Traits
-        {
-        public:
-            static constexpr bool HasDateFormatSupport = true;
-            static std::string ISO8601FormatedField(std::string_view fieldName)
-            {
-                std::ostringstream oss;
-                oss << "strftime('%Y-%m-%dT%H:%M:%S.%f'," << fieldName << ')';
-                return oss.str();
-            }
-        };
-    }
-
     template <class M>
     class DBTableImporterFactory {
     private:
@@ -56,11 +29,11 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         static std::string selectStatement(std::shared_ptr<soci::session> const& session, std::string const &input) {
             if (dynamic_cast<soci::mysql_session_backend*>(session->get_backend()))
             {
-                return selectStatement_internal<T, transport::struct_field_info_utils::db_table_importer_exporter::StructFieldInfoBasedDataFiller<T, db_traits::MysqlTraits>>(input);
+                return selectStatement_internal<T, transport::struct_field_info_utils::db_table_importer_exporter::StructFieldInfoBasedDataFiller<T, struct_field_info_utils::db_table_importer_exporter::db_traits::MysqlTraits>>(input);
             }
             else if (dynamic_cast<soci::sqlite3_session_backend*>(session->get_backend()))
             {
-                return selectStatement_internal<T, transport::struct_field_info_utils::db_table_importer_exporter::StructFieldInfoBasedDataFiller<T, db_traits::Sqlite3Traits>>(input);
+                return selectStatement_internal<T, transport::struct_field_info_utils::db_table_importer_exporter::StructFieldInfoBasedDataFiller<T, struct_field_info_utils::db_table_importer_exporter::db_traits::Sqlite3Traits>>(input);
             }
             else
             {
@@ -87,11 +60,11 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         {
             if (dynamic_cast<soci::mysql_session_backend*>(session->get_backend()))
             {
-                return getTableData_internal<T, transport::struct_field_info_utils::db_table_importer_exporter::StructFieldInfoBasedDataFiller<T, db_traits::MysqlTraits>>(session, importerInput);
+                return getTableData_internal<T, transport::struct_field_info_utils::db_table_importer_exporter::StructFieldInfoBasedDataFiller<T, struct_field_info_utils::db_table_importer_exporter::db_traits::MysqlTraits>>(session, importerInput);
             }
             else if (dynamic_cast<soci::sqlite3_session_backend*>(session->get_backend()))
             {
-                return getTableData_internal<T, transport::struct_field_info_utils::db_table_importer_exporter::StructFieldInfoBasedDataFiller<T, db_traits::Sqlite3Traits>>(session, importerInput);
+                return getTableData_internal<T, transport::struct_field_info_utils::db_table_importer_exporter::StructFieldInfoBasedDataFiller<T, struct_field_info_utils::db_table_importer_exporter::db_traits::Sqlite3Traits>>(session, importerInput);
             }
             else
             {
@@ -146,11 +119,11 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         static std::string selectStatementForCombined(std::shared_ptr<soci::session> const &session, std::string const &input) {
             if (dynamic_cast<soci::mysql_session_backend*>(session->get_backend()))
             {
-                return selectStatementForCombined_internal<db_traits::MysqlTraits, Ts...>(input);
+                return selectStatementForCombined_internal<struct_field_info_utils::db_table_importer_exporter::db_traits::MysqlTraits, Ts...>(input);
             }
             else if (dynamic_cast<soci::sqlite3_session_backend*>(session->get_backend()))
             {
-                return selectStatementForCombined_internal<db_traits::Sqlite3Traits, Ts...>(input);
+                return selectStatementForCombined_internal<struct_field_info_utils::db_table_importer_exporter::db_traits::Sqlite3Traits, Ts...>(input);
             }
             else
             {
