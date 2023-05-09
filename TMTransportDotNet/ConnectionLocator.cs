@@ -268,6 +268,53 @@ namespace Dev.CD606.TM.Transport
                     return false;
             }
         }
+        public TopicSpec ToRedisTopicSpec()
+        {
+            switch (MatchType)
+            {
+                case TopicMatchType.MatchAll:
+                    return new TopicSpec
+                    {
+                        MatchType = TopicMatchType.MatchExact
+                        , ExactString = "*"
+                    };
+                case TopicMatchType.MatchExact:
+                    return new TopicSpec
+                    {
+                        MatchType = TopicMatchType.MatchExact
+                        , ExactString = this.ExactString.Replace('#', '*')
+                    };
+                case TopicMatchType.MatchRE:
+                default:
+                    throw new Exception("Redis does not support MatchRE");
+            }
+        }
+        public TopicSpec ToOtherTopicSpec()
+        {
+            switch (MatchType)
+            {
+                case TopicMatchType.MatchAll:
+                    return this;
+                case TopicMatchType.MatchExact:
+                    if (this.ExactString.IndexOf('#') != -1 || this.ExactString.IndexOf('*') != -1) {
+                        return new TopicSpec
+                        {
+                            MatchType = TopicMatchType.MatchRE
+                            , RegEX = new Regex(
+                                this.ExactString
+                                    .Replace(".", "\\.")
+                                    .Replace("*", "[^\\.]+")
+                                    .Replace("#", ".+")
+                            )
+                        };
+                    } else {
+                        return this;
+                    }
+                case TopicMatchType.MatchRE:
+                default:
+                    return this;
+            }
+        }
     }
 
     public static class TransportUtils
