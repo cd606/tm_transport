@@ -27,6 +27,48 @@
 
 namespace dev::cd606::tm::transport::struct_field_info_utils::db_table_importer_exporter
 {
+    namespace db_traits
+    {
+        class MysqlTraits
+        {
+        public:
+            static constexpr bool HasDateFormatSupport = true;
+            static std::string ISO8601FormatedField(std::string_view const &fieldName)
+            {
+                std::ostringstream oss;
+                oss << "DATE_FORMAT(" << fieldName << ",'%Y-%m-%dT%H:%i:%S.%f')";
+                return oss.str();
+            }
+            static std::string toISO8601FieldValue(std::string_view const &fieldName)
+            {
+                std::ostringstream oss;
+                oss << "STR_TO_DATE(:" << fieldName << ",'%Y-%m-%dT%H:%i:%S.%f')";
+                return oss.str();
+            }
+        };
+
+        class Sqlite3Traits
+        {
+        public:
+            static constexpr bool HasDateFormatSupport = true;
+            static std::string ISO8601FormatedField(std::string_view const &fieldName)
+            {
+                /*
+                std::ostringstream oss;
+                oss << "strftime('%Y-%m-%dT%H:%M:%f'," << fieldName << ')';
+                return oss.str();
+                */
+                return std::string {fieldName};
+            }
+            static std::string toISO8601FieldValue(std::string_view const &fieldName)
+            {
+                std::ostringstream oss;
+                oss << ":" << fieldName;
+                return oss.str();
+            }
+        };
+    }
+
     namespace soci_helper
     {
         inline const char *sociDataTypeString(soci::data_type dt)
@@ -319,10 +361,21 @@ namespace dev::cd606::tm::transport::struct_field_info_utils::db_table_importer_
                     oss << ',';
                 }
                 begin = false;
-                if constexpr (std::is_same_v<typename dev::cd606::tm::basic::StructFieldTypeInfo<T,FieldIndex>::TheType, std::chrono::system_clock::time_point>) {
-                    oss << "STR_TO_DATE(:" << dev::cd606::tm::basic::StructFieldInfo<T>::FIELD_NAMES[FieldIndex] << ",'%Y-%m-%dT%H:%i:%S.%f')";
-                } else if constexpr (dev::cd606::tm::basic::IsTimePointAsString<typename dev::cd606::tm::basic::StructFieldTypeInfo<T,FieldIndex>::TheType>::Value) {
-                    oss << "STR_TO_DATE(:" << dev::cd606::tm::basic::StructFieldInfo<T>::FIELD_NAMES[FieldIndex] << ",'%Y-%m-%dT%H:%i:%S.%f')";
+                if constexpr (std::is_same_v<typename dev::cd606::tm::basic::StructFieldTypeInfo<T, FieldIndex>::TheType, std::chrono::system_clock::time_point> ||
+                              dev::cd606::tm::basic::IsTimePointAsString<typename dev::cd606::tm::basic::StructFieldTypeInfo<T, FieldIndex>::TheType>::Value)
+                {
+                    if constexpr (std::is_same_v<DBTraits, void>)
+                    {
+                        oss << "STR_TO_DATE(:" << dev::cd606::tm::basic::StructFieldInfo<T>::FIELD_NAMES[FieldIndex] << ",'%Y-%m-%dT%H:%i:%S.%f')";
+                    }
+                    else if constexpr (DBTraits::HasDateFormatSupport)
+                    {
+                        oss << DBTraits::toISO8601FieldValue(dev::cd606::tm::basic::StructFieldInfo<T>::FIELD_NAMES[FieldIndex]);
+                    }
+                    else 
+                    {
+                        oss << ':' << dev::cd606::tm::basic::StructFieldInfo<T>::FIELD_NAMES[FieldIndex];
+                    }
                 } else {
                     oss << ':' << dev::cd606::tm::basic::StructFieldInfo<T>::FIELD_NAMES[FieldIndex];
                 }
@@ -337,10 +390,21 @@ namespace dev::cd606::tm::transport::struct_field_info_utils::db_table_importer_
                 }
                 begin = false;
                 oss << dev::cd606::tm::basic::StructFieldInfo<T>::FIELD_NAMES[FieldIndex] << " = ";
-                if constexpr (std::is_same_v<typename dev::cd606::tm::basic::StructFieldTypeInfo<T,FieldIndex>::TheType, std::chrono::system_clock::time_point>) {
-                    oss << "STR_TO_DATE(:" << dev::cd606::tm::basic::StructFieldInfo<T>::FIELD_NAMES[FieldIndex] << ",'%Y-%m-%dT%H:%i:%S.%f')";
-                } if constexpr (dev::cd606::tm::basic::IsTimePointAsString<typename dev::cd606::tm::basic::StructFieldTypeInfo<T,FieldIndex>::TheType>::Value) {
-                    oss << "STR_TO_DATE(:" << dev::cd606::tm::basic::StructFieldInfo<T>::FIELD_NAMES[FieldIndex] << ",'%Y-%m-%dT%H:%i:%S.%f')";
+                if constexpr (std::is_same_v<typename dev::cd606::tm::basic::StructFieldTypeInfo<T, FieldIndex>::TheType, std::chrono::system_clock::time_point> ||
+                              dev::cd606::tm::basic::IsTimePointAsString<typename dev::cd606::tm::basic::StructFieldTypeInfo<T, FieldIndex>::TheType>::Value)
+                {
+                    if constexpr (std::is_same_v<DBTraits, void>)
+                    {
+                        oss << "STR_TO_DATE(:" << dev::cd606::tm::basic::StructFieldInfo<T>::FIELD_NAMES[FieldIndex] << ",'%Y-%m-%dT%H:%i:%S.%f')";
+                    }
+                    else if constexpr (DBTraits::HasDateFormatSupport)
+                    {
+                        oss << DBTraits::toISO8601FieldValue(dev::cd606::tm::basic::StructFieldInfo<T>::FIELD_NAMES[FieldIndex]);
+                    }
+                    else 
+                    {
+                        oss << ':' << dev::cd606::tm::basic::StructFieldInfo<T>::FIELD_NAMES[FieldIndex];
+                    }
                 } else {
                     oss << ':' << dev::cd606::tm::basic::StructFieldInfo<T>::FIELD_NAMES[FieldIndex];
                 }

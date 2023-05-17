@@ -44,7 +44,7 @@ namespace Dev.CD606.TM.Transport
             public BinaryImporter(ConnectionLocator locator, TopicSpec topicSpec, WireToUserHook hook = null)
             {
                 this.locator = locator;
-                this.topicSpec = topicSpec;
+                this.topicSpec = topicSpec.ToOtherTopicSpec();
                 this.hook = hook;
                 this.thread = null;
                 this.running = false;
@@ -121,12 +121,8 @@ namespace Dev.CD606.TM.Transport
             {
                 this.decoder = decoder;
                 this.locator = locator;
-                this.topicSpec = topicSpec;
+                this.topicSpec = topicSpec.ToOtherTopicSpec();
                 this.hook = hook;
-                if (this.topicSpec.MatchType != TopicMatchType.MatchExact)
-                {
-                    throw new Exception($"RabbitMQ topic must be exact string");
-                }
                 this.thread = null;
                 this.running = false;
             }

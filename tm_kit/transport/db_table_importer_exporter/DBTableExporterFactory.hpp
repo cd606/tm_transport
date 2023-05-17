@@ -14,9 +14,9 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
     template <class M>
     class DBTableExporterFactory {
     private:
-        template <class T>
-        static std::string insertTemplate(std::string const &tableName) {
-            using DF = transport::struct_field_info_utils::db_table_importer_exporter::StructFieldInfoBasedDataFiller<T>;
+        template <class T, typename DBTraits>
+        static std::string insertTemplate_internal(std::string const &tableName) {
+            using DF = transport::struct_field_info_utils::db_table_importer_exporter::StructFieldInfoBasedDataFiller<T, DBTraits>;
             std::ostringstream oss;
             oss << "INSERT INTO " << tableName << '(';
             oss << DF::commaSeparatedFieldNames();
@@ -26,10 +26,21 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             oss << ')';
             return oss.str();
         }
-        template <class ItemKey, class ItemData>
-        static std::string insertTemplateWithDuplicateCheck(std::string const &tableName) {
-            using KF = transport::struct_field_info_utils::db_table_importer_exporter::StructFieldInfoBasedDataFiller<ItemKey>;
-            using DF = transport::struct_field_info_utils::db_table_importer_exporter::StructFieldInfoBasedDataFiller<ItemData>;
+        template <class T>
+        static std::string insertTemplate(std::shared_ptr<soci::session> const &session, std::string const &tableName) {
+            if (dynamic_cast<soci::mysql_session_backend*>(session->get_backend())) {
+                return insertTemplate_internal<T, struct_field_info_utils::db_table_importer_exporter::db_traits::MysqlTraits>(tableName);
+            } else if (dynamic_cast<soci::sqlite3_session_backend*>(session->get_backend())) {
+                return insertTemplate_internal<T, struct_field_info_utils::db_table_importer_exporter::db_traits::Sqlite3Traits>(tableName);
+            } else {
+                return insertTemplate_internal<T, void>(tableName);
+            }
+
+        }
+        template <class ItemKey, class ItemData, typename DBTraits>
+        static std::string insertTemplateWithDuplicateCheck_internal(std::string const &tableName) {
+            using KF = transport::struct_field_info_utils::db_table_importer_exporter::StructFieldInfoBasedDataFiller<ItemKey, DBTraits>;
+            using DF = transport::struct_field_info_utils::db_table_importer_exporter::StructFieldInfoBasedDataFiller<ItemData, DBTraits>;
             std::ostringstream oss;
             oss << "INSERT INTO " << tableName << '(';
             oss << KF::commaSeparatedFieldNames();
@@ -49,6 +60,16 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 oss << s << "=VALUES(" << s << ")";
             }
             return oss.str();
+        }
+        template <class ItemKey, class ItemData>
+        static std::string insertTemplateWithDuplicateCheck(std::shared_ptr<soci::session> const &session, std::string const &tableName) {
+            if (dynamic_cast<soci::mysql_session_backend*>(session->get_backend())) {
+                return insertTemplateWithDuplicateCheck_internal<ItemKey, ItemData, struct_field_info_utils::db_table_importer_exporter::db_traits::MysqlTraits>(tableName);
+            } else if (dynamic_cast<soci::sqlite3_session_backend*>(session->get_backend())) {
+                return insertTemplateWithDuplicateCheck_internal<ItemKey, ItemData, struct_field_info_utils::db_table_importer_exporter::db_traits::Sqlite3Traits>(tableName);
+            } else {
+                return insertTemplateWithDuplicateCheck_internal<ItemKey, ItemData, void>(tableName);
+            }
         }
         template <class T, int FieldCount, int FieldIndex>
         static void sociBindFields_internal(soci::statement &stmt, T const &data) {
@@ -143,7 +164,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 [session,tableName](
                     T &&data
                 ) {
-                    static std::string insertStmt = insertTemplate<T>(tableName);
+                    static std::string insertStmt = insertTemplate<T>(session, tableName);
                     
                     soci::statement stmt(*session);
                     stmt.alloc();
@@ -162,7 +183,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 [session,tableName](
                     std::tuple<ItemKey,ItemData> &&data
                 ) {
-                    static std::string insertStmt = insertTemplateWithDuplicateCheck<ItemKey,ItemData>(tableName);
+                    static std::string insertStmt = insertTemplateWithDuplicateCheck<ItemKey,ItemData>(session, tableName);
                     
                     soci::statement stmt(*session);
                     stmt.alloc();
@@ -185,7 +206,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                     if (data.empty()) {
                         return;
                     }
-                    static std::string insertStmt = insertTemplate<T>(tableName);
+                    static std::string insertStmt = insertTemplate<T>(session, tableName);
                     
                     std::vector<std::function<void()>> deletors;
                     soci::statement stmt(*session);
@@ -204,7 +225,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         template <class T, typename = std::enable_if_t<basic::StructFieldInfo<T>::HasGeneratedStructFieldInfo>>
         static void writeBatchToTable(std::shared_ptr<soci::session> const &session, std::string const &tableName, std::vector<T> const &batch)
         {
-            static std::string insertStmt = insertTemplate<T>(tableName);
+            static std::string insertStmt = insertTemplate<T>(session, tableName);
 
             if (batch.empty()) {
                 return;
