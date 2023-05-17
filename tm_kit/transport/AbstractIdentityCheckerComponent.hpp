@@ -100,10 +100,10 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
         static constexpr bool HasIdentity = false;
         using ComponentType = void;
     };
-    template <class Env, class Request, bool Check=std::is_convertible_v<Env *, ServerSideAbstractIdentityCheckerComponentBase<Request> *>, bool Check2=std::is_convertible_v<Env *, ServerSideAbstractIdentityCheckerComponentBase<typename basic::WrapFacilitioidConnectorForSerializationHelpers::UnwrappedType<Request>> *>>
+    template <class Env, class Request, bool Check=std::is_convertible_v<Env *, ServerSideAbstractIdentityCheckerComponentBase<Request> *>, bool Check2=std::is_convertible_v<Env *, ServerSideAbstractIdentityCheckerComponentBase<typename basic::WrapFacilitioidConnectorForSerializationHelpers::UnwrappedType<Request>> *>, bool Check3=std::is_convertible_v<Env *, ServerSideAbstractIdentityCheckerComponentBase<std::any> *>>
     class DetermineServerSideIdentityForRequest {};
-    template <class Env, class Request, bool Check2>
-    class DetermineServerSideIdentityForRequest<Env, Request, true, Check2> {
+    template <class Env, class Request, bool Check2, bool Check3>
+    class DetermineServerSideIdentityForRequest<Env, Request, true, Check2, Check3> {
     private:
         class InnerC {
         public:
@@ -121,8 +121,8 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
         static constexpr bool HasIdentity = true;
         using ComponentType = ServerSideAbstractIdentityCheckerComponent<IdentityType, Request>;
     };
-    template <class Env, class Request>
-    class DetermineServerSideIdentityForRequest<Env, Request, false, true> {
+    template <class Env, class Request, bool Check3>
+    class DetermineServerSideIdentityForRequest<Env, Request, false, true, Check3> {
     private:
         class InnerC {
         public:
@@ -141,7 +141,26 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
         using ComponentType = ServerSideAbstractIdentityCheckerComponent<IdentityType, typename basic::WrapFacilitioidConnectorForSerializationHelpers::UnwrappedType<Request>>;
     };
     template <class Env, class Request>
-    class DetermineServerSideIdentityForRequest<Env, Request, false, false> {
+    class DetermineServerSideIdentityForRequest<Env, Request, false, false, true> {
+    private:
+        class InnerC {
+        public:
+            template <class Identity> static constexpr Identity *f(
+                ServerSideAbstractIdentityCheckerComponent<Identity, std::any> *
+            ) {
+                return (Identity *) nullptr;
+            }
+        };
+    public:
+        using IdentityType =
+            std::remove_pointer_t<decltype(InnerC::f((Env *) nullptr))>;
+        using FullRequestType =
+            std::tuple<IdentityType, Request>;
+        static constexpr bool HasIdentity = true;
+        using ComponentType = ServerSideAbstractIdentityCheckerComponent<IdentityType, std::any>;
+    };
+    template <class Env, class Request>
+    class DetermineServerSideIdentityForRequest<Env, Request, false, false, false> {
     public:
         using IdentityType = void;
         using FullRequestType = Request;
