@@ -301,7 +301,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                     stmt.exchange(soci::use(basic::StructFieldTypeInfo<T,FieldIndex>::constAccess(data), std::string(basic::StructFieldInfo<T>::FIELD_NAMES[FieldIndex])));
                 }
                 if constexpr (FieldIndex < FieldCount-1) {
-                    sociBindFields_internal<T,FieldCount,FieldIndex+1>(stmt, data);
+                    bindQueryFields_internal<T,FieldCount,FieldIndex+1>(stmt, data);
                 }
             }
         }
