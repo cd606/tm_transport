@@ -408,7 +408,7 @@ namespace dev::cd606::tm::transport::struct_field_info_utils::db_table_importer_
                 } else {
                     oss << ':' << dev::cd606::tm::basic::StructFieldInfo<T>::FIELD_NAMES[FieldIndex];
                 }
-                addValueFieldsToInsertValueList_internal<FieldIndex+1>(oss, begin);
+                addValueFieldsToWhereClauseList_internal<FieldIndex+1>(oss, begin);
             }
         }
     public:
