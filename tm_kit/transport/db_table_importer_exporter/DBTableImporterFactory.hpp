@@ -276,6 +276,104 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 }
             );
         }
+    private:
+        template <class T, int FieldCount, int FieldIndex>
+        static void bindQueryFields_internal(soci::statement &stmt, T const &data) {
+            if constexpr (FieldIndex>=0 && FieldIndex<FieldCount) {
+                if constexpr (std::is_same_v<typename basic::StructFieldTypeInfo<T,FieldIndex>::TheType, basic::DateHolder>) {
+                    std::tm t;
+                    auto const &x = basic::StructFieldTypeInfo<T,FieldIndex>::constAccess(data);
+                    t.tm_year = ((x.year==0)?0:x.year-1900);
+                    t.tm_mon = ((x.month==0)?0:x.month-1);
+                    t.tm_mday = ((x.day==0)?1:x.day);
+                    t.tm_hour = 0;
+                    t.tm_min = 0;
+                    t.tm_sec = 0;
+                    t.tm_isdst = -1;
+                    stmt.exchange(soci::use(t, std::string(basic::StructFieldInfo<T>::FIELD_NAMES[FieldIndex])));
+                } else if constexpr (std::is_same_v<typename basic::StructFieldTypeInfo<T,FieldIndex>::TheType, std::chrono::system_clock::time_point>) {
+                    std::string s = infra::withtime_utils::localTimeString(basic::StructFieldTypeInfo<T,FieldIndex>::constAccess(data));
+                    stmt.exchange(soci::use(s, std::string(basic::StructFieldInfo<T>::FIELD_NAMES[FieldIndex])));
+                } else if constexpr (basic::ConvertibleWithString<typename basic::StructFieldTypeInfo<T,FieldIndex>::TheType>::value) {
+                    std::string s = basic::ConvertibleWithString<typename basic::StructFieldTypeInfo<T,FieldIndex>::TheType>::toString(basic::StructFieldTypeInfo<T,FieldIndex>::constAccess(data));
+                    stmt.exchange(soci::use(s, std::string(basic::StructFieldInfo<T>::FIELD_NAMES[FieldIndex])));
+                } else {
+                    stmt.exchange(soci::use(basic::StructFieldTypeInfo<T,FieldIndex>::constAccess(data), std::string(basic::StructFieldInfo<T>::FIELD_NAMES[FieldIndex])));
+                }
+                if constexpr (FieldIndex < FieldCount-1) {
+                    sociBindFields_internal<T,FieldCount,FieldIndex+1>(stmt, data);
+                }
+            }
+        }
+        template <class T>
+        static void bindQueryFields(soci::statement &stmt, T const &data) {
+            bindQueryFields_internal<T, basic::StructFieldInfo<T>::FIELD_NAMES.size(), 0>(stmt, data);
+        }
+        template <class Key, class Data, typename KeyDF, typename DataDF>
+        static auto queryTableData_internal(std::shared_ptr<soci::session> const &session, std::string const &tableName, Key const &key)
+            -> std::vector<Data>
+        {
+            std::ostringstream oss;
+            oss << "SELECT " << DataDF::commaSeparatedFieldNamesForSelect() << " FROM " << tableName << " WHERE ";
+            bool begin = true;
+            KeyDF::addValueFieldsToWhereClauseValueList(oss, begin);
+
+            std::string selectStmt = oss.str();
+
+            soci::statement stmt(*session);
+            stmt.alloc();
+            stmt.prepare(selectStmt);
+            bindQueryFields(stmt, key);
+            stmt.define_and_bind();
+            soci::row r;
+            stmt.exchange_for_rowset(soci::into(r));
+            stmt.execute(false);
+
+            soci::rowset_iterator<soci::row> iter(stmt, r);
+            soci::rowset_iterator<soci::row> end;
+            std::vector<Data> value;
+            for (; iter != end; ++iter) {
+                value.push_back(DataDF::retrieveData(*iter,0));
+            }
+
+            return value;
+        }
+    public:
+        template <
+            class Key
+            , class Data
+            , typename = std::enable_if_t<basic::StructFieldInfo<Key>::HasGeneratedStructFieldInfo && basic::StructFieldInfo<Data>::HasGeneratedStructFieldInfo>
+        >
+        static auto queryTableData(std::shared_ptr<soci::session> const& session, std::string const& tableName, Key const &key) -> std::vector<Data>
+        {
+            if (dynamic_cast<soci::mysql_session_backend*>(session->get_backend()))
+            {
+                return queryTableData_internal<
+                    Key
+                    , Data
+                    , transport::struct_field_info_utils::db_table_importer_exporter::StructFieldInfoBasedDataFiller<Key, struct_field_info_utils::db_table_importer_exporter::db_traits::MysqlTraits>
+                    , transport::struct_field_info_utils::db_table_importer_exporter::StructFieldInfoBasedDataFiller<Data, struct_field_info_utils::db_table_importer_exporter::db_traits::MysqlTraits>
+                >(session, tableName, key);
+            }
+            else if (dynamic_cast<soci::sqlite3_session_backend*>(session->get_backend()))
+            {
+                return queryTableData_internal<
+                    Key
+                    , Data
+                    , transport::struct_field_info_utils::db_table_importer_exporter::StructFieldInfoBasedDataFiller<Key, struct_field_info_utils::db_table_importer_exporter::db_traits::Sqlite3Traits>
+                    , transport::struct_field_info_utils::db_table_importer_exporter::StructFieldInfoBasedDataFiller<Data, struct_field_info_utils::db_table_importer_exporter::db_traits::Sqlite3Traits>
+                >(session, tableName, key);
+            }
+            else
+            {
+                return queryTableData_internal<
+                    Key
+                    , Data
+                    , transport::struct_field_info_utils::db_table_importer_exporter::StructFieldInfoBasedDataFiller<Key>
+                    , transport::struct_field_info_utils::db_table_importer_exporter::StructFieldInfoBasedDataFiller<Data>
+                >(session, tableName, key);
+            }
+        }
     };
 } } } } }
 
