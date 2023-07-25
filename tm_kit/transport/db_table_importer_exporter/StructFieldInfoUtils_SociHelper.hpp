@@ -288,12 +288,12 @@ namespace dev::cd606::tm::transport::struct_field_info_utils::db_table_importer_
         class SociValueExtractor<std::optional<T>, void>
         {
         public:
-            static T extract(soci::row const &row, std::size_t index)
+            static std::optional<T> extract(soci::row const &row, std::size_t index)
             {
                 switch (row.get_indicator(index))
                 {
                 case soci::i_ok:
-                    return SociValueExtractor<T>::extract(row, index);
+                    return {SociValueExtractor<T>::extract(row, index)};
                 case soci::i_null:
                 case soci::i_truncated:
                     return std::nullopt;
