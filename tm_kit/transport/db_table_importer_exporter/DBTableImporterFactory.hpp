@@ -297,6 +297,13 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                     *v = infra::withtime_utils::localTimeString(basic::StructFieldTypeInfo<T,FieldIndex>::constAccess(data));
                     stmt.exchange(soci::use(*v, std::string(basic::StructFieldInfo<T>::FIELD_NAMES[FieldIndex])));
                     deletors.push_back([v]() {delete v;});
+                } else if constexpr (basic::IsFixedPrecisionShortDecimal<typename basic::StructFieldTypeInfo<T,FieldIndex>::TheType>::value) {
+                    auto *v = new double();
+                    *v = (double) (
+                        basic::StructFieldTypeInfo<T,FieldIndex>::constAccess(data)
+                    );
+                    stmt.exchange(soci::use(*v, std::string(basic::StructFieldInfo<T>::FIELD_NAMES[FieldIndex])));
+                    deletors.push_back([v]() {delete v;});
                 } else if constexpr (basic::ConvertibleWithString<typename basic::StructFieldTypeInfo<T,FieldIndex>::TheType>::value) {
                     auto *v = new std::string();
                     *v = basic::ConvertibleWithString<typename basic::StructFieldTypeInfo<T,FieldIndex>::TheType>::toString(

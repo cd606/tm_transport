@@ -88,6 +88,9 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 } else if constexpr (std::is_same_v<typename basic::StructFieldTypeInfo<T,FieldIndex>::TheType, std::chrono::system_clock::time_point>) {
                     std::string s = infra::withtime_utils::localTimeString(basic::StructFieldTypeInfo<T,FieldIndex>::constAccess(data));
                     stmt.exchange(soci::use(s, std::string(basic::StructFieldInfo<T>::FIELD_NAMES[FieldIndex])));
+                } else if constexpr (basic::IsFixedPrecisionShortDecimal<typename basic::StructFieldTypeInfo<T,FieldIndex>::TheType>::value) {
+                    double v = (double) basic::StructFieldTypeInfo<T,FieldIndex>::constAccess(data);
+                    stmt.exchange(soci::use(v, std::string(basic::StructFieldInfo<T>::FIELD_NAMES[FieldIndex])));
                 } else if constexpr (basic::ConvertibleWithString<typename basic::StructFieldTypeInfo<T,FieldIndex>::TheType>::value) {
                     std::string s = basic::ConvertibleWithString<typename basic::StructFieldTypeInfo<T,FieldIndex>::TheType>::toString(basic::StructFieldTypeInfo<T,FieldIndex>::constAccess(data));
                     stmt.exchange(soci::use(s, std::string(basic::StructFieldInfo<T>::FIELD_NAMES[FieldIndex])));
@@ -127,6 +130,14 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                     for (auto const &x : data) {
                         auto const &y = basic::StructFieldTypeInfo<T,FieldIndex>::constAccess(x);
                         v->push_back(infra::withtime_utils::localTimeString(y));
+                    }
+                    stmt.exchange(soci::use(*v, std::string(basic::StructFieldInfo<T>::FIELD_NAMES[FieldIndex])));
+                    deletors.push_back([v]() {delete v;});
+                } else if constexpr (basic::IsFixedPrecisionShortDecimal<typename basic::StructFieldTypeInfo<T,FieldIndex>::TheType>::value) {
+                    auto *v = new std::vector<double>();
+                    for (auto const &x : data) {
+                        auto const &y = basic::StructFieldTypeInfo<T,FieldIndex>::constAccess(x);
+                        v->push_back((double) y);
                     }
                     stmt.exchange(soci::use(*v, std::string(basic::StructFieldInfo<T>::FIELD_NAMES[FieldIndex])));
                     deletors.push_back([v]() {delete v;});
@@ -261,6 +272,13 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 } else if constexpr (std::is_same_v<typename basic::StructFieldTypeInfo<T,FieldIndex>::TheType, std::chrono::system_clock::time_point>) {
                     auto *v = new std::string();
                     *v = infra::withtime_utils::localTimeString(basic::StructFieldTypeInfo<T,FieldIndex>::constAccess(data));
+                    stmt.exchange(soci::use(*v, std::string(basic::StructFieldInfo<T>::FIELD_NAMES[FieldIndex])));
+                    deletors.push_back([v]() {delete v;});
+                } else if constexpr (basic::IsFixedPrecisionShortDecimal<typename basic::StructFieldTypeInfo<T,FieldIndex>::TheType>::value) {
+                    auto *v = new double();
+                    *v = (double) (
+                        basic::StructFieldTypeInfo<T,FieldIndex>::constAccess(data)
+                    );
                     stmt.exchange(soci::use(*v, std::string(basic::StructFieldInfo<T>::FIELD_NAMES[FieldIndex])));
                     deletors.push_back([v]() {delete v;});
                 } else if constexpr (basic::ConvertibleWithString<typename basic::StructFieldTypeInfo<T,FieldIndex>::TheType>::value) {
