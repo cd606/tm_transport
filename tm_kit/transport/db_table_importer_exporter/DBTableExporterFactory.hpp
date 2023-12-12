@@ -72,39 +72,46 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             }
         }
         template <class T, int FieldCount, int FieldIndex>
-        static void sociBindFields_internal(soci::statement &stmt, T const &data) {
+        static void sociBindFields_internal(soci::statement &stmt, T const &data, std::vector<std::function<void()>> &deletors) {
             if constexpr (FieldIndex>=0 && FieldIndex<FieldCount) {
                 if constexpr (std::is_same_v<typename basic::StructFieldTypeInfo<T,FieldIndex>::TheType, basic::DateHolder>) {
-                    std::tm t;
+                    auto *t = new std::tm();
                     auto const &x = basic::StructFieldTypeInfo<T,FieldIndex>::constAccess(data);
-                    t.tm_year = ((x.year==0)?0:x.year-1900);
-                    t.tm_mon = ((x.month==0)?0:x.month-1);
-                    t.tm_mday = ((x.day==0)?1:x.day);
-                    t.tm_hour = 0;
-                    t.tm_min = 0;
-                    t.tm_sec = 0;
-                    t.tm_isdst = -1;
-                    stmt.exchange(soci::use(t, std::string(basic::StructFieldInfo<T>::FIELD_NAMES[FieldIndex])));
+                    t->tm_year = ((x.year==0)?0:x.year-1900);
+                    t->tm_mon = ((x.month==0)?0:x.month-1);
+                    t->tm_mday = ((x.day==0)?1:x.day);
+                    t->tm_hour = 0;
+                    t->tm_min = 0;
+                    t->tm_sec = 0;
+                    t->tm_isdst = -1;
+                    stmt.exchange(soci::use(*t, std::string(basic::StructFieldInfo<T>::FIELD_NAMES[FieldIndex])));
+                    deletors.push_back([t]() {delete t;});
                 } else if constexpr (std::is_same_v<typename basic::StructFieldTypeInfo<T,FieldIndex>::TheType, std::chrono::system_clock::time_point>) {
-                    std::string s = infra::withtime_utils::localTimeString(basic::StructFieldTypeInfo<T,FieldIndex>::constAccess(data));
-                    stmt.exchange(soci::use(s, std::string(basic::StructFieldInfo<T>::FIELD_NAMES[FieldIndex])));
+                    auto *s = new std::string();
+                    *s = infra::withtime_utils::localTimeString(basic::StructFieldTypeInfo<T,FieldIndex>::constAccess(data));
+                    stmt.exchange(soci::use(*s, std::string(basic::StructFieldInfo<T>::FIELD_NAMES[FieldIndex])));
+                    deletors.push_back([s]() {delete s;});
                 } else if constexpr (basic::IsFixedPrecisionShortDecimal<typename basic::StructFieldTypeInfo<T,FieldIndex>::TheType>::value) {
-                    double v = (double) basic::StructFieldTypeInfo<T,FieldIndex>::constAccess(data);
-                    stmt.exchange(soci::use(v, std::string(basic::StructFieldInfo<T>::FIELD_NAMES[FieldIndex])));
+                    auto *v = new double();
+                    *v = (double) basic::StructFieldTypeInfo<T,FieldIndex>::constAccess(data);
+                    stmt.exchange(soci::use(*v, std::string(basic::StructFieldInfo<T>::FIELD_NAMES[FieldIndex])));
+                    deletors.push_back([v]() {delete v;});
                 } else if constexpr (basic::ConvertibleWithString<typename basic::StructFieldTypeInfo<T,FieldIndex>::TheType>::value) {
-                    std::string s = basic::ConvertibleWithString<typename basic::StructFieldTypeInfo<T,FieldIndex>::TheType>::toString(basic::StructFieldTypeInfo<T,FieldIndex>::constAccess(data));
-                    stmt.exchange(soci::use(s, std::string(basic::StructFieldInfo<T>::FIELD_NAMES[FieldIndex])));
+                    auto *s = new std::string();
+                    *s = basic::ConvertibleWithString<typename basic::StructFieldTypeInfo<T,FieldIndex>::TheType>::toString(basic::StructFieldTypeInfo<T,FieldIndex>::constAccess(data));
+                    stmt.exchange(soci::use(*s, std::string(basic::StructFieldInfo<T>::FIELD_NAMES[FieldIndex])));
+                    deletors.push_back([s]() {delete s;});
                 } else {
                     stmt.exchange(soci::use(basic::StructFieldTypeInfo<T,FieldIndex>::constAccess(data), std::string(basic::StructFieldInfo<T>::FIELD_NAMES[FieldIndex])));
                 }
                 if constexpr (FieldIndex < FieldCount-1) {
-                    sociBindFields_internal<T,FieldCount,FieldIndex+1>(stmt, data);
+                    sociBindFields_internal<T,FieldCount,FieldIndex+1>(stmt, data, deletors);
                 }
             }
         }
         template <class T>
-        static void sociBindFields(soci::statement &stmt, T const &data) {
-            sociBindFields_internal<T, basic::StructFieldInfo<T>::FIELD_NAMES.size(), 0>(stmt, data);
+        static void sociBindFields(soci::statement &stmt, T const &data, std::vector<std::function<void()>> &deletors) {
+            sociBindFields_internal<T, basic::StructFieldInfo<T>::FIELD_NAMES.size(), 0>(stmt, data, deletors);
         }
         template <class T, int FieldCount, int FieldIndex>
         static void sociBindFieldsBatch_internal(soci::statement &stmt, std::vector<T> const &data, std::vector<std::function<void()>> &deletors) {            
@@ -180,9 +187,13 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                     soci::statement stmt(*session);
                     stmt.alloc();
                     stmt.prepare(insertStmt);
-                    sociBindFields(stmt, data);
+                    std::vector<std::function<void()>> deletors;
+                    sociBindFields(stmt, data, deletors);
                     stmt.define_and_bind();
                     stmt.execute(true);
+                    for (auto const &d: deletors) {
+                        d();
+                    }
                 }
             );
         }
@@ -199,10 +210,14 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                     soci::statement stmt(*session);
                     stmt.alloc();
                     stmt.prepare(insertStmt);
-                    sociBindFields(stmt, std::get<0>(data));
-                    sociBindFields(stmt, std::get<1>(data));
+                    std::vector<std::function<void()>> deletors;
+                    sociBindFields(stmt, std::get<0>(data), deletors);
+                    sociBindFields(stmt, std::get<1>(data), deletors);
                     stmt.define_and_bind();
                     stmt.execute(true);
+                    for (auto const &d: deletors) {
+                        d();
+                    }
                 }
             );
         }

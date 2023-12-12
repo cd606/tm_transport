@@ -13,6 +13,7 @@
 #include <tm_kit/infra/ChronoUtils.hpp>
 #include <tm_kit/basic/DateHolder.hpp>
 #include <tm_kit/basic/ChronoUtils_AddOn.hpp>
+#include <tm_kit/basic/TimePointAsString.hpp>
 #include <tm_kit/basic/ConvertibleWithString.hpp>
 #include <tm_kit/basic/FixedPrecisionShortDecimal.hpp>
 
@@ -100,12 +101,14 @@ namespace dev::cd606::tm::transport::struct_field_info_utils::db_table_importer_
         template <typename T, typename Enable = void>
         class SociValueExtractor
         {
+            static constexpr bool HasSpecificExtractor = false;
         };
 
         template <>
         class SociValueExtractor<std::tm, void>
         {
         public:
+            static constexpr bool HasSpecificExtractor = true;
             static std::tm extract(soci::row const &row, std::size_t index)
             {
                 auto const &props = row.get_properties(index);
@@ -126,6 +129,7 @@ namespace dev::cd606::tm::transport::struct_field_info_utils::db_table_importer_
         class SociValueExtractor<basic::DateHolder, void>
         {
         public:
+            static constexpr bool HasSpecificExtractor = true;
             static basic::DateHolder extract(soci::row const &row, std::size_t index)
             {
                 auto const &props = row.get_properties(index);
@@ -153,6 +157,7 @@ namespace dev::cd606::tm::transport::struct_field_info_utils::db_table_importer_
         class SociValueExtractor<std::chrono::system_clock::time_point, void>
         {
         public:
+            static constexpr bool HasSpecificExtractor = true;
             static std::chrono::system_clock::time_point extract(soci::row const &row, std::size_t index)
             {
                 auto const &props = row.get_properties(index);
@@ -181,6 +186,7 @@ namespace dev::cd606::tm::transport::struct_field_info_utils::db_table_importer_
         class SociValueExtractor<T, std::enable_if_t<std::is_integral_v<T>, void>>
         {
         public:
+            static constexpr bool HasSpecificExtractor = true;
             static T extract(soci::row const &row, std::size_t index)
             {
                 auto const &props = row.get_properties(index);
@@ -247,6 +253,7 @@ namespace dev::cd606::tm::transport::struct_field_info_utils::db_table_importer_
         class SociValueExtractor<T, std::enable_if_t<basic::IsFixedPrecisionShortDecimal<T>::value, void>>
         {
         public:
+            static constexpr bool HasSpecificExtractor = true;
             static T extract(soci::row const &row, std::size_t index)
             {
                 auto const &props = row.get_properties(index);
@@ -272,6 +279,7 @@ namespace dev::cd606::tm::transport::struct_field_info_utils::db_table_importer_
         class SociValueExtractor<std::string, void>
         {
         public:
+            static constexpr bool HasSpecificExtractor = true;
             static std::string extract(soci::row const &row, std::size_t index)
             {
                 auto const &props = row.get_properties(index);
@@ -300,20 +308,24 @@ namespace dev::cd606::tm::transport::struct_field_info_utils::db_table_importer_
             }
         };
 
-        template <typename T>
-        class SociValueExtractor<T, std::enable_if_t<!basic::IsFixedPrecisionShortDecimal<T>::value && basic::ConvertibleWithString<T>::value, void>>
+	    template <typename TZ>
+        class SociValueExtractor<basic::TimePointAsString<TZ>, void>
         {
-        public:
-            static T extract(soci::row const &row, std::size_t index)
-            {
-                return basic::ConvertibleWithString<T>::fromString(SociValueExtractor<std::string>::extract(row, index));
-            }
+            public:
+                static constexpr bool HasSpecificExtractor = true;
+                static basic::TimePointAsString<TZ> extract(soci::row const& row, std::size_t index) 
+                {
+                    return basic::TimePointAsString<TZ> {
+                        SociValueExtractor<std::chrono::system_clock::time_point>::extract(row, index)
+                    };
+                }
         };
 
         template <typename T>
         class SociValueExtractor<std::optional<T>, void>
         {
         public:
+            static constexpr bool HasSpecificExtractor = true;
             static std::optional<T> extract(soci::row const &row, std::size_t index)
             {
                 switch (row.get_indicator(index))
@@ -324,6 +336,16 @@ namespace dev::cd606::tm::transport::struct_field_info_utils::db_table_importer_
                 case soci::i_truncated:
                     return std::nullopt;
                 }
+            }
+        };
+
+        template <typename T>
+        class SociValueExtractor<T, std::enable_if_t<!basic::IsFixedPrecisionShortDecimal<T>::value && basic::ConvertibleWithString<T>::value && !SociValueExtractor<T>::HasSpecificExtractor, void>>
+        {
+        public:
+            static T extract(soci::row const &row, std::size_t index)
+            {
+                return basic::ConvertibleWithString<T>::fromString(SociValueExtractor<std::string>::extract(row, index));
             }
         };
     } // namespace soci_helper
