@@ -9,7 +9,7 @@
 
 namespace dev { namespace cd606 {namespace tm {namespace transport {
     namespace boost_certify_adaptor {
-        extern void initializeSslCtx(boost::asio::ssl::context &ctx);
+        extern void initializeSslCtx(boost::asio::ssl::context &ctx, bool noVerify);
         extern bool setHostName(boost::beast::ssl_stream<boost::beast::tcp_stream> &stream, std::string const &hostName);
     }
 }}}}

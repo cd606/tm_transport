@@ -75,6 +75,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             boost::asio::io_context *svc_;
             std::optional<boost::asio::ssl::context> sslCtx_;
             basic::LoggingComponentBase *logger_;
+            bool noVerify_;
             bool initializationFailure_;
 
             boost::asio::ip::tcp::resolver resolver_;
@@ -99,6 +100,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 , boost::asio::io_context *svc
                 , std::optional<TLSClientInfo> const &sslInfo
                 , basic::LoggingComponentBase *logger
+                , bool noVerify
             )
                 : parent_(parent)
                 , locator_(locator)
@@ -116,6 +118,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                     : std::nullopt
                 )
                 , logger_(logger)
+                , noVerify_(noVerify)
                 , initializationFailure_(false)
                 , resolver_(boost::asio::make_strand(*svc_))
                 , stream_()
@@ -147,7 +150,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                             return;
                         }
                     } else {
-                        boost_certify_adaptor::initializeSslCtx(*sslCtx_);
+                        boost_certify_adaptor::initializeSslCtx(*sslCtx_, noVerify_);
                     }
                     
                     stream_.emplace<2>(boost::asio::make_strand(*svc_), *sslCtx_);
@@ -425,6 +428,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             std::optional<TLSClientInfo> sslInfo_;
             std::optional<boost::asio::ssl::context> sslCtx_;
             basic::LoggingComponentBase *logger_;
+            bool noVerify_;
             bool initializationFailure_;
 
             boost::asio::ip::tcp::resolver resolver_;
@@ -497,6 +501,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 , std::optional<TLSClientInfo> const &sslInfo
                 , basic::LoggingComponentBase *logger
                 , std::unique_ptr<OneRequest> &&initialRequest
+                , bool noVerify
             )
                 : parent_(parent)
                 , host_(host)
@@ -512,6 +517,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                     : std::nullopt
                 )
                 , logger_(logger)
+                , noVerify_(noVerify)
                 , initializationFailure_(false)
                 , resolver_(boost::asio::make_strand(*svc_))
                 , stream_()
@@ -546,7 +552,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                             return;
                         }
                     } else {
-                        boost_certify_adaptor::initializeSslCtx(*sslCtx_);
+                        boost_certify_adaptor::initializeSslCtx(*sslCtx_, noVerify_);
                     }
                     
                     stream_ = std::make_unique<StreamVariant>(
@@ -1668,6 +1674,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                     port = 80;
                 }
             }
+            bool noVerify = (locator.query("no_verify", "false") == "true");
             if (locator.query("use_keep_alive_client", "false") == "true") {
                 std::lock_guard<std::mutex> _(keepAliveClientMapMutex_);
                 ConnectionLocator hostAndPort {locator.host(), port};
@@ -1689,7 +1696,9 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                             , clientCallback 
                             , method
                             , contentType
-                        })
+                        }
+                        )
+                        , noVerify
                     );
                     if (!client->initializationFailure()) {
                         keepAliveClientMap_.insert({hostAndPort, client});
@@ -1720,6 +1729,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                         TLSClientInfoKey {locator.host(), port}
                     ):std::nullopt)
                     , logger
+                    , noVerify
                 );
                 if (!client->initializationFailure()) {
                     {

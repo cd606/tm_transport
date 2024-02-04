@@ -3,11 +3,17 @@
 
 namespace dev { namespace cd606 {namespace tm {namespace transport {
     namespace boost_certify_adaptor {
-        void initializeSslCtx(boost::asio::ssl::context &ctx) {
-            ctx.set_verify_mode(
-                boost::asio::ssl::context::verify_peer |
-                boost::asio::ssl::context::verify_fail_if_no_peer_cert
-            );
+        void initializeSslCtx(boost::asio::ssl::context &ctx, bool noVerify) {
+            if (noVerify) {
+                ctx.set_verify_mode(
+                    boost::asio::ssl::context::verify_none
+                );
+            } else {
+                ctx.set_verify_mode(
+                    boost::asio::ssl::context::verify_peer |
+                    boost::asio::ssl::context::verify_fail_if_no_peer_cert
+                );
+            }
             ctx.set_default_verify_paths();
             boost::certify::enable_native_https_server_verification(ctx);
             SSL_CTX_set_options(ctx.native_handle(), SSL_OP_LEGACY_SERVER_CONNECT);

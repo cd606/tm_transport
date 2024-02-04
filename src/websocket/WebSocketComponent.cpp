@@ -64,6 +64,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             boost::beast::flat_buffer buffer_;
             bool initializationFailure_;
             basic::LoggingComponentBase *loggingBase_;
+            bool noVerify_;
             int logPerMessageCount_;
             uint64_t messageCount_;
         public:
@@ -75,6 +76,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 , std::function<void()> const &protocolRestartReactor
                 , std::optional<TLSClientInfo> const &sslInfo
                 , basic::LoggingComponentBase *loggingBase
+                , bool noVerify
             )
                 : parent_(parent), locator_(locator)
                 , initialData_(std::move(initialData))
@@ -95,6 +97,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 , buffer_()
                 , initializationFailure_(false)
                 , loggingBase_(loggingBase)
+                , noVerify_(noVerify)
                 , logPerMessageCount_(std::stoi(locator.query("logPerMessageCount", "-1")))
                 , messageCount_(0)
             {
@@ -126,7 +129,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                             return;
                         }
                     } else {
-                        boost_certify_adaptor::initializeSslCtx(*sslCtx_);
+                        boost_certify_adaptor::initializeSslCtx(*sslCtx_, noVerify_);
                     }
                     
                     stream_.emplace<2>(boost::asio::make_strand(svc_), *sslCtx_);
@@ -171,6 +174,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                     , protocolRestartReactor_
                     , sslInfo_
                     , loggingBase_
+                    , noVerify_
                 );
                 {
                     std::lock_guard<std::mutex> _(clientsMutex_);
@@ -1029,6 +1033,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             std::string handshakeHost_;
             boost::asio::io_context svc_;
             std::optional<boost::asio::ssl::context> sslCtx_;
+            bool noVerify_;
             struct OneClientInfo {
                 std::function<void(bool, basic::ByteDataWithID &&)> callback_;
                 std::optional<WireToUserHook> wireToUserHook_;
@@ -1055,6 +1060,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 WebSocketComponentImpl *parent
                 , ConnectionLocator const &locator
                 , std::optional<TLSClientInfo> const &sslInfo
+                , bool noVerify
             )
                 : parent_(parent), locator_(locator), svc_()
                 , sslCtx_(
@@ -1062,6 +1068,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                     ? std::optional<boost::asio::ssl::context>(boost::asio::ssl::context {boost::asio::ssl::context::tlsv12_client})
                     : std::nullopt
                 )
+                , noVerify_(noVerify)
                 , clientCounter_(0), clients_(), clientToIDMap_(), idToClientMap_(), clientsMutex_()
                 , th_(), running_(false), ready_(false)
                 , resolver_(boost::asio::make_strand(svc_))
@@ -1091,7 +1098,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                             return;
                         }
                     } else {
-                        boost_certify_adaptor::initializeSslCtx(*sslCtx_);
+                        boost_certify_adaptor::initializeSslCtx(*sslCtx_, noVerify_);
                     }
                     
                     stream_.emplace<2>(boost::asio::make_strand(svc_), *sslCtx_);
@@ -1851,6 +1858,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 }
             }
             auto actualLocator = locator.modifyPort(port);
+            bool noVerify = (locator.query("no_verify", "false") == "true");
             uint32_t retVal = 0;
             {
                 std::lock_guard<std::mutex> _(subscriberMapMutex_);
@@ -1868,6 +1876,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                                 , protocolRestartReactor
                                 , (config?config->getConfigurationItem(TLSClientInfoKey {actualLocator.host(), actualLocator.port()}):std::nullopt)
                                 , loggingBase
+                                , noVerify
                             )
                         }
                     ).first;
@@ -1944,6 +1953,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 wireToUserHook = std::nullopt;
             }
             OneRPCClient *conn = nullptr;
+            bool noVerify = (locator.query("no_verify", "false") == "true");
             {
                 std::lock_guard<std::mutex> _(rpcClientMapMutex_);
                 auto iter = rpcClientMap_.find(locator);
@@ -1955,6 +1965,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                                 this
                                 , locator
                                 , (config?config->getConfigurationItem(TLSClientInfoKey {locator.host(), locator.port()}):std::nullopt)
+                                , noVerify
                             )
                         }
                     ).first;
