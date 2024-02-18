@@ -75,6 +75,9 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         bool operator==(BclGuid const &b) const {
             return (id_ == b.id_);
         }
+        bool operator<(BclGuid const &b) const {
+            return (id_ < b.id_);
+        }
         typename Env::IDType &operator*() {
             return id_;
         }
@@ -168,6 +171,9 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         }
         bool operator==(BclDecimal const &d) const {
             return (value_ == d.value_);
+        }
+        bool operator<(BclDecimal const &d) const {
+            return (value_ < d.value_);
         }
         typename boost::multiprecision::cpp_dec_float_100 &operator*() {
             return value_;
