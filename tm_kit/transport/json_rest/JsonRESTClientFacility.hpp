@@ -465,8 +465,52 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             }
         }
 
+        template <class ComplexInputKindRequest>
+        static std::future<json_rest::RawStringWithStatus> typedOneShotComplexInputRemoteCall(Env *env, ConnectionLocator const &rpcQueueLocator, ComplexInputKindRequest &&request) {            
+            ConnectionLocator updatedLocator = rpcQueueLocator.modifyIdentifier(request.path);
+            std::unordered_map<std::string, std::string> locatorHeaderProps;
+            if (!request.headers.empty()) {
+                for (auto const &item : request.headers) {
+                    locatorHeaderProps.insert(std::make_pair("header/"+item.first, item.second));
+                }
+            }
+            if (request.auth_token) {
+                locatorHeaderProps.insert(std::make_pair("auth_token", *(request.auth_token)));
+            }
+            if (!locatorHeaderProps.empty()) {
+                updatedLocator = updatedLocator.addProperties(locatorHeaderProps);
+            }
+
+            auto ret = std::make_shared<std::promise<json_rest::RawStringWithStatus>>(); 
+            env->JsonRESTComponent::addJsonRESTClient(
+                updatedLocator
+                , std::string {request.query}
+                , std::string {request.body}
+                , [ret,env](unsigned status, std::string &&response, std::unordered_map<std::string,std::string> &&headerFields) mutable {
+                    ret->set_value({status, std::move(headerFields), std::move(response)});
+                }
+                , request.contentType
+                , request.method
+            );
+            return ret->get_future();
+        }
+
         template <class Req, class Resp>
         static std::future<Resp> typedOneShotRemoteCall(Env *env, ConnectionLocator const &rpcQueueLocator, Req &&request) {
+            if constexpr (
+                std::is_same_v<Req, json_rest::ComplexInput>
+                &&
+                std::is_same_v<Resp, json_rest::RawStringWithStatus>
+            ) {
+                return typedOneShotComplexInputRemoteCall<Req>(env, rpcQueueLocator, std::move(request));
+            } else if constexpr (
+                json_rest::IsComplexInputWithData<Req>::value
+                &&
+                std::is_same_v<Resp, json_rest::RawStringWithStatus>
+            ) {
+                return typedOneShotComplexInputRemoteCall<Req>(env, rpcQueueLocator, std::move(request));
+            }
+
             if constexpr (
                 basic::nlohmann_json_interop::JsonWrappable<Req>::value
                 &&
