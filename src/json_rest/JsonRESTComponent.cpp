@@ -201,7 +201,9 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
 
                     req_.set(boost::beast::http::field::authorization, "Basic "+authString);
                 }
-                req_.set(boost::beast::http::field::content_type, contentType_);
+                if (locator_.query("no_content_type", "false") != "true") {
+                    req_.set(boost::beast::http::field::content_type, contentType_);
+                }
                 req_.body() = std::move(request_);
                 req_.prepare_payload();
 
@@ -487,7 +489,9 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
 
                     req.set(boost::beast::http::field::authorization, "Basic "+authString);
                 }
-                req.set(boost::beast::http::field::content_type, input.contentType);
+                if (input.contentType != "") {
+                    req.set(boost::beast::http::field::content_type, input.contentType);
+                }
                 req.body() = std::move(input.request);
                 req.keep_alive(true);
                 req.prepare_payload();
