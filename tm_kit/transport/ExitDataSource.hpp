@@ -5,7 +5,11 @@
 #include <tm_kit/basic/VoidStruct.hpp>
 
 #include <boost/asio/signal_set.hpp>
+#if BOOST_VERSION >= 108700
+#include <boost/asio/io_context.hpp>
+#else
 #include <boost/asio/io_service.hpp>
+#endif
 
 #include <thread>
 
@@ -13,7 +17,11 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
     class ExitDataSourceCreator {
     public:
         template <class R>
+#if BOOST_VERSION >= 108700
+        static auto addExitDataSource(R &r, std::string const &sourceName, boost::asio::io_context *svcPtr = nullptr)
+#else
         static auto addExitDataSource(R &r, std::string const &sourceName, boost::asio::io_service *svcPtr = nullptr)
+#endif
         -> std::tuple<
             typename R::template Source<basic::VoidStruct>
             , std::function<void()>
@@ -28,11 +36,19 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
             if (svcPtr) {
                 signals = std::make_shared<boost::asio::signal_set>(*svcPtr, SIGINT, SIGTERM);
             } else {
+#if BOOST_VERSION >= 108700
+                auto svc = std::make_shared<boost::asio::io_context>();
+#else
                 auto svc = std::make_shared<boost::asio::io_service>();
+#endif
                 r.preservePointer(svc);
 
                 std::thread th([svc]() {
+#if BOOST_VERSION >= 108700
+                    auto work_guard = boost::asio::make_work_guard(*svc);
+#else
                     boost::asio::io_service::work w(*svc);
+#endif
                     svc->run();
                 });
                 th.detach();
