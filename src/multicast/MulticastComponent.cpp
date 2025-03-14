@@ -116,7 +116,11 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 }
             }
         public:
+#if BOOST_VERSION >= 108700        
+            OneMulticastSubscription(MulticastComponentTopicEncodingChoice encodingChoice, boost::asio::io_context *service, ConnectionLocator const &locator, std::string const &interface) 
+#else
             OneMulticastSubscription(MulticastComponentTopicEncodingChoice encodingChoice, boost::asio::io_service *service, ConnectionLocator const &locator, std::string const &interface) 
+#endif            
                 : encodingChoice_(encodingChoice), locator_(locator), sock_(*service), senderPoint_(), mcastAddr_(), buffer_()
                 , noFilterClients_(), stringMatchClients_(), regexMatchClients_()
                 , thHandle_()
@@ -125,8 +129,12 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 boost::asio::ip::udp::resolver resolver(*service);
 
                 {
+#if BOOST_VERSION >= 108700     
+                    boost::asio::ip::udp::endpoint listenPoint = resolver.resolve("0.0.0.0", std::to_string(locator.port())).begin()->endpoint();               
+#else
                     boost::asio::ip::udp::resolver::query query("0.0.0.0", std::to_string(locator.port()));
                     boost::asio::ip::udp::endpoint listenPoint = resolver.resolve(query)->endpoint();
+#endif                    
                     sock_.open(listenPoint.protocol());
                     sock_.set_option(boost::asio::ip::udp::socket::reuse_address(true));
                     sock_.set_option(boost::asio::ip::udp::socket::receive_buffer_size(16*1024*1024));
@@ -135,14 +143,22 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 }
                 
                 {
+#if BOOST_VERSION >= 108700   
+                    mcastAddr_ = resolver.resolve(locator.host(), std::to_string(locator.port())).begin()->endpoint().address();                 
+#else
                     boost::asio::ip::udp::resolver::query query(locator.host(), std::to_string(locator.port()));
                     mcastAddr_ = resolver.resolve(query)->endpoint().address();
+#endif                    
                     if (interface != "") {
                         auto interfaceAddr = getAddressForInterface(interface);
                         if (interfaceAddr != "") {
                             sock_.set_option(boost::asio::ip::multicast::join_group(
                                 mcastAddr_.to_v4()
+#if BOOST_VERSION >= 108700   
+                                , boost::asio::ip::make_address(interfaceAddr).to_v4()                             
+#else
                                 , boost::asio::ip::address::from_string(interfaceAddr).to_v4()
+#endif                                
                             ));
                         } else {
                             sock_.set_option(boost::asio::ip::multicast::join_group(
@@ -256,12 +272,20 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             void handleSend(boost::system::error_code const &) {
             }
         public:
+#if BOOST_VERSION >= 108700
+            OneMulticastSender(MulticastComponentTopicEncodingChoice encodingChoice, boost::asio::io_context *service, ConnectionLocator const &locator, std::string const &interface)
+#else
             OneMulticastSender(MulticastComponentTopicEncodingChoice encodingChoice, boost::asio::io_service *service, ConnectionLocator const &locator, std::string const &interface)
+#endif            
                 : encodingChoice_(encodingChoice), sock_(*service), destination_(), mutex_(), ttl_(0)
             {
                 boost::asio::ip::udp::resolver resolver(*service);
+#if BOOST_VERSION >= 108700   
+                destination_ = resolver.resolve(locator.host(), std::to_string(locator.port())).begin()->endpoint();             
+#else
                 boost::asio::ip::udp::resolver::query query(locator.host(), std::to_string(locator.port()));
                 destination_ = resolver.resolve(query)->endpoint();
+#endif
 
                 sock_.open(destination_.protocol());
                 sock_.set_option(boost::asio::ip::udp::socket::reuse_address(true));
@@ -272,7 +296,11 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                     //std::cerr << "interface " << interface << " has address '" << interfaceAddr << "'\n";
                     if (interfaceAddr != "") {
                         sock_.set_option(boost::asio::ip::multicast::outbound_interface(
+#if BOOST_VERSION >= 108700                            
+                            boost::asio::ip::make_address(interfaceAddr).to_v4()
+#else
                             boost::asio::ip::address::from_string(interfaceAddr).to_v4()
+#endif                            
                         ));
                     }
                 }
@@ -306,7 +334,11 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         };
 
         std::unordered_map<ConnectionLocator, std::unique_ptr<OneMulticastSender>> senders_;
+#if BOOST_VERSION >= 108700        
+        boost::asio::io_context senderService_;
+#else
         boost::asio::io_service senderService_;
+#endif
         std::thread senderThread_;
 
         std::mutex mutex_;
@@ -323,10 +355,18 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             if (iter == subscriptions_.end()) {
                 auto choice = parseEncodingChoice(d.query("envelop", "cbor"));
                 auto interface = d.query("interface", "");
+#if BOOST_VERSION >= 108700    
+                std::unique_ptr<boost::asio::io_context> svc = std::make_unique<boost::asio::io_context>();            
+#else
                 std::unique_ptr<boost::asio::io_service> svc = std::make_unique<boost::asio::io_service>();
+#endif                
                 iter = subscriptions_.insert({hostAndPort, std::make_unique<OneMulticastSubscription>(choice, svc.get(), hostAndPort, interface)}).first;
                 std::thread th([svc=std::move(svc)] {
+#if BOOST_VERSION >= 108700 
+                    auto work_guard = boost::asio::make_work_guard(*svc);
+#else
                     boost::asio::io_service::work work(*svc);
+#endif
                     svc->run();
                 });
                 th.detach();
@@ -345,7 +385,11 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             std::lock_guard<std::mutex> _(mutex_);
             if (!senderThreadStarted_) {
                 senderThread_ = std::thread([this]() {
+#if BOOST_VERSION >= 108700   
+                    auto work_guard = boost::asio::make_work_guard(senderService_);
+#else
                     boost::asio::io_service::work work(senderService_);
+#endif                    
                     senderService_.run();
                 });
                 senderThreadStarted_ = true;
