@@ -14,7 +14,11 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
     private:
         class OneSocketRPCClient {
         private:
+#if BOOST_VERSION >= 108700
+            boost::asio::io_context *service_;
+#else
             boost::asio::io_service *service_;
+#endif
             ConnectionLocator locator_;
             std::function<void(bool, basic::ByteDataWithID &&)> callback_;
             std::optional<WireToUserHook> wireToUserHook_;
@@ -171,7 +175,11 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 }
             }
         public:
+#if BOOST_VERSION >= 108700        
+            OneSocketRPCClient(boost::asio::io_context *service, ConnectionLocator const &locator, std::function<void(bool, basic::ByteDataWithID &&)> callback, std::optional<WireToUserHook> wireToUserHook)
+#else
             OneSocketRPCClient(boost::asio::io_service *service, ConnectionLocator const &locator, std::function<void(bool, basic::ByteDataWithID &&)> callback, std::optional<WireToUserHook> wireToUserHook)
+#endif
                 : service_(service)
                 , locator_(locator.host(), locator.port())
                 , callback_(callback)
@@ -184,8 +192,12 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 , mutex_()
             {
                 boost::asio::ip::tcp::resolver resolver(*service);
+#if BOOST_VERSION >= 108700    
+                remotePoint_ = resolver.resolve(locator_.host(), std::to_string(locator_.port())).begin()->endpoint();            
+#else
                 boost::asio::ip::tcp::resolver::query query(locator_.host(), std::to_string(locator_.port()));
                 remotePoint_ = resolver.resolve(query)->endpoint();
+#endif
                 sock_.open(remotePoint_.protocol());
                 sock_.set_option(boost::asio::ip::tcp::socket::receive_buffer_size(8192));
                 sock_.async_connect(
@@ -362,8 +374,12 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                     sock_.close();
                 }
             };
-            
+
+#if BOOST_VERSION >= 108700
+            boost::asio::io_context *service_;
+#else
             boost::asio::io_service *service_;
+#endif            
             ConnectionLocator locator_;
             std::function<void(basic::ByteDataWithID &&)> callback_;
             std::optional<WireToUserHook> wireToUserHook_;
@@ -388,7 +404,11 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 }
             }
         public:
+#if BOOST_VERSION >= 108700        
+            OneSocketRPCServer(boost::asio::io_context *service, ConnectionLocator const &locator, std::function<void(basic::ByteDataWithID &&)> callback, std::optional<WireToUserHook> wireToUserHook)
+#else
             OneSocketRPCServer(boost::asio::io_service *service, ConnectionLocator const &locator, std::function<void(basic::ByteDataWithID &&)> callback, std::optional<WireToUserHook> wireToUserHook)
+#endif            
                 : service_(service)
                 , locator_("", locator.port())
                 , callback_(callback)
@@ -399,8 +419,12 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 , mutex_()
             {
                 boost::asio::ip::tcp::resolver resolver(*service_);
+#if BOOST_VERSION >= 108700
+                auto ep = resolver.resolve("0.0.0.0", std::to_string(locator.port())).begin()->endpoint();
+#else
                 boost::asio::ip::tcp::resolver::query query("0.0.0.0", std::to_string(locator.port()));
                 auto ep = resolver.resolve(query)->endpoint();
+#endif
 
                 acceptor_.open(ep.protocol());
                 acceptor_.set_option(boost::asio::ip::udp::socket::send_buffer_size(8192));
@@ -434,7 +458,11 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
 
         std::unordered_map<ConnectionLocator, std::unique_ptr<OneSocketRPCClient>> rpcClientMap_;
         std::unordered_map<int, std::unique_ptr<OneSocketRPCServer>> rpcServerMap_;
+#if BOOST_VERSION >= 108700        
+        boost::asio::io_context service_;
+#else
         boost::asio::io_service service_;
+#endif
 
         std::thread th_;
         std::mutex mutex_;
@@ -466,7 +494,11 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             : rpcClientMap_(), rpcServerMap_(), service_(), th_(), mutex_()
         { 
             th_ = std::thread([this] {
+#if BOOST_VERSION >= 108700                
+                auto work_guard = boost::asio::make_work_guard(service_);
+#else
                 boost::asio::io_service::work work(service_);
+#endif                
                 service_.run();
             });
         }
