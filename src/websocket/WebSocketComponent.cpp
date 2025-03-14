@@ -196,8 +196,12 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             }
             void run() {
                 running_ = true;
-                th_ = std::thread([this]() {                   
+                th_ = std::thread([this]() {    
+#if BOOST_VERSION >= 108700   
+                    auto work_guard = boost::asio::make_work_guard(svc_);
+#else
                     boost::asio::io_context::work work(svc_);
+#endif
                     svc_.run();
                 });
                 th_.detach();
@@ -968,8 +972,12 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             }
             void run() {
                 running_ = true;
-                th_ = std::thread([this]() {                   
+                th_ = std::thread([this]() {   
+#if BOOST_VERSION >= 108700
+                    auto work_guard = boost::asio::make_work_guard(svc_);
+#else
                     boost::asio::io_context::work work(svc_);
+#endif
                     svc_.run();
                 });
                 th_.detach();
@@ -1122,8 +1130,12 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             }
             void run() {
                 running_ = true;
-                th_ = std::thread([this]() {                   
+                th_ = std::thread([this]() {  
+#if BOOST_VERSION >= 108700
+                    auto work_guard = boost::asio::make_work_guard(svc_);
+#else
                     boost::asio::io_context::work work(svc_);
+#endif
                     svc_.run();
                 });
                 th_.detach();
@@ -1729,8 +1741,12 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             }
             void run() {
                 running_ = true;
-                th_ = std::thread([this]() {                   
+                th_ = std::thread([this]() {    
+#if BOOST_VERSION >= 108700
+                    auto work_guard = boost::asio::make_work_guard(svc_);
+#else
                     boost::asio::io_context::work work(svc_);
+#endif
                     svc_.run();
                 });
                 th_.detach();
