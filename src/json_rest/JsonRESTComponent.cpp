@@ -1484,7 +1484,11 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 }
 
                 th_ = std::thread([this]() {
+#if BOOST_VERSION >= 108700
+                    auto work_guard = boost::asio::make_work_guard(svc_);
+#else
                     boost::asio::io_context::work work(svc_);
+#endif
                     svc_.run();
                 });
                 th_.detach();
@@ -1648,7 +1652,11 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
     public:
         JsonRESTComponentImpl() : cleaner_(), curlppEasy_(), curlppEasyMutex_(), handlerMap_(), handlerMapMutex_(), docRootMap_(), docRootMapMutex_(), started_(false), clientSet_(), clientSetMutex_(), keepAliveClientMap_(), keepAliveClientMapMutex_(), clientSvc_(new boost::asio::io_context), clientThread_(), acceptorMap_(), acceptorMapMutex_(), allPasswords_(), tokenPasswords_(), allPasswordsMutex_(), tokenThreads_(), tokenThreadMutex_() {
             clientThread_ = std::thread([this]() {
+#if BOOST_VERSION >= 108700
+                auto work_guard = boost::asio::make_work_guard(clientSvc_);
+#else
                 boost::asio::io_context::work work(*clientSvc_);
+#endif
                 clientSvc_->run();
             });
             clientThread_.detach();
