@@ -245,8 +245,11 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             BclDecimalProtoWrapper w(p);
             value_ = DecimalConverter::read(w);
         }
-        operator boost::multiprecision::cpp_dec_float_100() {
+        operator boost::multiprecision::cpp_dec_float_100() const {
             return value_;
+        }
+        operator double() const {
+            return (double) value_;
         }
     };
 
