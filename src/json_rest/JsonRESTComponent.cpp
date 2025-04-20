@@ -1653,7 +1653,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         JsonRESTComponentImpl() : cleaner_(), curlppEasy_(), curlppEasyMutex_(), handlerMap_(), handlerMapMutex_(), docRootMap_(), docRootMapMutex_(), started_(false), clientSet_(), clientSetMutex_(), keepAliveClientMap_(), keepAliveClientMapMutex_(), clientSvc_(new boost::asio::io_context), clientThread_(), acceptorMap_(), acceptorMapMutex_(), allPasswords_(), tokenPasswords_(), allPasswordsMutex_(), tokenThreads_(), tokenThreadMutex_() {
             clientThread_ = std::thread([this]() {
 #if BOOST_VERSION >= 108700
-                auto work_guard = boost::asio::make_work_guard(clientSvc_);
+                auto work_guard = boost::asio::make_work_guard(*clientSvc_);
 #else
                 boost::asio::io_context::work work(*clientSvc_);
 #endif
