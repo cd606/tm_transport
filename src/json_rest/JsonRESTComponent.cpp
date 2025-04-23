@@ -1835,6 +1835,8 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 std::ostringstream response;
                 curlppEasy_.setOpt(new curlpp::options::WriteStream(&response));
 
+                curlppEasy_.setOpt(new curlpp::options::Encoding(""));
+
                 curlppEasy_.perform();
 
                 clientCallback(
