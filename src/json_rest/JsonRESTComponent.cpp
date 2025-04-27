@@ -1776,6 +1776,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 if (urlQueryPart != "") {
                     urlSS << '?' << urlQueryPart;
                 }
+                //std::cerr << urlSS.str() << "\n";
                 curlppEasy_.setOpt(new curlpp::options::Url(urlSS.str()));
                 std::string methodStr = "";
                 if (method) {
@@ -1839,6 +1840,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
 
                 curlppEasy_.perform();
 
+                //std::cerr << response.str() << '\n';
                 clientCallback(
                     curlpp::infos::ResponseCode::get(curlppEasy_)
                     , response.str()
