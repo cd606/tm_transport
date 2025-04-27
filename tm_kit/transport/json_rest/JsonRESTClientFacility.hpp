@@ -392,6 +392,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                                                 JsonRESTClientFacilityFactoryUtils::urlEscape(oss, value);
                                                 start = false;
                                             }
+                                            , true
                                         );
                                 }
                             } else {
@@ -560,6 +561,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                                         JsonRESTClientFacilityFactoryUtils::urlEscape(oss, value);
                                         start = false;
                                     }
+                                    , true
                                 );
                         }
                     } else {
