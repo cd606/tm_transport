@@ -338,6 +338,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                     bool simplePost_;
                     bool otherwiseEncodeInUrl_;
                     bool noRequestResponseWrap_;
+                    std::string useThisPathForResponse_;
                 public:
                     LocalF(ConnectionLocator const &locator)
                         : M::IExternalComponent()
@@ -365,6 +366,9 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                         )
                         , noRequestResponseWrap_(
                             locator.query("no_wrap", "false") == "true"
+                        )
+                        , useThisPathForResponse_(
+                            locator.query("response_path", "")
                         )
                     {
                         this->startThread();
@@ -438,15 +442,36 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                                         nlohmann::json x = nlohmann::json::parse(response);
                                         Resp resp;
                                         basic::nlohmann_json_interop::Json<Resp *> r(&resp);
-                                        if (r.fromNlohmannJson(noRequestResponseWrap_?x:x["response"])) {
-                                            this->publish(
-                                                env 
-                                                , typename M::template Key<Resp> {
-                                                    std::move(id)
-                                                    , std::move(resp)
+                                        if (useThisPathForResponse_ != "") {
+                                            std::vector<std::string> parts;
+                                            boost::split(parts, useThisPathForResponse_, boost::is_any_of("/"));
+                                            nlohmann::json x1 = x;
+                                            for (auto const &p : parts) {
+                                                if (p != "") {
+                                                    x1 = x1[p];
                                                 }
-                                                , true
-                                            );
+                                            }
+                                            if (r.fromNlohmannJson(x1)) {
+                                                this->publish(
+                                                    env 
+                                                    , typename M::template Key<Resp> {
+                                                        std::move(id)
+                                                        , std::move(resp)
+                                                    }
+                                                    , true
+                                                );
+                                            }
+                                        } else {
+                                            if (r.fromNlohmannJson(noRequestResponseWrap_?x:x["response"])) {
+                                                this->publish(
+                                                    env 
+                                                    , typename M::template Key<Resp> {
+                                                        std::move(id)
+                                                        , std::move(resp)
+                                                    }
+                                                    , true
+                                                );
+                                            }
                                         }
                                     } catch (...) {
                                         env->log(infra::LogLevel::Error, "Cannot parse reply string '"+response+"' as json");
@@ -541,6 +566,8 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 bool noRequestResponseWrap = (
                     rpcQueueLocator.query("no_wrap", "false") == "true"
                 );
+                std::string useThisPathForResponse = 
+                    rpcQueueLocator.query("response_path", "");
                 
                 auto ret = std::make_shared<std::promise<Resp>>();
                 nlohmann::json sendData;
@@ -580,7 +607,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                     (std::is_same_v<Resp, RawStringWithStatus>?rpcQueueLocator.addProperty("parse_header", "true"):rpcQueueLocator)
                     , ((useGet||otherwiseEncodeInUrl)?oss.str():"")
                     , ((useGet||otherwiseEncodeInUrl)?"":(simplePost?oss.str():sendData.dump()))
-                    , [ret,env,noRequestResponseWrap](unsigned status, std::string &&response, std::unordered_map<std::string,std::string> &&headerFields) mutable {
+                    , [ret,env,noRequestResponseWrap,useThisPathForResponse](unsigned status, std::string &&response, std::unordered_map<std::string,std::string> &&headerFields) mutable {
                         if constexpr (std::is_same_v<Resp, RawString> || std::is_same_v<Resp, basic::ByteData>) {
                             ret->set_value({std::move(response)});
                         } else if constexpr (std::is_same_v<Resp, RawStringWithStatus>) {
@@ -593,8 +620,22 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                                     nlohmann::json x = nlohmann::json::parse(response);
                                     Resp resp;
                                     basic::nlohmann_json_interop::Json<Resp *> r(&resp);
-                                    if (r.fromNlohmannJson(noRequestResponseWrap?x:x["response"])) {
-                                        ret->set_value(std::move(resp));
+                                    if (useThisPathForResponse != "") {
+                                        std::vector<std::string> parts;
+                                        boost::split(parts, useThisPathForResponse, boost::is_any_of("/"));
+                                        nlohmann::json x1 = x;
+                                        for (auto const &p : parts) {
+                                            if (p != "") {
+                                                x1 = x1[p];
+                                            }
+                                        }
+                                        if (r.fromNlohmannJson(x1)) {
+                                            ret->set_value(std::move(resp));
+                                        }
+                                    } else {
+                                        if (r.fromNlohmannJson(noRequestResponseWrap?x:x["response"])) {
+                                            ret->set_value(std::move(resp));
+                                        }
                                     }
                                 } catch (...) {
                                     env->log(infra::LogLevel::Error, "Cannot parse reply string '"+response+"' as json");

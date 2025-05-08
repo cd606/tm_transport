@@ -206,10 +206,12 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 });
                 th_.detach();
                 if (stream_.index() == 2) {
+                    loggingBase_->logThroughLoggingComponentBase(infra::LogLevel::Info, std::string("[WebSocketComponentImpl::OneSubscriber::run] setting host name (1) for '"+locator_.host()+"'"));
                     if (!boost_certify_adaptor::setHostName(std::get<2>(stream_).next_layer(), locator_.host())) {
                         parent_->removeRPCClient(locator_);
                         return;
                     }
+                    loggingBase_->logThroughLoggingComponentBase(infra::LogLevel::Info, std::string("[WebSocketComponentImpl::OneSubscriber::run] setting host name (2) for '"+locator_.host()+"'"));
                     if(!SSL_set_tlsext_host_name(std::get<2>(stream_).next_layer().native_handle(), locator_.host().data())) {
                         parent_->removeSubscriber(locator_);
                         return;
@@ -299,8 +301,9 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                     if (!boost::starts_with(targetPath, "/")) {
                         targetPath = "/"+targetPath;
                     }
+                    bool wsHandshakeDoesNotUsePort = ((locator_.query("wsHandshakeDoesNotUsePort", "false") == "true") || (locator_.query("ws_handshake_does_not_use_port", "false") == "true"));
                     std::get<1>(stream_).async_handshake(
-                        handshakeHost_
+                        (wsHandshakeDoesNotUsePort?locator_.host():handshakeHost_)
                         , targetPath
                         , boost::beast::bind_front_handler(
                             &OneSubscriber::onWebSocketHandshake
@@ -351,8 +354,12 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 if (!boost::starts_with(targetPath, "/")) {
                     targetPath = "/"+targetPath;
                 }
+                if (loggingBase_) {
+                    loggingBase_->logThroughLoggingComponentBase(infra::LogLevel::Info, std::string("[WebSocketComponentImpl::OneSubscriber::onSSLHandshake] starting ws handshake for '")+handshakeHost_+"' on path '"+targetPath+"'");
+                }
+                bool wsHandshakeDoesNotUsePort = ((locator_.query("wsHandshakeDoesNotUsePort", "false") == "true") || (locator_.query("ws_handshake_does_not_use_port", "false") == "true"));
                 std::get<2>(stream_).async_handshake(
-                    handshakeHost_
+                    (wsHandshakeDoesNotUsePort?locator_.host():handshakeHost_)
                     , targetPath
                     , boost::beast::bind_front_handler(
                         &OneSubscriber::onWebSocketHandshake
