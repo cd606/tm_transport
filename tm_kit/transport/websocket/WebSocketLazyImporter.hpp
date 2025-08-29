@@ -151,7 +151,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                                     }
                                 }
                                 , wireToUser
-                                , userToWire->hook(std::move(initialData))
+                                , { userToWire->hook(std::move(initialData)) }
                                 , protocolReactor_
                             );
                         } else {
@@ -167,7 +167,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                                     }
                                 }
                                 , wireToUser
-                                , std::move(initialData)
+                                , { std::move(initialData) }
                                 , protocolReactor_
                             );
                         }

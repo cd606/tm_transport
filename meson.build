@@ -14,6 +14,7 @@ soci_dep = dependency('soci')
 libsodium_dep = dependency('libsodium')
 boost_certify_dep = dependency('boost_certify')
 curlpp_dep = dependency('curlpp')
+ixwebsocket_dep = dependency('ixwebsocket')
 if get_option('buildtype') == 'debug'
     tm_infra_dep = dependency('tm_kit_infra_debug')
     tm_basic_dep = dependency('tm_kit_basic_debug')
@@ -22,7 +23,7 @@ else
     tm_basic_dep = dependency('tm_kit_basic')
 endif
 
-common_deps = [thread_dep, boost_dep, rabbitmq_dep, zmq_dep, redis_dep, nng_dep, crossguid_dep, grpc_dep, etcd_dep, soci_dep, libsodium_dep, boost_certify_dep, tm_infra_dep, tm_basic_dep, curlpp_dep]
+common_deps = [thread_dep, boost_dep, rabbitmq_dep, zmq_dep, redis_dep, nng_dep, crossguid_dep, grpc_dep, etcd_dep, soci_dep, libsodium_dep, boost_certify_dep, tm_infra_dep, tm_basic_dep, curlpp_dep, ixwebsocket_dep]
 
 if build_machine.system() == 'windows'
     common_deps += declare_dependency(link_args: 'bcrypt.lib')

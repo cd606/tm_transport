@@ -28,6 +28,8 @@
 #include <fstream>
 #include <sstream>
 
+#include <ixwebsocket/IXWebSocket.h>
+
 namespace dev { namespace cd606 { namespace tm { namespace transport { namespace web_socket {
 
     class WebSocketComponentImpl {
@@ -36,7 +38,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         private:
             WebSocketComponentImpl *parent_;
             ConnectionLocator locator_;
-            std::optional<basic::ByteData> initialData_;
+            std::vector<basic::ByteData> initialData_;
             std::function<std::optional<basic::ByteData>(basic::ByteDataView const &)> protocolReactor_;
             std::function<void()> protocolRestartReactor_;
             bool ignoreTopic_;
@@ -67,11 +69,13 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             bool noVerify_;
             int logPerMessageCount_;
             uint64_t messageCount_;
+            bool binary_;
+            bool useIXWebSocket_;
         public:
             OneSubscriber(
                 WebSocketComponentImpl *parent
                 , ConnectionLocator const &locator
-                , std::optional<basic::ByteData> &&initialData
+                , std::vector<basic::ByteData> &&initialData
                 , std::function<std::optional<basic::ByteData>(basic::ByteDataView const &)> const &protocolReactor
                 , std::function<void()> const &protocolRestartReactor
                 , std::optional<TLSClientInfo> const &sslInfo
@@ -100,10 +104,22 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 , noVerify_(noVerify)
                 , logPerMessageCount_(std::stoi(locator.query("logPerMessageCount", "-1")))
                 , messageCount_(0)
+                , binary_(locator.query("binary", "true") == "true")
+                , useIXWebSocket_(locator.query("useIXWebSocket", "false") == "true")
             {
-                bool binary = (locator.query("binary", "true") == "true");
+                if (useIXWebSocket_) {
+                    if (loggingBase_) {
+                        loggingBase_->logThroughLoggingComponentBase(infra::LogLevel::Info, std::string("[WebSocketComponentImpl::OneSubscriber::(constructor)] will subscribe using IXWebSocket"));
+                        if (logPerMessageCount_ > 0) {
+                            loggingBase_->logThroughLoggingComponentBase(infra::LogLevel::Info, std::string("[WebSocketComponentImpl::OneSubscriber::(constructor)] logging message count for every ")+std::to_string(logPerMessageCount_)+" messages");
+                        } else {
+                            loggingBase_->logThroughLoggingComponentBase(infra::LogLevel::Info, std::string("[WebSocketComponentImpl::OneSubscriber::(constructor)] not logging message count"));
+                        }
+                    }
+                    return;
+                }
                 if (loggingBase_) {
-                    loggingBase_->logThroughLoggingComponentBase(infra::LogLevel::Info, std::string("[WebSocketComponentImpl::OneSubscriber::(constructor)] connection binary is ")+(binary?"true":"false"));
+                    loggingBase_->logThroughLoggingComponentBase(infra::LogLevel::Info, std::string("[WebSocketComponentImpl::OneSubscriber::(constructor)] connection binary is ")+(binary_?"true":"false"));
                     if (logPerMessageCount_ > 0) {
                         loggingBase_->logThroughLoggingComponentBase(infra::LogLevel::Info, std::string("[WebSocketComponentImpl::OneSubscriber::(constructor)] logging message count for every ")+std::to_string(logPerMessageCount_)+" messages");
                     } else {
@@ -133,20 +149,29 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                     }
                     
                     stream_.emplace<2>(boost::asio::make_strand(svc_), *sslCtx_);
-                    std::get<2>(stream_).binary(binary);
+                    std::get<2>(stream_).binary(binary_);
 
                     if (loggingBase_) {
                         loggingBase_->logThroughLoggingComponentBase(infra::LogLevel::Info, std::string("[WebSocketComponentImpl::OneSubscriber::(constructor)] wss (TLS) stream initialized"));
                     }
                 } else {
                     stream_.emplace<1>(boost::asio::make_strand(svc_));
-                    std::get<1>(stream_).binary(binary);
+                    std::get<1>(stream_).binary(binary_);
                     if (loggingBase_) {
                         loggingBase_->logThroughLoggingComponentBase(infra::LogLevel::Info, std::string("[WebSocketComponentImpl::OneSubscriber::(constructor)] ws stream initialized"));
                     }
                 }
             }
             ~OneSubscriber() {
+                if (useIXWebSocket_) {
+                    if (running_) {
+                        running_ = false;
+                        try {
+                            th_.join();
+                        } catch (...) {}
+                    }
+                    return;
+                }
                 try {
                     if (stream_.index() == 1) {
                         std::get<1>(stream_).close(boost::beast::websocket::close_code::normal);
@@ -196,6 +221,13 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             }
             void run() {
                 running_ = true;
+                if (useIXWebSocket_) {
+                    th_ = std::thread([this]() {
+                        ixWebSocketLoop();
+                    });
+                    th_.detach();
+                    return;
+                }
                 th_ = std::thread([this]() {    
 #if BOOST_VERSION >= 108700   
                     auto work_guard = boost::asio::make_work_guard(svc_);
@@ -378,21 +410,21 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
 
                 if (loggingBase_) {
                     loggingBase_->logThroughLoggingComponentBase(infra::LogLevel::Info, std::string("[WebSocketComponentImpl::OneSubscriber::onWebSocketHandshake] websocket subscriber ws handshake succeeded."));
-                    if (initialData_) {
-                        loggingBase_->logThroughLoggingComponentBase(infra::LogLevel::Info, std::string("[WebSocketComponentImpl::OneSubscriber::onWebSocketHandshake] will send initial data of ")+std::to_string(initialData_->content.size()));
-                    } else {
-                        loggingBase_->logThroughLoggingComponentBase(infra::LogLevel::Info, std::string("[WebSocketComponentImpl::OneSubscriber::onWebSocketHandshake] no initial data to send."));
-                    }
+                    loggingBase_->logThroughLoggingComponentBase(infra::LogLevel::Info, std::string("[WebSocketComponentImpl::OneSubscriber::onWebSocketHandshake] will send "+std::to_string(initialData_.size())+" counts of initial data"));
                 }
                 
                 if (stream_.index() == 1) {
-                    if (initialData_) {
+                    for (auto const &d : initialData_) {
                         try {
                             std::get<1>(stream_).write(
-                                boost::asio::buffer(reinterpret_cast<const char *>(initialData_->content.data()), initialData_->content.size())
+                                boost::asio::buffer(reinterpret_cast<const char *>(d.content.data()), d.content.size())
                             );
                             if (loggingBase_) {
-                                loggingBase_->logThroughLoggingComponentBase(infra::LogLevel::Info, std::string("[WebSocketComponentImpl::OneSubscriber::onWebSocketHandshake] initial data written."));
+                                if (binary_) {
+                                    loggingBase_->logThroughLoggingComponentBase(infra::LogLevel::Info, std::string("[WebSocketComponentImpl::OneSubscriber::onWebSocketHandshake] initial data of size "+std::to_string(d.content.size())+" written."));
+                                } else {
+                                    loggingBase_->logThroughLoggingComponentBase(infra::LogLevel::Info, std::string("[WebSocketComponentImpl::OneSubscriber::onWebSocketHandshake] initial data of '"+d.content+"' written."));
+                                }
                             }
                         } catch (...) {
                             if (loggingBase_) {
@@ -410,13 +442,17 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                         )
                     );
                 } else {
-                    if (initialData_) {
+                    for (auto const &d: initialData_) {
                         try {
                             std::get<2>(stream_).write(
-                                boost::asio::buffer(reinterpret_cast<const char *>(initialData_->content.data()), initialData_->content.size())
+                                boost::asio::buffer(reinterpret_cast<const char *>(d.content.data()), d.content.size())
                             );
                             if (loggingBase_) {
-                                loggingBase_->logThroughLoggingComponentBase(infra::LogLevel::Info, std::string("[WebSocketComponentImpl::OneSubscriber::onWebSocketHandshake] initial data written."));
+                                if (binary_) {
+                                    loggingBase_->logThroughLoggingComponentBase(infra::LogLevel::Info, std::string("[WebSocketComponentImpl::OneSubscriber::onWebSocketHandshake] initial data of size "+std::to_string(d.content.size())+" written."));
+                                } else {
+                                    loggingBase_->logThroughLoggingComponentBase(infra::LogLevel::Info, std::string("[WebSocketComponentImpl::OneSubscriber::onWebSocketHandshake] initial data of '"+d.content+"' written."));
+                                }
                             }
                         } catch (...) {
                             if (loggingBase_) {
@@ -544,6 +580,139 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             }
             bool initializationFailure() const {
                 return initializationFailure_;
+            }
+            void ixWebSocketLoop() {
+                if (loggingBase_) {
+                    loggingBase_->logThroughLoggingComponentBase(infra::LogLevel::Info, std::string("[WebSocketComponentImpl::OneSubscriber::ixWebSocketLoop] IXWebSocket Loop Starting"));
+                }
+
+                ix::WebSocket ws;
+
+                std::string targetPath = locator_.identifier();
+                if (!boost::starts_with(targetPath, "/")) {
+                    targetPath = "/"+targetPath;
+                }
+                std::ostringstream oss;
+                oss << (sslInfo_?"wss://":"ws://")
+                    << locator_.host()
+                    << ':'
+                    << locator_.port()
+                    << targetPath;
+                auto url = oss.str();    
+                ws.setUrl(url);
+                if (loggingBase_) {
+                    loggingBase_->logThroughLoggingComponentBase(infra::LogLevel::Info, std::string("[WebSocketComponentImpl::OneSubscriber::ixWebSocketLoop] IXWebSocket setting URL to '"+url+"'"));
+                }
+                ix::WebSocketHttpHeaders headers;
+                bool hasHeader = false;
+                locator_.for_all_properties([&headers, &hasHeader, this](std::string const &key, std::string const &value) {
+                    if (loggingBase_) {
+                        loggingBase_->logThroughLoggingComponentBase(infra::LogLevel::Info, std::string("[WebSocketComponentImpl::OneSubscriber::ixWebSocketLoop]  property key '")+key+"', value '"+value+"'");
+                    }
+                    if (boost::starts_with(key, "header/")) {
+                        headers[key.substr(std::string_view("header/").length())] = value;
+                        hasHeader = true;
+                    } else if (boost::starts_with(key, "http_header/")) {
+                        headers[key.substr(std::string_view("http_header/").length())] = value;
+                        hasHeader = true;
+                    }
+                });
+                if (hasHeader) {
+                    ws.setExtraHeaders(headers);
+                    if (loggingBase_) {
+                        loggingBase_->logThroughLoggingComponentBase(infra::LogLevel::Info, std::string("[WebSocketComponentImpl::OneSubscriber::ixWebSocketLoop] IXWebSocket headers set"));
+                    }
+                }
+
+                if (protocolRestartReactor_) {
+                    protocolRestartReactor_();
+                    if (loggingBase_) {
+                        loggingBase_->logThroughLoggingComponentBase(infra::LogLevel::Info, std::string("[WebSocketComponentImpl::OneSubscriber::ixWebSocketLoop] Protocol restart reactor has run."));
+                    }
+                }
+
+                ws.setOnMessageCallback(
+                    [this,&ws](const ix::WebSocketMessagePtr &msg) {
+                        if (msg->type == ix::WebSocketMessageType::Open) {
+                            if (loggingBase_) {
+                                loggingBase_->logThroughLoggingComponentBase(infra::LogLevel::Info, std::string("[WebSocketComponentImpl::OneSubscriber::ixWebSocketLoop::callback] connected"));
+                                loggingBase_->logThroughLoggingComponentBase(infra::LogLevel::Info, std::string("[WebSocketComponentImpl::OneSubscriber::ixWebSocketLoop::callback] will send "+std::to_string(initialData_.size())+" counts of initial data"));
+                            }
+                            for (auto const &item : initialData_) {
+                                ws.send(item.content);
+                                if (loggingBase_) {
+                                    if (binary_) {
+                                        loggingBase_->logThroughLoggingComponentBase(infra::LogLevel::Info, std::string("[WebSocketComponentImpl::OneSubscriber::onWebSocketHandshake] initial data of size "+std::to_string(item.content.size())+" written."));
+                                    } else {
+                                        loggingBase_->logThroughLoggingComponentBase(infra::LogLevel::Info, std::string("[WebSocketComponentImpl::OneSubscriber::onWebSocketHandshake] initial data of '"+item.content+"' written."));
+                                    }
+                                }
+                            }
+                        } else if (msg->type == ix::WebSocketMessageType::Message) {
+                            if (logPerMessageCount_ > 0 && loggingBase_) {
+                                ++messageCount_;
+                                if ((messageCount_ % ((uint64_t) logPerMessageCount_)) == 0) {
+                                    if (loggingBase_) {
+                                        loggingBase_->logThroughLoggingComponentBase(infra::LogLevel::Info, std::string("[WebSocketComponentImpl::OneSubscriber::ixWebSocketLoop::callback] received ")+std::to_string(messageCount_)+ " messages so far.");
+                                    }
+                                }
+                            }
+
+                            auto input = msg->str;
+                            /*
+                            if (loggingBase_) {
+                                loggingBase_->logThroughLoggingComponentBase(infra::LogLevel::Info, std::string("[WebSocketComponentImpl::OneSubscriber::ixWebSocketLoop::callback] Received message "+input));
+                            }
+                            */
+
+                            std::optional<basic::ByteData> reactorRes = std::nullopt;
+                            if (protocolReactor_) {
+                                reactorRes = protocolReactor_(basic::ByteDataView {std::string_view {input}});
+                            }
+                            
+                            if (ignoreTopic_) {
+                                for (auto const &f : noFilterClients_) {
+                                    callClient(f, basic::ByteDataWithTopic {"", std::move(input)});
+                                }
+                            } else {
+                                basic::ByteDataWithTopic data;
+                                auto parseRes = basic::bytedata_utils::RunCBORDeserializer<basic::ByteDataWithTopic>::applyInPlace(data, std::string_view {input}, 0);
+                                if (parseRes && *parseRes == input.length()) {
+                                    std::lock_guard<std::mutex> _(clientsMutex_);
+                                    
+                                    for (auto const &f : noFilterClients_) {
+                                        callClient(f, std::move(data));
+                                    }
+                                    for (auto const &f : stringMatchClients_) {
+                                        if (data.topic == std::get<0>(f)) {
+                                            callClient(std::get<1>(f), std::move(data));
+                                        }
+                                    }
+                                    for (auto const &f : regexMatchClients_) {
+                                        if (std::regex_match(data.topic, std::get<0>(f))) {
+                                            callClient(std::get<1>(f), std::move(data));
+                                        }
+                                    }
+                                }
+                            }
+                            if (reactorRes) {
+                                ws.send(reactorRes->content);
+                            }
+                        } else if (msg->type == ix::WebSocketMessageType::Error) {
+                            if (loggingBase_) {
+                                loggingBase_->logThroughLoggingComponentBase(infra::LogLevel::Error, std::string("[WebSocketComponentImpl::OneSubscriber::ixWebSocketLoop::callback error] ")+msg->errorInfo.reason);
+                            }
+                        }
+                    }
+                );
+
+                ws.start();
+                if (loggingBase_) {
+                    loggingBase_->logThroughLoggingComponentBase(infra::LogLevel::Info, std::string("[WebSocketComponentImpl::OneSubscriber::ixWebSocketLoop] IXWebSocket started"));
+                }
+                while (running_) {
+                    std::this_thread::sleep_for(std::chrono::milliseconds(200));
+                }
             }
             std::thread::native_handle_type getThreadHandle() {
                 return th_.native_handle();
@@ -1866,7 +2035,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             std::variant<WebSocketComponent::NoTopicSelection, std::string, std::regex> const &topic,
             std::function<void(basic::ByteDataWithTopic &&)> client,
             std::optional<WireToUserHook> wireToUserHook,
-            std::optional<basic::ByteData> &&initialData,
+            std::vector<basic::ByteData> &&initialData,
             std::function<std::optional<basic::ByteData>(basic::ByteDataView const &)> const &protocolReactor,
             std::function<void()> const &protocolRestartReactor,
             TLSClientConfigurationComponent *config,
@@ -2155,7 +2324,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         std::variant<WebSocketComponent::NoTopicSelection, std::string, std::regex> const &topic,
         std::function<void(basic::ByteDataWithTopic &&)> client,
         std::optional<WireToUserHook> wireToUserHook,
-        std::optional<basic::ByteData> &&initialData,
+        std::vector<basic::ByteData> &&initialData,
         std::function<std::optional<basic::ByteData>(basic::ByteDataView const &)> const &protocolReactor,
         std::function<void()> const &protocolRestartReactor) {
         return impl_->websocket_addSubscriptionClient(
