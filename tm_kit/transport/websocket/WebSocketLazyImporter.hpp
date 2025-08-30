@@ -67,7 +67,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                                     this->publish(M::template pureInnerData<basic::ByteDataWithTopic>(env_, std::move(d)));
                                 }
                                 , (hookPair_?hookPair_->wireToUser:std::nullopt)
-                                , hookPair_->userToWire->hook(std::move(input.timedData.value))
+                                , { hookPair_->userToWire->hook(std::move(input.timedData.value)) }
                                 , protocolReactor_
                             );
                         } else {
@@ -79,7 +79,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                                     this->publish(M::template pureInnerData<basic::ByteDataWithTopic>(env_, std::move(d)));
                                 }
                                 , (hookPair_?hookPair_->wireToUser:std::nullopt)
-                                , std::move(input.timedData.value)
+                                , { std::move(input.timedData.value) }
                                 , protocolReactor_
                             );
                         }
