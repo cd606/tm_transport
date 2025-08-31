@@ -2,6 +2,7 @@
 #define TM_KIT_TRANSPORT_CONVERT_CHAIN_ID_STRING_TO_GROUP_HPP_
 
 #include <string_view>
+#include <stdint.h>
 
 namespace dev { namespace cd606 { namespace tm { namespace transport {
     namespace chain_utils {
