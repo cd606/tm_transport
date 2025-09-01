@@ -319,12 +319,19 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                     );
                     std::get<1>(stream_).set_option(
                         boost::beast::websocket::stream_base::decorator(
-                            [](boost::beast::websocket::request_type& req)
+                            [this](boost::beast::websocket::request_type& req)
                             {
                                 req.set(
                                     boost::beast::http::field::user_agent
                                     , std::string(BOOST_BEAST_VERSION_STRING)
                                 );
+                                locator_.for_all_properties([&req](std::string const &key, std::string const &value) {
+                                    if (boost::starts_with(key, "header/")) {
+                                        req.set(key.substr(std::string_view("header/").length()), value);
+                                    } else if (boost::starts_with(key, "http_header/")) {
+                                        req.set(key.substr(std::string_view("http_header/").length()), value);
+                                    }
+                                });
                             }
                         )
                     );
@@ -372,12 +379,19 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 );
                 std::get<2>(stream_).set_option(
                     boost::beast::websocket::stream_base::decorator(
-                        [](boost::beast::websocket::request_type& req)
+                        [this](boost::beast::websocket::request_type& req)
                         {
                             req.set(
                                 boost::beast::http::field::user_agent
                                 , std::string(BOOST_BEAST_VERSION_STRING)
                             );
+                            locator_.for_all_properties([&req](std::string const &key, std::string const &value) {
+                                if (boost::starts_with(key, "header/")) {
+                                    req.set(key.substr(std::string_view("header/").length()), value);
+                                } else if (boost::starts_with(key, "http_header/")) {
+                                    req.set(key.substr(std::string_view("http_header/").length()), value);
+                                }
+                            });
                         }
                     )
                 );
