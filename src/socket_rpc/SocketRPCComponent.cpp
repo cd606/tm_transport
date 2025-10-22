@@ -3,6 +3,7 @@
 #include <cstring>
 #include <unordered_map>
 #include <boost/asio.hpp>
+#include <boost/asio/deadline_timer.hpp>
 #include <boost/bind/bind.hpp>
 #include <boost/endian/conversion.hpp>
 
