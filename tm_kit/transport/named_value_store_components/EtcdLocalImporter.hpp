@@ -10,6 +10,7 @@
 
 #include <tm_kit/infra/RealTimeApp.hpp>
 #include <tm_kit/infra/AppClassifier.hpp>
+#include <tm_kit/transport/named_value_store_components/EtcdHelper.hpp>
 
 namespace dev { namespace cd606 { namespace tm { namespace transport { namespace named_value_store_components {
     namespace etcd {
@@ -37,7 +38,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
 
                         bool wasShutdown = false;
 
-                        auto channel = grpc::CreateChannel("127.0.0.1:2379", grpc::InsecureChannelCredentials());
+                        auto channel = EtcdHelper::localSecureChannelFromEnvironmentVariables();
                         auto initStub = etcdserverpb::KV::NewStub(channel);
                         grpc::ClientContext initCtx;
                         //All the requests in this app will die out after 24 hours
@@ -131,7 +132,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
 
                         bool wasShutdown = false;
 
-                        auto channel = grpc::CreateChannel("127.0.0.1:2379", grpc::InsecureChannelCredentials());
+                        auto channel = EtcdHelper::localSecureChannelFromEnvironmentVariables();
                         auto initStub = etcdserverpb::KV::NewStub(channel);
                         grpc::ClientContext initCtx;
                         //All the requests in this app will die out after 24 hours
