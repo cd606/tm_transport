@@ -150,6 +150,23 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                     throw std::runtime_error(errOss.str());
                 }
                 break;
+            case MultiTransportRemoteFacilityConnectionType::NATS:
+                if constexpr (std::is_convertible_v<Env *, nats::NATSComponent *>) {
+                    if constexpr (Option == MultiTransportFacilityWrapperOption::NoReply) {
+                        nats::NATSOnOrderFacility<Env>::template wrapOnOrderFacilityWithoutReply<A,B>(
+                            runner, toBeWrapped, rpcQueueLocator, wrapperItemsNamePrefix, hooks
+                        );
+                    } else {
+                        nats::NATSOnOrderFacility<Env>::template wrapOnOrderFacility<A,B>(
+                            runner, toBeWrapped, rpcQueueLocator, wrapperItemsNamePrefix, hooks
+                        );
+                    }
+                } else {
+                    std::ostringstream errOss;
+                    errOss << "[MultiTransportFacilityWrapper::wrap(onOrderFacility)] trying to wrap a facility with nats channel '" << rpcQueueLocator << "', but nats is unsupported in the environment";
+                    throw std::runtime_error(errOss.str());
+                }
+                break;
             case MultiTransportRemoteFacilityConnectionType::SocketRPC:
                 if constexpr (std::is_convertible_v<Env *, socket_rpc::SocketRPCComponent *>) {
                     if constexpr (Option == MultiTransportFacilityWrapperOption::NoReply) {
@@ -363,6 +380,23 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                 } else {
                     std::ostringstream errOss;
                     errOss << "[MultiTransportFacilityWrapper::wrap(localOnOrderFacility)] trying to wrap a facility with redis channel '" << rpcQueueLocator << "', but redis is unsupported in the environment";
+                    throw std::runtime_error(errOss.str());
+                }
+                break;
+            case MultiTransportRemoteFacilityConnectionType::NATS:
+                if constexpr (std::is_convertible_v<Env *, nats::NATSComponent *>) {
+                    if constexpr (Option == MultiTransportFacilityWrapperOption::NoReply) {
+                        nats::NATSOnOrderFacility<Env>::template wrapLocalOnOrderFacilityWithoutReply<A,B,C>(
+                            runner, toBeWrapped, rpcQueueLocator, wrapperItemsNamePrefix, hooks
+                        );
+                    } else {
+                        nats::NATSOnOrderFacility<Env>::template wrapLocalOnOrderFacility<A,B,C>(
+                            runner, toBeWrapped, rpcQueueLocator, wrapperItemsNamePrefix, hooks
+                        );
+                    }
+                } else {
+                    std::ostringstream errOss;
+                    errOss << "[MultiTransportFacilityWrapper::wrap(localOnOrderFacility)] trying to wrap a facility with nats channel '" << rpcQueueLocator << "', but nats is unsupported in the environment";
                     throw std::runtime_error(errOss.str());
                 }
                 break;
@@ -583,6 +617,23 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                 } else {
                     std::ostringstream errOss;
                     errOss << "[MultiTransportFacilityWrapper::wrap(onOrderFacilityWithExternalEffects)] trying to wrap a facility with redis channel '" << rpcQueueLocator << "', but redis is unsupported in the environment";
+                    throw std::runtime_error(errOss.str());
+                }
+                break;
+            case MultiTransportRemoteFacilityConnectionType::NATS:
+                if constexpr (std::is_convertible_v<Env *, nats::NATSComponent *>) {
+                    if constexpr (Option == MultiTransportFacilityWrapperOption::NoReply) {
+                        nats::NATSOnOrderFacility<Env>::template wrapOnOrderFacilityWithExternalEffectsWithoutReply<A,B,C>(
+                            runner, toBeWrapped, rpcQueueLocator, wrapperItemsNamePrefix, hooks
+                        );
+                    } else {
+                        nats::NATSOnOrderFacility<Env>::template wrapOnOrderFacilityWithExternalEffects<A,B,C>(
+                            runner, toBeWrapped, rpcQueueLocator, wrapperItemsNamePrefix, hooks
+                        );
+                    }
+                } else {
+                    std::ostringstream errOss;
+                    errOss << "[MultiTransportFacilityWrapper::wrap(onOrderFacilityWithExternalEffects)] trying to wrap a facility with nats channel '" << rpcQueueLocator << "', but nats is unsupported in the environment";
                     throw std::runtime_error(errOss.str());
                 }
                 break;
@@ -807,6 +858,23 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                     throw std::runtime_error(errOss.str());
                 }
                 break;
+            case MultiTransportRemoteFacilityConnectionType::NATS:
+                if constexpr (std::is_convertible_v<Env *, nats::NATSComponent *>) {
+                    if constexpr (Option == MultiTransportFacilityWrapperOption::NoReply) {
+                        nats::NATSOnOrderFacility<Env>::template wrapVIEOnOrderFacilityWithoutReply<A,B,C,D>(
+                            runner, toBeWrapped, rpcQueueLocator, wrapperItemsNamePrefix, hooks
+                        );
+                    } else {
+                        nats::NATSOnOrderFacility<Env>::template wrapVIEOnOrderFacility<A,B,C,D>(
+                            runner, toBeWrapped, rpcQueueLocator, wrapperItemsNamePrefix, hooks
+                        );
+                    }
+                } else {
+                    std::ostringstream errOss;
+                    errOss << "[MultiTransportFacilityWrapper::wrap(vieOnOrderFacility)] trying to wrap a facility with nats channel '" << rpcQueueLocator << "', but nats is unsupported in the environment";
+                    throw std::runtime_error(errOss.str());
+                }
+                break;
             case MultiTransportRemoteFacilityConnectionType::SocketRPC:
                 if constexpr (std::is_convertible_v<Env *, socket_rpc::SocketRPCComponent *>) {
                     if constexpr (Option == MultiTransportFacilityWrapperOption::NoReply) {
@@ -1028,6 +1096,23 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                 } else {
                     std::ostringstream errOss;
                     errOss << "[MultiTransportFacilityWrapper::wrap(FacilitioidConnector)] trying to wrap a facility with redis channel '" << rpcQueueLocator << "', but redis is unsupported in the environment";
+                    throw std::runtime_error(errOss.str());
+                }
+                break;
+            case MultiTransportRemoteFacilityConnectionType::NATS:
+                if constexpr (std::is_convertible_v<Env *, nats::NATSComponent *>) {
+                    if constexpr (Option == MultiTransportFacilityWrapperOption::NoReply) {
+                        nats::NATSOnOrderFacility<Env>::template wrapFacilitioidConnectorWithoutReply<A,B>(
+                            runner, registeredNameForFacilitioid, toBeWrapped, rpcQueueLocator, wrapperItemsNamePrefix, hooks
+                        );
+                    } else {
+                        nats::NATSOnOrderFacility<Env>::template wrapFacilitioidConnector<A,B>(
+                            runner, registeredNameForFacilitioid, toBeWrapped, rpcQueueLocator, wrapperItemsNamePrefix, hooks
+                        );
+                    }
+                } else {
+                    std::ostringstream errOss;
+                    errOss << "[MultiTransportFacilityWrapper::wrap(FacilitioidConnector)] trying to wrap a facility with nats channel '" << rpcQueueLocator << "', but nats is unsupported in the environment";
                     throw std::runtime_error(errOss.str());
                 }
                 break;

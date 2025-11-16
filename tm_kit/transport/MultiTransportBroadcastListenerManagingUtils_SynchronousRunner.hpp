@@ -77,6 +77,17 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                         r.environment()->log(infra::LogLevel::Warning, "[MultiTransportBroadcastListenerManagingUtils (Synchronous Runner)::oneBroadcastListenerWithTopic] Trying to create redis publisher with channel spec '"+spec.channel+"', but redis is unsupported in the environment");
                     }
                     break;
+                case MultiTransportBroadcastListenerConnectionType::NATS:
+                    if constexpr (std::is_convertible_v<Env *, nats::NATSComponent *>) {
+                        sub = nats::NATSImporterExporter<Env>::template createTypedImporter<DataType>(
+                            std::get<1>(*parsedSpec)
+                            , getTopic_internal(std::get<0>(*parsedSpec), spec.topicDescription)
+                            , hookFactory(spec.name)
+                        );
+                    } else {
+                        r.environment()->log(infra::LogLevel::Warning, "[MultiTransportBroadcastListenerManagingUtils (Synchronous Runner)::oneBroadcastListenerWithTopic] Trying to create nats publisher with channel spec '"+spec.channel+"', but nats is unsupported in the environment");
+                    }
+                    break;                
                 case MultiTransportBroadcastListenerConnectionType::ZeroMQ:
                     if constexpr (std::is_convertible_v<Env *, zeromq::ZeroMQComponent *>) {
                         sub = zeromq::ZeroMQImporterExporter<Env>::template createTypedImporter<DataType>(
@@ -276,6 +287,18 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                     return sub;
                 } else {
                     throw std::runtime_error("[MultiTransportBroadcastListenerManagingUtils (Synchronous Runner)::oneByteDataBroadcastListener] Trying to create redis publisher with channel spec '"+channelSpec+"', but redis is unsupported in the environment");
+                }
+                break;
+            case MultiTransportBroadcastListenerConnectionType::NATS:
+                if constexpr (std::is_convertible_v<Env *, nats::NATSComponent *>) {
+                    auto sub = nats::NATSImporterExporter<Env>::createImporter(
+                        std::get<1>(*parsed)
+                        , getTopic_internal(std::get<0>(*parsed), topicDescription)
+                        , hook
+                    );
+                    return sub;
+                } else {
+                    throw std::runtime_error("[MultiTransportBroadcastListenerManagingUtils (Synchronous Runner)::oneByteDataBroadcastListener] Trying to create nats publisher with channel spec '"+channelSpec+"', but nats is unsupported in the environment");
                 }
                 break;
             case MultiTransportBroadcastListenerConnectionType::ZeroMQ:

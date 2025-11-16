@@ -19,6 +19,7 @@
 #include <tm_kit/transport/multicast/MulticastComponent.hpp>
 #include <tm_kit/transport/zeromq/ZeroMQComponent.hpp>
 #include <tm_kit/transport/redis/RedisComponent.hpp>
+#include <tm_kit/transport/nats/NATSComponent.hpp>
 #include <tm_kit/transport/nng/NNGComponent.hpp>
 #include <tm_kit/transport/singlecast/SinglecastComponent.hpp>
 #include <tm_kit/transport/shared_memory_broadcast/SharedMemoryBroadcastComponent.hpp>
@@ -156,6 +157,22 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
         }
     };
     template <class Env>
+    class HeartbeatAndAlertComponentInitializer<Env, nats::NATSComponent> {
+    public:
+        void operator()(Env *env, std::string const &identity, ConnectionLocator const &locator, std::optional<UserToWireHook> hook=std::nullopt) {
+            auto realHook = hook;
+            if (!realHook) {
+                realHook = DefaultHookFactory<Env>::template outgoingHook<HeartbeatMessage>(env);
+            }
+            env->HeartbeatAndAlertComponent::assignIdentity(HeartbeatAndAlertComponent {
+                static_cast<basic::real_time_clock::ClockComponent *>(env)
+                , identity
+                , static_cast<nats::NATSComponent *>(env)
+                    ->nats_getPublisher(locator, realHook)
+            });
+        }
+    };
+    template <class Env>
     class HeartbeatAndAlertComponentInitializer<Env, nng::NNGComponent> {
     public:
         //Please refer to warning at zeromq initializer too
@@ -252,6 +269,15 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
         case MultiTransportBroadcastListenerConnectionType::Redis:
             if constexpr (std::is_convertible_v<Env *, redis::RedisComponent *>) {
                 HeartbeatAndAlertComponentInitializer<Env, redis::RedisComponent>()(
+                    env, identity, locator, hook
+                );
+            } else {
+                throw std::runtime_error("initializeHeartbeatAndAlertComponent: connection type Redis not supported in environment");
+            }
+            break;
+        case MultiTransportBroadcastListenerConnectionType::NATS:
+            if constexpr (std::is_convertible_v<Env *, nats::NATSComponent *>) {
+                HeartbeatAndAlertComponentInitializer<Env, nats::NATSComponent>()(
                     env, identity, locator, hook
                 );
             } else {

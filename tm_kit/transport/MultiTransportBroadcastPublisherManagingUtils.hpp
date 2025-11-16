@@ -5,6 +5,7 @@
 #include <tm_kit/transport/multicast/MulticastImporterExporter.hpp>
 #include <tm_kit/transport/rabbitmq/RabbitMQImporterExporter.hpp>
 #include <tm_kit/transport/redis/RedisImporterExporter.hpp>
+#include <tm_kit/transport/nats/NATSImporterExporter.hpp>
 #include <tm_kit/transport/zeromq/ZeroMQImporterExporter.hpp>
 #include <tm_kit/transport/nng/NNGImporterExporter.hpp>
 #include <tm_kit/transport/shared_memory_broadcast/SharedMemoryBroadcastImporterExporter.hpp>
@@ -95,6 +96,17 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                         return r.exporterAsSink(pub);
                     } else {
                         throw std::runtime_error("[MultiTransportBroadcastPublisherManagingUtils::oneBroadcastPublisher] Trying to create redis publisher with channel spec '"+channelSpec+"', but redis is unsupported in the environment");
+                    }
+                    break;
+                case MultiTransportBroadcastListenerConnectionType::NATS:
+                    if constexpr (std::is_convertible_v<Env *, nats::NATSComponent *>) {
+                        auto pub = nats::NATSImporterExporter<Env>::template createTypedExporter<OutputType>(
+                            std::get<1>(*parsed), hook, name
+                        );
+                        r.registerExporter(name, pub);
+                        return r.exporterAsSink(pub);
+                    } else {
+                        throw std::runtime_error("[MultiTransportBroadcastPublisherManagingUtils::oneBroadcastPublisher] Trying to create nats publisher with channel spec '"+channelSpec+"', but nats is unsupported in the environment");
                     }
                     break;
                 case MultiTransportBroadcastListenerConnectionType::ZeroMQ:
@@ -213,6 +225,17 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                     return r.exporterAsSink(pub);
                 } else {
                     throw std::runtime_error("[MultiTransportBroadcastPublisherManagingUtils::oneByteDataBroadcastPublisher] Trying to create redis publisher with channel spec '"+channelSpec+"', but redis is unsupported in the environment");
+                }
+                break;
+            case MultiTransportBroadcastListenerConnectionType::NATS:
+                if constexpr (std::is_convertible_v<Env *, nats::NATSComponent *>) {
+                    auto pub = nats::NATSImporterExporter<Env>::createExporter(
+                        std::get<1>(*parsed), hook, name
+                    );
+                    r.registerExporter(name, pub);
+                    return r.exporterAsSink(pub);
+                } else {
+                    throw std::runtime_error("[MultiTransportBroadcastPublisherManagingUtils::oneByteDataBroadcastPublisher] Trying to create nats publisher with channel spec '"+channelSpec+"', but nats is unsupported in the environment");
                 }
                 break;
             case MultiTransportBroadcastListenerConnectionType::ZeroMQ:

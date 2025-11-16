@@ -10,6 +10,7 @@
 #include <tm_kit/transport/multicast/MulticastComponent.hpp>
 #include <tm_kit/transport/rabbitmq/RabbitMQComponent.hpp>
 #include <tm_kit/transport/redis/RedisComponent.hpp>
+#include <tm_kit/transport/nats/NATSComponent.hpp>
 #include <tm_kit/transport/zeromq/ZeroMQComponent.hpp>
 #include <tm_kit/transport/nng/NNGComponent.hpp>
 #include <tm_kit/transport/socket_rpc/SocketRPCComponent.hpp>
@@ -31,6 +32,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
         multicast::MulticastComponent
         , rabbitmq::RabbitMQComponent
         , redis::RedisComponent
+        , nats::NATSComponent
         , zeromq::ZeroMQComponent
         , nng::NNGComponent
         , shared_memory_broadcast::SharedMemoryBroadcastComponent
@@ -63,6 +65,9 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
         if constexpr (std::is_convertible_v<Env *, redis::RedisComponent *>) {
             retVal["redis"] = env->redis_threadHandles();
         }
+        if constexpr (std::is_convertible_v<Env *, nats::NATSComponent *>) {
+            retVal["nats"] = env->nats_threadHandles();
+        }
         if constexpr (std::is_convertible_v<Env *, shared_memory_broadcast::SharedMemoryBroadcastComponent *>) {
             retVal["shared_memory_broadcast"] = env->shared_memory_broadcast_threadHandles();
         }
@@ -85,16 +90,18 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
         Multicast
         , RabbitMQ
         , Redis 
+        , NATS
         , ZeroMQ 
         , NNG
         , SharedMemoryBroadcast
         , WebSocket
         , Singlecast
     };
-    inline const std::array<std::string,8> MULTI_TRANSPORT_SUBSCRIBER_CONNECTION_TYPE_STR = {
+    inline const std::array<std::string,9> MULTI_TRANSPORT_SUBSCRIBER_CONNECTION_TYPE_STR = {
         "multicast"
         , "rabbitmq"
         , "redis"
+        , "nats"
         , "zeromq"
         , "nng"
         , "shared_memory_broadcast"
@@ -220,6 +227,14 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
             return ret;
         }
     };
+    class MultiTransportBroadcastListenerNATSTopicHelper final {
+    public:
+        static std::string natsTopicHelper(std::string const &input) {
+            std::string ret = input;
+            std::replace(ret.begin(), ret.end(), '#', '*');
+            return ret;
+        }
+    };
 
     template <class Component>
     class MultiTransportBroadcastListenerTopicHelper final {
@@ -232,6 +247,8 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                     return "#";
                 } else if constexpr (std::is_same_v<Component, redis::RedisComponent>) {
                     return "*";
+                } else if constexpr (std::is_same_v<Component, nats::NATSComponent>) {
+                    return ">";
                 } else {
                     return typename Component::NoTopicSelection {};
                 }
@@ -244,6 +261,10 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                     std::is_same_v<Component, redis::RedisComponent>
                 ) {
                     return MultiTransportBroadcastListenerRedisTopicHelper::redisTopicHelper(s);
+                } else if constexpr(
+                    std::is_same_v<Component, nats::NATSComponent>
+                ) {
+                    return MultiTransportBroadcastListenerNATSTopicHelper::natsTopicHelper(s);
                 } else {
                     if (boost::starts_with(s, "r/") && boost::ends_with(s, "/") && s.length() > 3) {
                         return std::regex {s.substr(2, s.length()-3)};
@@ -472,6 +493,56 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                         } else {
                             std::ostringstream errOss;
                             errOss << "[MultiTransportBroadcastListner::actuallyHandle] trying to set up redis channel " << x.connectionLocator << " but redis is unsupported in the environment";
+                            env->log(infra::LogLevel::Warning, errOss.str());
+                            this->FacilityParent::publish(
+                                env
+                                , typename M::template Key<MultiTransportBroadcastListenerOutput> {
+                                    id
+                                    , MultiTransportBroadcastListenerOutput { {
+                                        MultiTransportBroadcastListenerAddSubscriptionResponse {0}
+                                    } }
+                                }
+                                , true
+                            );
+                        }
+                        break;
+                    case MultiTransportBroadcastListenerConnectionType::NATS:
+                        if constexpr (std::is_convertible_v<Env *, nats::NATSComponent *>) {
+                            auto *component = static_cast<nats::NATSComponent *>(env);
+                            auto actualHook = wireToUserHook_;
+                            if (!actualHook) {
+                                actualHook = DefaultHookFactory<Env>::template incomingHook<T>(env);
+                            }
+                            auto res = component->nats_addSubscriptionClient(
+                                x.connectionLocator
+                                , MultiTransportBroadcastListenerNATSTopicHelper::natsTopicHelper(x.topicDescription)
+                                , [this,env](basic::ByteDataWithTopic &&d) {
+                                    TM_INFRA_IMPORTER_TRACER_WITH_SUFFIX(env, ":data");
+                                    T t;
+                                    auto tRes = basic::bytedata_utils::RunDeserializer<T>::applyInPlace(t, d.content);
+                                    if (tRes) {
+                                        this->ImporterParent::publish(M::template pureInnerData<basic::TypedDataWithTopic<T>>(env, {std::move(d.topic), std::move(t)}));
+                                    }
+                                }
+                                , actualHook
+                            );
+                            {
+                                std::lock_guard<std::mutex> _(subscriptionsMutex_);
+                                subscriptions_.insert({{x.connectionType, res}, x});
+                            }
+                            this->FacilityParent::publish(
+                                env
+                                , typename M::template Key<MultiTransportBroadcastListenerOutput> {
+                                    id
+                                    , MultiTransportBroadcastListenerOutput { {
+                                        MultiTransportBroadcastListenerAddSubscriptionResponse {res}
+                                    } }
+                                }
+                                , true
+                            );
+                        } else {
+                            std::ostringstream errOss;
+                            errOss << "[MultiTransportBroadcastListner::actuallyHandle] trying to set up nats channel " << x.connectionLocator << " but nats is unsupported in the environment";
                             env->log(infra::LogLevel::Warning, errOss.str());
                             this->FacilityParent::publish(
                                 env
@@ -791,6 +862,16 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                             }
                         }
                         break;
+                    case MultiTransportBroadcastListenerConnectionType::NATS:
+                        if constexpr (std::is_convertible_v<Env *, nats::NATSComponent *>) {
+                            static_cast<nats::NATSComponent *>(env)
+                                ->nats_removeSubscriptionClient(x.subscriptionID);
+                            {
+                                std::lock_guard<std::mutex> _(subscriptionsMutex_);
+                                subscriptions_.erase({x.connectionType, x.subscriptionID});
+                            }
+                        }
+                        break;
                     case MultiTransportBroadcastListenerConnectionType::ZeroMQ:
                         if constexpr (std::is_convertible_v<Env *, zeromq::ZeroMQComponent *>) {
                             static_cast<zeromq::ZeroMQComponent *>(env)
@@ -874,6 +955,12 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                             if constexpr (std::is_convertible_v<Env *, redis::RedisComponent *>) {
                                 static_cast<redis::RedisComponent *>(env)
                                     ->redis_removeSubscriptionClient(std::get<1>(x.first));
+                            }
+                            break;
+                        case MultiTransportBroadcastListenerConnectionType::NATS:
+                            if constexpr (std::is_convertible_v<Env *, nats::NATSComponent *>) {
+                                static_cast<nats::NATSComponent *>(env)
+                                    ->nats_removeSubscriptionClient(std::get<1>(x.first));
                             }
                             break;
                         case MultiTransportBroadcastListenerConnectionType::ZeroMQ:

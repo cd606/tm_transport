@@ -8,6 +8,7 @@ tm_transport_sources = [
       , 'rabbitmq/RabbitMQComponent.cpp'
       , 'zeromq/ZeroMQComponent.cpp'
       , 'redis/RedisComponent.cpp'
+      , 'nats/NATSComponent.cpp'
       , 'nng/NNGComponent.cpp'
       , 'security/SignatureHelper.cpp'
       , 'shared_memory_broadcast/SharedMemoryBroadcastComponent.cpp'

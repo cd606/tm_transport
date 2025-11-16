@@ -1347,6 +1347,13 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                     throw std::runtime_error("[MultiTransportRemoteFacilityManagingUtils::setupSimpleRemoteFacility] trying to set up redis facility for channel spec '"+locator.toPrintFormat()+"', but redis is unsupported in the environment");
                 }
                 break;
+            case MultiTransportRemoteFacilityConnectionType::NATS:
+                if constexpr(std::is_convertible_v<typename R::EnvironmentType *, nats::NATSComponent *>) {
+                    return nats::NATSOnOrderFacility<typename R::EnvironmentType>::template createTypedRPCOnOrderFacility<Request,Result>(locator, hooks);
+                } else {
+                    throw std::runtime_error("[MultiTransportRemoteFacilityManagingUtils::setupSimpleRemoteFacility] trying to set up nats facility for channel spec '"+locator.toPrintFormat()+"', but nats is unsupported in the environment");
+                }
+                break;
             case MultiTransportRemoteFacilityConnectionType::SocketRPC:
                 if constexpr(std::is_convertible_v<typename R::EnvironmentType *, socket_rpc::SocketRPCComponent *>) {
                     return socket_rpc::SocketRPCOnOrderFacility<typename R::EnvironmentType>::template createTypedRPCOnOrderFacility<Request,Result>(locator, hooks);

@@ -12,6 +12,8 @@
 #include <tm_kit/transport/rabbitmq/RabbitMQOnOrderFacility.hpp>
 #include <tm_kit/transport/redis/RedisComponent.hpp>
 #include <tm_kit/transport/redis/RedisOnOrderFacility.hpp>
+#include <tm_kit/transport/nats/NATSComponent.hpp>
+#include <tm_kit/transport/nats/NATSOnOrderFacility.hpp>
 #include <tm_kit/transport/socket_rpc/SocketRPCComponent.hpp>
 #include <tm_kit/transport/singlecast/SinglecastComponent.hpp>
 #include <tm_kit/transport/socket_rpc/SocketRPCOnOrderFacility.hpp>
@@ -39,14 +41,16 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
     enum class MultiTransportRemoteFacilityConnectionType {
         RabbitMQ
         , Redis
+        , NATS
         , SocketRPC
         , GrpcInterop
         , JsonREST
         , WebSocket
     };
-    inline const std::array<std::string,6> MULTI_TRANSPORT_REMOTE_FACILITY_CONNECTION_TYPE_STR = {
+    inline const std::array<std::string,7> MULTI_TRANSPORT_REMOTE_FACILITY_CONNECTION_TYPE_STR = {
         "rabbitmq"
         , "redis"
+        , "nats"
         , "socket_rpc"
         , "grpc_interop"
         , "json_rest"
@@ -362,6 +366,98 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                 } else {
                     std::ostringstream errOss;
                     errOss << "[MultiTransportRemoteFacility::registerFacility] Trying to set up redis facility for " << locator << ", but redis is unsupported in the environment";
+                    env->log(infra::LogLevel::Warning, errOss.str());
+                }
+                return {newSize, true};
+                break;
+            case MultiTransportRemoteFacilityConnectionType::NATS:
+                if constexpr (std::is_convertible_v<Env *, nats::NATSComponent *>) {
+                    auto *component = static_cast<nats::NATSComponent *>(env);
+                    try {
+                        uint32_t clientNumber = 0;
+                        auto rawReq = component->nats_setRPCClient(
+                            locator
+                            , [this,env](bool isFinal, basic::ByteDataWithID &&data) {
+                                if constexpr (std::is_same_v<Identity, void>) {
+                                    Output o;
+                                    auto result = basic::bytedata_utils::RunDeserializer<Output>::applyInPlace(o, data.content);
+                                    if (!result) {
+                                        return;
+                                    }
+                                    this->FacilityParent::publish(
+                                        env
+                                        , typename M::template Key<Output> {
+                                            Env::id_from_string(data.id)
+                                            , std::move(o)
+                                        }
+                                        , isFinal
+                                    );
+                                } else {
+                                    auto processRes = static_cast<typename DetermineClientSideIdentityForRequest<Env, A>::ComponentType *>(env)->process_incoming_data(
+                                        basic::ByteData {std::move(data.content)}
+                                    );
+                                    if (processRes) {
+                                        Output o;
+                                        auto result = basic::bytedata_utils::RunDeserializer<Output>::applyInPlace(o, processRes->content);
+                                        if (!result) {
+                                            return;
+                                        }
+                                        this->FacilityParent::publish(
+                                            env
+                                            , typename M::template Key<Output> {
+                                                Env::id_from_string(data.id)
+                                                , std::move(o)
+                                            }
+                                            , isFinal
+                                        );
+                                    }
+                                }
+                            }
+                            , DefaultHookFactory<Env>::template supplyFacilityHookPair_ClientSide<A,B>(env, hookPairFactory_(description, locator))
+                            , &clientNumber
+                        );
+                        RequestSender req;
+                        if constexpr (std::is_same_v<Identity,void>) {
+                            req = [rawReq](std::string const &id, A &&data) {
+                                rawReq(basic::ByteDataWithID {
+                                    id 
+                                    , basic::SerializationActions<M>::template serializeFunc<A>(std::move(data))
+                                });
+                            };
+                        } else {
+                            static_assert(std::is_convertible_v<Env *, typename DetermineClientSideIdentityForRequest<Env, A>::ComponentType *>
+                                        , "the client side identity attacher must be present");
+                            auto *attacher = static_cast<typename DetermineClientSideIdentityForRequest<Env, A>::ComponentType *>(env);
+                            req = [attacher,rawReq](std::string const &id, A &&data) {
+                                rawReq(basic::ByteDataWithID {
+                                    id
+                                    , attacher->attach_identity({basic::SerializationActions<M>::template serializeFunc<A>(std::move(data))}).content
+                                });
+                            };
+                        }
+                        {
+                            std::lock_guard<std::mutex> _(mutex_);
+                            underlyingSenders_.push_back({locator, std::make_unique<RequestSender>(std::move(req))});
+                            if constexpr (DispatchStrategy == MultiTransportRemoteFacilityDispatchStrategy::Designated) {
+                                senderMap_.insert({locator, std::get<1>(underlyingSenders_.back()).get()});
+                            }
+                            newSize = underlyingSenders_.size();
+                            clientNumberRecord_[locator] = clientNumber;
+                        }
+                        std::ostringstream oss;
+                        oss << "[MultiTransportRemoteFacility::registerFacility] Registered NATS facility for "
+                            << locator;
+                        env->log(infra::LogLevel::Info, oss.str());
+                    } catch (nats::NATSComponentException const &ex) {
+                        std::ostringstream oss;
+                        oss << "[MultiTransportRemoteFacility::registerFacility] Error registering NATS facility for "
+                            << locator
+                            << ": " << ex.what();
+                        env->log(infra::LogLevel::Error, oss.str());
+                    }
+                } else {
+                    std::ostringstream errOss;
+                    errOss << "[MultiTransportRemoteFacility::registerFacility] Trying to set up nats facility for " << locator << ", but nats is unsupported in the environment";
                     env->log(infra::LogLevel::Warning, errOss.str());
                 }
                 return {newSize, true};
@@ -887,6 +983,43 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                 }
                 return {newSize, true};
                 break;
+            case MultiTransportRemoteFacilityConnectionType::NATS:
+                if constexpr (std::is_convertible_v<Env *, nats::NATSComponent *>) {
+                    auto *component = static_cast<nats::NATSComponent *>(env);
+                    uint32_t clientNumber = 0;
+                    {
+                        std::lock_guard<std::mutex> _(mutex_);
+                        auto iter = clientNumberRecord_.find(locator);
+                        if (iter != clientNumberRecord_.end()) {
+                            clientNumber = iter->second;
+                            clientNumberRecord_.erase(iter);
+                        }
+                    }
+                    component->nats_removeRPCClient(locator, clientNumber);
+                    {
+                        std::lock_guard<std::mutex> _(mutex_);
+                        if constexpr (DispatchStrategy == MultiTransportRemoteFacilityDispatchStrategy::Designated) {
+                            senderMap_.erase(locator);
+                        }
+                        underlyingSenders_.erase(
+                            std::remove_if(
+                                underlyingSenders_.begin()
+                                , underlyingSenders_.end()
+                                , [&locator](auto const &x) {
+                                    return (std::get<0>(x) == locator);
+                                }
+                            )
+                            , underlyingSenders_.end()
+                        );
+                        newSize = underlyingSenders_.size();
+                    }
+                    std::ostringstream oss;
+                    oss << "[MultiTransportRemoteFacility::deregisterFacility] De-registered NATS facility for "
+                        << locator;
+                    env->log(infra::LogLevel::Info, oss.str());
+                }
+                return {newSize, true};
+                break;
             case MultiTransportRemoteFacilityConnectionType::SocketRPC:
                 if constexpr (std::is_convertible_v<Env *, socket_rpc::SocketRPCComponent *>) {
                     auto *component = static_cast<socket_rpc::SocketRPCComponent *>(env);
@@ -1130,6 +1263,14 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                 } else {
                     throw std::runtime_error("OneShotMultiTransportRemoteFacilityCall::call: connection type Redis not supported in environment");
                 }
+            } else if (connType == MultiTransportRemoteFacilityConnectionType::NATS) {
+                if constexpr (std::is_convertible_v<Env *, nats::NATSComponent *>) {
+                    return nats::NATSOnOrderFacility<Env>::template typedOneShotRemoteCall<A,B>(
+                        env, locator, std::move(request), hooks, autoDisconnect, clientNumberOutput
+                    );
+                } else {
+                    throw std::runtime_error("OneShotMultiTransportRemoteFacilityCall::call: connection type NATS not supported in environment");
+                }
             } else if (connType == MultiTransportRemoteFacilityConnectionType::SocketRPC) {
                 if constexpr (std::is_convertible_v<Env *, socket_rpc::SocketRPCComponent *>) {
                     return socket_rpc::SocketRPCOnOrderFacility<Env>::template typedOneShotRemoteCall<A,B>(
@@ -1291,6 +1432,14 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                 } else {
                     throw std::runtime_error("OneShotMultiTransportRemoteFacilityCall::callNoReply: connection type Redis not supported in environment");
                 }
+            } else if (connType == MultiTransportRemoteFacilityConnectionType::NATS) {
+                if constexpr (std::is_convertible_v<Env *, nats::NATSComponent *>) {
+                    nats::NATSOnOrderFacility<Env>::template typedOneShotRemoteCallNoReply<A,B>(
+                        env, locator, std::move(request), hooks, autoDisconnect, clientNumberOutput
+                    );
+                } else {
+                    throw std::runtime_error("OneShotMultiTransportRemoteFacilityCall::callNoReply: connection type NATS not supported in environment");
+                }
             } else if (connType == MultiTransportRemoteFacilityConnectionType::SocketRPC) {
                 if constexpr (std::is_convertible_v<Env *, socket_rpc::SocketRPCComponent *>) {
                     socket_rpc::SocketRPCOnOrderFacility<Env>::template typedOneShotRemoteCallNoReply<A,B>(
@@ -1426,6 +1575,12 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                     env->redis_removeRPCClient(locator, clientNumberIfNeeded);
                 } else {
                     throw std::runtime_error("OneShotMultiTransportRemoteFacilityCall::removeClient: connection type Redis not supported in environment");
+                }
+            } else if (connType == MultiTransportRemoteFacilityConnectionType::NATS) {
+                if constexpr (std::is_convertible_v<Env *, nats::NATSComponent *>) {
+                    env->nats_removeRPCClient(locator, clientNumberIfNeeded);
+                } else {
+                    throw std::runtime_error("OneShotMultiTransportRemoteFacilityCall::removeClient: connection type NATS not supported in environment");
                 }
             } else if (connType == MultiTransportRemoteFacilityConnectionType::SocketRPC) {
                 if constexpr (std::is_convertible_v<Env *, socket_rpc::SocketRPCComponent *>) {
