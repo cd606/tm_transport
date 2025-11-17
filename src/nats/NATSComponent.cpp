@@ -23,19 +23,20 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
 
             if (locatorCACert != "" && locatorClientCert != "" && locatorClientKey != "") {
                 natsOptions_SetSecure(opts, true);
-                natsOptions_LoadCATrustedCertificates(opts, locatorCACert.c_str());
-                natsOptions_SetCertificatesChain(opts, locatorClientCert.c_str(), locatorClientKey.c_str()); 
+                natsOptions_LoadCertificatesChain(opts, locatorClientCert.c_str(), locatorClientKey.c_str()); 
+                natsOptions_LoadCATrustedCertificates(opts, locatorCACert.c_str());                
             } else {
                 auto sslInfo = tlsConf?(tlsConf->getConfigurationItem(
                     TLSClientInfoKey {
-                        locator.host(), locator.port()
+                        locator.host(), (locator.port()==0?4222:locator.port())
                     }
                 )):std::nullopt;
 
                 if (sslInfo) {
+                    //std::cerr << "TLS! " << sslInfo->caCertificateFile << ' ' << sslInfo->clientCertificateFile << ' ' << sslInfo->clientKeyFile << '\n';
                     natsOptions_SetSecure(opts, true);
-                    natsOptions_LoadCATrustedCertificates(opts, sslInfo->caCertificateFile.c_str());
-                    natsOptions_SetCertificatesChain(opts, sslInfo->clientCertificateFile.c_str(), sslInfo->clientKeyFile.c_str());                
+                    natsOptions_LoadCertificatesChain(opts, sslInfo->clientCertificateFile.c_str(), sslInfo->clientKeyFile.c_str());                
+                    natsOptions_LoadCATrustedCertificates(opts, sslInfo->caCertificateFile.c_str());                    
                 }
             }
 
@@ -47,6 +48,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         private:
             ConnectionLocator locator_;
             std::string topic_;
+            natsOptions *opts_;
             natsConnection *conn_;
             natsSubscription *sub_;
             struct ClientCB {
@@ -110,6 +112,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             OneNATSSubscription(ConnectionLocator const &locator, std::string const &topic, TLSClientConfigurationComponent *tlsConf) 
                 : locator_(locator)
                 , topic_(topic)
+                , opts_(nullptr)
                 , conn_(nullptr)
                 , sub_(nullptr)
                 , clients_()
@@ -117,15 +120,13 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 , mutex_()
                 , running_(true)
             {
-                natsOptions *opts = nullptr;
-                natsOptions_Create(&opts);
+                natsOptions_Create(&opts_);
                 std::ostringstream oss;
                 oss << "nats://" << locator.host() << ':' << (locator.port()==0?4222:locator.port());
-                natsOptions_SetURL(opts, oss.str().c_str());
-                NATSComponentImpl::auth(locator, tlsConf, opts);
+                natsOptions_SetURL(opts_, oss.str().c_str());
+                NATSComponentImpl::auth(locator, tlsConf, opts_);
 
-                natsConnection_Connect(&conn_, opts);
-                natsOptions_Destroy(opts);
+                natsConnection_Connect(&conn_, opts_);
 
                 th_ = std::thread(&OneNATSSubscription::run, this);
                 th_.detach();
@@ -146,6 +147,10 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 if (conn_) {
                     natsConnection_Destroy(conn_);
                     conn_ = nullptr;
+                }
+                if (opts_) {
+                    natsOptions_Destroy(opts_);
+                    opts_ = nullptr;
                 }
             }
             void addSubscription(
@@ -192,6 +197,10 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                     natsConnection_Destroy(conn_);
                     conn_ = nullptr;
                 }
+                if (opts_) {
+                    natsOptions_Destroy(opts_);
+                    opts_ = nullptr;
+                }
             }
             ConnectionLocator const &locator() const {
                 return locator_;
@@ -205,26 +214,29 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
 
         class OneNATSSender {
         private:
+            natsOptions *opts_;
             natsConnection *conn_;
             std::mutex mutex_;
         public:
             OneNATSSender(ConnectionLocator const &locator, TLSClientConfigurationComponent *tlsConf)
-                : conn_(nullptr), mutex_()
+                : opts_(nullptr), conn_(nullptr), mutex_()
             {
-                natsOptions *opts = nullptr;
-                natsOptions_Create(&opts);
+                natsOptions_Create(&opts_);
                 std::ostringstream oss;
                 oss << "nats://" << locator.host() << ':' << (locator.port()==0?4222:locator.port());
-                natsOptions_SetURL(opts, oss.str().c_str());
-                NATSComponentImpl::auth(locator, tlsConf, opts);
+                natsOptions_SetURL(opts_, oss.str().c_str());
+                NATSComponentImpl::auth(locator, tlsConf, opts_);
 
-                natsConnection_Connect(&conn_, opts);
-                natsOptions_Destroy(opts);
+                natsConnection_Connect(&conn_, opts_);                
             }
             ~OneNATSSender() {
                 if (conn_) {
                     natsConnection_Destroy(conn_);
                     conn_ = nullptr;
+                }
+                if (opts_) {
+                    natsOptions_Destroy(opts_);
+                    opts_ = nullptr;
                 }
             }
             void publish(basic::ByteDataWithTopic &&data) {
@@ -237,6 +249,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
 
         class OneNATSRPCClientConnection {
         private:
+            natsOptions *opts_;
             natsConnection *conn_;    
             std::string rpcTopic_;
             struct OneClientInfo {
@@ -310,7 +323,8 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             }
         public:
             OneNATSRPCClientConnection(ConnectionLocator const &locator, TLSClientConfigurationComponent *tlsConf)
-                : conn_(nullptr)
+                : opts_(nullptr)
+                , conn_(nullptr)
                 , rpcTopic_(locator.identifier())
                 , clientCounter_(0)
                 , clients_()
@@ -319,21 +333,23 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 , clientsMutex_()
                 , th_()
                 , running_(true)
-            {
-                natsOptions *opts = nullptr;
-                natsOptions_Create(&opts);
+            {                
+                natsOptions_Create(&opts_);
                 std::ostringstream oss;
                 oss << "nats://" << locator.host() << ':' << (locator.port()==0?4222:locator.port());
-                natsOptions_SetURL(opts, oss.str().c_str());
-                NATSComponentImpl::auth(locator, tlsConf, opts);
+                natsOptions_SetURL(opts_, oss.str().c_str());
+                NATSComponentImpl::auth(locator, tlsConf, opts_);
 
-                natsConnection_Connect(&conn_, opts);
-                natsOptions_Destroy(opts);
+                natsConnection_Connect(&conn_, opts_);                
             }
             ~OneNATSRPCClientConnection() {
                 if (conn_) {
                     natsConnection_Destroy(conn_);
                     conn_ = nullptr;
+                }
+                if (opts_) {
+                    natsOptions_Destroy(opts_);
+                    opts_ = nullptr;
                 }
             }
             uint32_t addClient(std::function<void(bool, basic::ByteDataWithID &&)> callback, std::optional<WireToUserHook> wireToUserHook) {
@@ -357,6 +373,10 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 if (conn_) {
                     natsConnection_Destroy(conn_);
                     conn_ = nullptr;
+                }
+                if (opts_) {
+                    natsOptions_Destroy(opts_);
+                    opts_ = nullptr;
                 }
             }
             void sendRequest(uint32_t clientNumber, basic::ByteDataWithID &&data) {
@@ -384,6 +404,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
 
         class OneNATSRPCServerConnection {
         private:
+            natsOptions *opts_;
             natsConnection *conn_;
             natsSubscription *sub_;
             std::string rpcTopic_;
@@ -448,7 +469,8 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             }
         public:
             OneNATSRPCServerConnection(ConnectionLocator const &locator, std::function<void(basic::ByteDataWithID &&)> callback, std::optional<WireToUserHook> wireToUserHook, TLSClientConfigurationComponent *tlsConf)
-                : conn_(nullptr)
+                : opts_(nullptr)
+                , conn_(nullptr)
                 , sub_(nullptr)
                 , rpcTopic_(locator.identifier())
                 , callback_(callback)
@@ -456,16 +478,14 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 , th_()
                 , mutex_()
                 , running_(true)
-            {
-                natsOptions *opts = nullptr;
-                natsOptions_Create(&opts);
+            {                
+                natsOptions_Create(&opts_);
                 std::ostringstream oss;
                 oss << "nats://" << locator.host() << ':' << (locator.port()==0?4222:locator.port());
-                natsOptions_SetURL(opts, oss.str().c_str());
-                NATSComponentImpl::auth(locator, tlsConf, opts);
+                natsOptions_SetURL(opts_, oss.str().c_str());
+                NATSComponentImpl::auth(locator, tlsConf, opts_);
 
-                natsConnection_Connect(&conn_, opts);
-                natsOptions_Destroy(opts);
+                natsConnection_Connect(&conn_, opts_);                
 
                 th_ = std::thread(&OneNATSRPCServerConnection::run, this);
                 th_.detach();
@@ -485,6 +505,10 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 if (conn_) {
                     natsConnection_Destroy(conn_);
                     conn_ = nullptr;
+                }
+                if (opts_) {
+                    natsOptions_Destroy(opts_);
+                    opts_ = nullptr;
                 }
             }
             void sendReply(bool isFinal, basic::ByteDataWithID &&data) {
@@ -516,9 +540,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         std::unordered_map<uint32_t, OneNATSSubscription *> idToSubscriptionMap_;
         std::mutex idMutex_;
 
-        TLSClientConfigurationComponent *tlsConf_;
-
-        OneNATSSubscription *getOrStartSubscription(ConnectionLocator const &d, std::string const &topic) {
+        OneNATSSubscription *getOrStartSubscription(ConnectionLocator const &d, std::string const &topic, TLSClientConfigurationComponent *tlsConf) {
             ConnectionLocator hostAndPort {d.host(), d.port()};
             std::lock_guard<std::mutex> _(mutex_);
             auto subscriptionIter = subscriptions_.find(hostAndPort);
@@ -527,7 +549,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             }
             auto innerIter = subscriptionIter->second.find(topic);
             if (innerIter == subscriptionIter->second.end()) {
-                innerIter = subscriptionIter->second.insert({topic, std::make_unique<OneNATSSubscription>(d, topic, tlsConf_)}).first;
+                innerIter = subscriptionIter->second.insert({topic, std::make_unique<OneNATSSubscription>(d, topic, tlsConf)}).first;
             }
             return innerIter->second.get();
         }
@@ -543,44 +565,43 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 //std::cerr << subscriptions_.size() << '\n';
             }
         }
-        OneNATSSender *getOrStartSender(ConnectionLocator const &d) {
+        OneNATSSender *getOrStartSender(ConnectionLocator const &d, TLSClientConfigurationComponent *tlsConf) {
             std::lock_guard<std::mutex> _(mutex_);
-            return getOrStartSenderNoLock(d);
+            return getOrStartSenderNoLock(d, tlsConf);
         }
-        OneNATSSender *getOrStartSenderNoLock(ConnectionLocator const &d) {
+        OneNATSSender *getOrStartSenderNoLock(ConnectionLocator const &d, TLSClientConfigurationComponent *tlsConf) {
             ConnectionLocator hostAndPort {d.host(), d.port()};
             auto senderIter = senders_.find(hostAndPort);
             if (senderIter == senders_.end()) {
-                senderIter = senders_.insert({hostAndPort, std::make_unique<OneNATSSender>(d, tlsConf_)}).first;
+                senderIter = senders_.insert({hostAndPort, std::make_unique<OneNATSSender>(d, tlsConf)}).first;
             }
             return senderIter->second.get();
         }
-        OneNATSRPCClientConnection *createRpcClientConnection(ConnectionLocator const &l) {
+        OneNATSRPCClientConnection *createRpcClientConnection(ConnectionLocator const &l, TLSClientConfigurationComponent *tlsConf) {
             std::lock_guard<std::mutex> _(mutex_);
             auto iter = rpcClientConnections_.find(l);
             if (iter == rpcClientConnections_.end()) {
                 iter = rpcClientConnections_.insert(
-                    {l, std::make_unique<OneNATSRPCClientConnection>(l, tlsConf_)}
+                    {l, std::make_unique<OneNATSRPCClientConnection>(l, tlsConf)}
                 ).first;
             }
             return iter->second.get();
         }
-        OneNATSRPCServerConnection *createRpcServerConnection(ConnectionLocator const &l, std::function<void(basic::ByteDataWithID &&)> handler, std::optional<WireToUserHook> wireToUserHook) {
+        OneNATSRPCServerConnection *createRpcServerConnection(ConnectionLocator const &l, std::function<void(basic::ByteDataWithID &&)> handler, std::optional<WireToUserHook> wireToUserHook, TLSClientConfigurationComponent *tlsConf) {
             std::lock_guard<std::mutex> _(mutex_);
             auto iter = rpcServerConnections_.find(l);
             if (iter != rpcServerConnections_.end()) {
                 throw NATSComponentException("Cannot create duplicate RPC server connection for "+l.toSerializationFormat());
             }
             iter = rpcServerConnections_.insert(
-                {l, std::make_unique<OneNATSRPCServerConnection>(l, handler, wireToUserHook, tlsConf_)}
+                {l, std::make_unique<OneNATSRPCServerConnection>(l, handler, wireToUserHook, tlsConf)}
             ).first;
             return iter->second.get();
         }
     public:
-        NATSComponentImpl(TLSClientConfigurationComponent *tlsConf) 
+        NATSComponentImpl() 
             : subscriptions_(), senders_(), rpcClientConnections_(), rpcServerConnections_(), mutex_()
             , counter_(0), idToSubscriptionMap_(), idMutex_()
-            , tlsConf_(tlsConf)
         { 
         }
         ~NATSComponentImpl() {
@@ -593,8 +614,9 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         uint32_t addSubscriptionClient(ConnectionLocator const &locator,
             std::string const &topic,
             std::function<void(basic::ByteDataWithTopic &&)> client,
-            std::optional<WireToUserHook> wireToUserHook) {
-            auto *p = getOrStartSubscription(locator, topic);
+            std::optional<WireToUserHook> wireToUserHook,
+            TLSClientConfigurationComponent *tlsConf) {
+            auto *p = getOrStartSubscription(locator, topic, tlsConf);
             {
                 std::lock_guard<std::mutex> _(idMutex_);
                 ++counter_;
@@ -619,8 +641,8 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 potentiallyStopSubscription(p);
             }
         }
-        std::function<void(basic::ByteDataWithTopic &&)> getPublisher(ConnectionLocator const &locator, std::optional<UserToWireHook> userToWireHook) {
-            auto *p = getOrStartSender(locator);
+        std::function<void(basic::ByteDataWithTopic &&)> getPublisher(ConnectionLocator const &locator, std::optional<UserToWireHook> userToWireHook, TLSClientConfigurationComponent *tlsConf) {
+            auto *p = getOrStartSender(locator, tlsConf);
             if (userToWireHook) {
                 auto hook = userToWireHook->hook;
                 return [p,hook](basic::ByteDataWithTopic &&data) {
@@ -636,14 +658,16 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         std::function<void(basic::ByteDataWithID &&)> setRPCClient(ConnectionLocator const &locator,
             std::function<void(bool, basic::ByteDataWithID &&)> client,
             std::optional<ByteDataHookPair> hookPair,
-            uint32_t *clientNumberOutput) {
+            uint32_t *clientNumberOutput,
+            TLSClientConfigurationComponent *tlsConf
+            ) {
             std::optional<WireToUserHook> wireToUserHook;
             if (hookPair) {
                 wireToUserHook = hookPair->wireToUser;
             } else {
                 wireToUserHook = std::nullopt;
             }
-            auto *conn = createRpcClientConnection(locator);
+            auto *conn = createRpcClientConnection(locator, tlsConf);
             auto clientNum = conn->addClient(client, wireToUserHook);
             if (clientNumberOutput) {
                 *clientNumberOutput = clientNum;
@@ -672,14 +696,15 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         }
         std::function<void(bool, basic::ByteDataWithID &&)> setRPCServer(ConnectionLocator const &locator,
             std::function<void(basic::ByteDataWithID &&)> server,
-            std::optional<ByteDataHookPair> hookPair) {
+            std::optional<ByteDataHookPair> hookPair, 
+            TLSClientConfigurationComponent *tlsConf) {
             std::optional<WireToUserHook> wireToUserHook;
             if (hookPair) {
                 wireToUserHook = hookPair->wireToUser;
             } else {
                 wireToUserHook = std::nullopt;
             }
-            auto *conn = createRpcServerConnection(locator, server, wireToUserHook);
+            auto *conn = createRpcServerConnection(locator, server, wireToUserHook, tlsConf);
             if (hookPair && hookPair->userToWire) {
                 auto hook = hookPair->userToWire->hook;
                 return [conn,hook](bool isFinal, basic::ByteDataWithID &&data) {
@@ -708,9 +733,12 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         }
     };
 
-    NATSComponent::NATSComponent() : impl_(std::make_unique<NATSComponentImpl>(dynamic_cast<TLSClientConfigurationComponent *>(this))) {}
+    NATSComponent::NATSComponent() : impl_(std::make_unique<NATSComponentImpl>()) {}
     NATSComponent::~NATSComponent() {
-        nats_CloseAndWait(1000);
+        std::thread([]() {
+            nats_Sleep(1000);
+            nats_CloseAndWait(2000);
+        }).detach();        
     }
     NATSComponent::NATSComponent(NATSComponent &&) = default;
     NATSComponent &NATSComponent::operator=(NATSComponent &&) = default;
@@ -718,19 +746,19 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         std::string const &topic,
         std::function<void(basic::ByteDataWithTopic &&)> client,
         std::optional<WireToUserHook> wireToUserHook) {
-        return impl_->addSubscriptionClient(locator, topic, client, wireToUserHook);
+        return impl_->addSubscriptionClient(locator, topic, client, wireToUserHook, dynamic_cast<TLSClientConfigurationComponent *>(this));
     }
     void NATSComponent::nats_removeSubscriptionClient(uint32_t id) {
         impl_->removeSubscriptionClient(id);
     }
     std::function<void(basic::ByteDataWithTopic &&)> NATSComponent::nats_getPublisher(ConnectionLocator const &locator, std::optional<UserToWireHook> userToWireHook) {
-        return impl_->getPublisher(locator, userToWireHook);
+        return impl_->getPublisher(locator, userToWireHook, dynamic_cast<TLSClientConfigurationComponent *>(this));
     }
     std::function<void(basic::ByteDataWithID &&)> NATSComponent::nats_setRPCClient(ConnectionLocator const &locator,
                         std::function<void(bool, basic::ByteDataWithID &&)> client,
                         std::optional<ByteDataHookPair> hookPair,
                         uint32_t *clientNumberOutput) {
-        return impl_->setRPCClient(locator, client, hookPair, clientNumberOutput);
+        return impl_->setRPCClient(locator, client, hookPair, clientNumberOutput, dynamic_cast<TLSClientConfigurationComponent *>(this));
     }
     void NATSComponent::nats_removeRPCClient(ConnectionLocator const &locator, uint32_t clientNumber) {
         impl_->removeRPCClient(locator, clientNumber);
@@ -738,7 +766,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
     std::function<void(bool, basic::ByteDataWithID &&)> NATSComponent::nats_setRPCServer(ConnectionLocator const &locator,
                     std::function<void(basic::ByteDataWithID &&)> server,
                     std::optional<ByteDataHookPair> hookPair) {
-        return impl_->setRPCServer(locator, server, hookPair);
+        return impl_->setRPCServer(locator, server, hookPair, dynamic_cast<TLSClientConfigurationComponent *>(this));
     }
     std::unordered_map<ConnectionLocator, std::thread::native_handle_type> NATSComponent::nats_threadHandles() {
         return impl_->threadHandles();
