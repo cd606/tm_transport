@@ -29,7 +29,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         std::unique_ptr<RedisComponentImpl> impl_;
     public:
         RedisComponent();
-        ~RedisComponent();
+        virtual ~RedisComponent();
         RedisComponent(RedisComponent const &) = delete;
         RedisComponent(RedisComponent &&);
         RedisComponent &operator=(RedisComponent const &) = delete;

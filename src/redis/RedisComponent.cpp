@@ -6,16 +6,81 @@
 #include <unordered_map>
 
 #include <tm_kit/transport/redis/RedisComponent.hpp>
+#include <tm_kit/transport/TLSConfigurationComponent.hpp>
 
 #ifdef _MSC_VER
 #include <winsock2.h>
 #endif
 #include <hiredis/hiredis.h>
+#if __has_include(<hiredis/hiredis_ssl.h>)
+#include <hiredis/hiredis_ssl.h>
+#define HIREDIS_USE_SSL 1
+#else
+#define HIREDIS_USE_SSL 0
+#endif
 
 namespace dev { namespace cd606 { namespace tm { namespace transport { namespace redis {
     class RedisComponentImpl {
     private:
-        static void auth(ConnectionLocator const &locator, redisContext *ctx) {
+#if HIREDIS_USE_SSL
+        static int initializeSSL() {
+            redisInitOpenSSL();
+            return 1;
+        }
+        static const int _ssl_initialized;
+#endif
+        static void auth(ConnectionLocator const &locator, redisContext *ctx, TLSClientConfigurationComponent *tlsConf) {
+#if HIREDIS_USE_SSL
+            redisSSLContext *ssl_context = nullptr;
+            redisSSLContextError ssl_error = REDIS_SSL_CTX_NONE;
+
+            auto locatorCACert = locator.query("ca_cert", "");
+            auto locatorClientCert = locator.query("client_cert", "");
+            auto locatorClientKey = locator.query("client_key", "");
+
+            if (locatorCACert != "" && locatorClientCert != "" && locatorClientKey != "") {
+                ssl_context = redisCreateSSLContext(
+                    locatorCACert.c_str()
+                    , nullptr
+                    , locatorClientCert.c_str()
+                    , locatorClientKey.c_str()
+                    , nullptr
+                    , &ssl_error
+                    );
+                if (ssl_context == nullptr || ssl_error != REDIS_SSL_CTX_NONE) {
+                    std::cerr << "Redis SSL context creation error\n";
+                    return;
+                }
+            } else {
+                auto sslInfo = tlsConf?(tlsConf->getConfigurationItem(
+                    TLSClientInfoKey {
+                        locator.host(), (locator.port()==0?6379:locator.port())
+                    }
+                )):std::nullopt;
+
+                if (sslInfo) {
+                    //std::cerr << "TLS! " << sslInfo->caCertificateFile << ' ' << sslInfo->clientCertificateFile << ' ' << sslInfo->clientKeyFile << '\n';
+                    ssl_context = redisCreateSSLContext(
+                        sslInfo->caCertificateFile.c_str()
+                        , nullptr
+                        , sslInfo->clientCertificateFile.c_str()
+                        , sslInfo->clientKeyFile.c_str()
+                        , nullptr
+                        , &ssl_error
+                        );
+                    if (ssl_context == nullptr || ssl_error != REDIS_SSL_CTX_NONE) {
+                        std::cerr << "Redis SSL context creation error\n";
+                        return;
+                    }
+                }
+            }
+            if (ssl_context != nullptr) {
+                if (redisInitiateSSLWithContext(ctx, ssl_context) != REDIS_OK) {
+                    std::cerr << "Redis SSL negotiation error\n";
+                    return;
+                }
+            }
+#endif
             if (locator.password() == "") {
                 return;
             }
@@ -113,7 +178,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 } catch (...) {}
             }
         public:
-            OneRedisSubscription(ConnectionLocator const &locator, std::string const &topic) 
+            OneRedisSubscription(ConnectionLocator const &locator, std::string const &topic, TLSClientConfigurationComponent *tlsConf) 
                 : locator_(locator)
                 , topic_(topic)
                 , ctx_(nullptr)
@@ -124,7 +189,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             {
                 ctx_ = redisConnect(locator.host().c_str(), locator.port());
                 if (ctx_ != nullptr) {
-                    RedisComponentImpl::auth(locator, ctx_);
+                    RedisComponentImpl::auth(locator, ctx_, tlsConf);
                     redisReply *r = (redisReply *) redisCommand(ctx_, "PSUBSCRIBE %s", topic.c_str());
                     freeReplyObject((void *) r);
                     th_ = std::thread(&OneRedisSubscription::run, this);
@@ -204,11 +269,11 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             redisContext *ctx_;
             std::mutex mutex_;
         public:
-            OneRedisSender(ConnectionLocator const &locator)
+            OneRedisSender(ConnectionLocator const &locator, TLSClientConfigurationComponent *tlsConf)
                 : ctx_(nullptr), mutex_()
             {
                 ctx_ = redisConnect(locator.host().c_str(), locator.port());
-                RedisComponentImpl::auth(locator, ctx_);
+                RedisComponentImpl::auth(locator, ctx_, tlsConf);
             }
             ~OneRedisSender() {
                 if (ctx_ && !ctx_->err) {
@@ -333,7 +398,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 } catch (...) {}
             }
         public:
-            OneRedisRPCClientConnection(ConnectionLocator const &locator, std::string const &myCommunicationID, OneRedisSender *sender)
+            OneRedisRPCClientConnection(ConnectionLocator const &locator, std::string const &myCommunicationID, OneRedisSender *sender, TLSClientConfigurationComponent *tlsConf)
                 : ctx_(nullptr)
                 , rpcTopic_(locator.identifier())
                 , myCommunicationID_(myCommunicationID)
@@ -348,7 +413,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             {
                 ctx_ = redisConnect(locator.host().c_str(), locator.port());
                 if (ctx_ != nullptr) {
-                    RedisComponentImpl::auth(locator, ctx_);
+                    RedisComponentImpl::auth(locator, ctx_, tlsConf);
                     redisReply *r = (redisReply *) redisCommand(ctx_, "SUBSCRIBE %s", myCommunicationID_.c_str());
                     freeReplyObject((void *) r);
                     th_ = std::thread(&OneRedisRPCClientConnection::run, this);
@@ -503,7 +568,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 }
             }
         public:
-            OneRedisRPCServerConnection(ConnectionLocator const &locator, std::function<void(basic::ByteDataWithID &&)> callback, std::optional<WireToUserHook> wireToUserHook, OneRedisSender *sender)
+            OneRedisRPCServerConnection(ConnectionLocator const &locator, std::function<void(basic::ByteDataWithID &&)> callback, std::optional<WireToUserHook> wireToUserHook, OneRedisSender *sender, TLSClientConfigurationComponent *tlsConf)
                 : ctx_(nullptr)
                 , rpcTopic_(locator.identifier())
                 , callback_(callback)
@@ -515,7 +580,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             {
                 ctx_ = redisConnect(locator.host().c_str(), locator.port());
                 if (ctx_ != nullptr) {
-                    RedisComponentImpl::auth(locator, ctx_);
+                    RedisComponentImpl::auth(locator, ctx_, tlsConf);
                     redisReply *r = (redisReply *) redisCommand(ctx_, "SUBSCRIBE %s", rpcTopic_.c_str());
                     freeReplyObject((void *) r);
                     th_ = std::thread(&OneRedisRPCServerConnection::run, this);
@@ -564,7 +629,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         std::unordered_map<uint32_t, OneRedisSubscription *> idToSubscriptionMap_;
         std::mutex idMutex_;
 
-        OneRedisSubscription *getOrStartSubscription(ConnectionLocator const &d, std::string const &topic) {
+        OneRedisSubscription *getOrStartSubscription(ConnectionLocator const &d, std::string const &topic, TLSClientConfigurationComponent *tlsConf) {
             ConnectionLocator hostAndPort {d.host(), d.port()};
             std::lock_guard<std::mutex> _(mutex_);
             auto subscriptionIter = subscriptions_.find(hostAndPort);
@@ -573,7 +638,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             }
             auto innerIter = subscriptionIter->second.find(topic);
             if (innerIter == subscriptionIter->second.end()) {
-                innerIter = subscriptionIter->second.insert({topic, std::make_unique<OneRedisSubscription>(d, topic)}).first;
+                innerIter = subscriptionIter->second.insert({topic, std::make_unique<OneRedisSubscription>(d, topic, tlsConf)}).first;
             }
             return innerIter->second.get();
         }
@@ -589,36 +654,36 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 //std::cerr << subscriptions_.size() << '\n';
             }
         }
-        OneRedisSender *getOrStartSender(ConnectionLocator const &d) {
+        OneRedisSender *getOrStartSender(ConnectionLocator const &d, TLSClientConfigurationComponent *tlsConf) {
             std::lock_guard<std::mutex> _(mutex_);
-            return getOrStartSenderNoLock(d);
+            return getOrStartSenderNoLock(d, tlsConf);
         }
-        OneRedisSender *getOrStartSenderNoLock(ConnectionLocator const &d) {
+        OneRedisSender *getOrStartSenderNoLock(ConnectionLocator const &d, TLSClientConfigurationComponent *tlsConf) {
             ConnectionLocator hostAndPort {d.host(), d.port()};
             auto senderIter = senders_.find(hostAndPort);
             if (senderIter == senders_.end()) {
-                senderIter = senders_.insert({hostAndPort, std::make_unique<OneRedisSender>(d)}).first;
+                senderIter = senders_.insert({hostAndPort, std::make_unique<OneRedisSender>(d, tlsConf)}).first;
             }
             return senderIter->second.get();
         }
-        OneRedisRPCClientConnection *createRpcClientConnection(ConnectionLocator const &l, std::function<std::string()> clientCommunicationIDCreator) {
+        OneRedisRPCClientConnection *createRpcClientConnection(ConnectionLocator const &l, std::function<std::string()> clientCommunicationIDCreator, TLSClientConfigurationComponent *tlsConf) {
             std::lock_guard<std::mutex> _(mutex_);
             auto iter = rpcClientConnections_.find(l);
             if (iter == rpcClientConnections_.end()) {
                 iter = rpcClientConnections_.insert(
-                    {l, std::make_unique<OneRedisRPCClientConnection>(l, clientCommunicationIDCreator(), getOrStartSenderNoLock(l))}
+                    {l, std::make_unique<OneRedisRPCClientConnection>(l, clientCommunicationIDCreator(), getOrStartSenderNoLock(l, tlsConf), tlsConf)}
                 ).first;
             }
             return iter->second.get();
         }
-        OneRedisRPCServerConnection *createRpcServerConnection(ConnectionLocator const &l, std::function<void(basic::ByteDataWithID &&)> handler, std::optional<WireToUserHook> wireToUserHook) {
+        OneRedisRPCServerConnection *createRpcServerConnection(ConnectionLocator const &l, std::function<void(basic::ByteDataWithID &&)> handler, std::optional<WireToUserHook> wireToUserHook, TLSClientConfigurationComponent *tlsConf) {
             std::lock_guard<std::mutex> _(mutex_);
             auto iter = rpcServerConnections_.find(l);
             if (iter != rpcServerConnections_.end()) {
                 throw RedisComponentException("Cannot create duplicate RPC server connection for "+l.toSerializationFormat());
             }
             iter = rpcServerConnections_.insert(
-                {l, std::make_unique<OneRedisRPCServerConnection>(l, handler, wireToUserHook, getOrStartSenderNoLock(l))}
+                {l, std::make_unique<OneRedisRPCServerConnection>(l, handler, wireToUserHook, getOrStartSenderNoLock(l, tlsConf), tlsConf)}
             ).first;
             return iter->second.get();
         }
@@ -638,8 +703,9 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         uint32_t addSubscriptionClient(ConnectionLocator const &locator,
             std::string const &topic,
             std::function<void(basic::ByteDataWithTopic &&)> client,
-            std::optional<WireToUserHook> wireToUserHook) {
-            auto *p = getOrStartSubscription(locator, topic);
+            std::optional<WireToUserHook> wireToUserHook, 
+            TLSClientConfigurationComponent *tlsConf) {
+            auto *p = getOrStartSubscription(locator, topic, tlsConf);
             {
                 std::lock_guard<std::mutex> _(idMutex_);
                 ++counter_;
@@ -664,8 +730,8 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 potentiallyStopSubscription(p);
             }
         }
-        std::function<void(basic::ByteDataWithTopic &&)> getPublisher(ConnectionLocator const &locator, std::optional<UserToWireHook> userToWireHook) {
-            auto *p = getOrStartSender(locator);
+        std::function<void(basic::ByteDataWithTopic &&)> getPublisher(ConnectionLocator const &locator, std::optional<UserToWireHook> userToWireHook, TLSClientConfigurationComponent *tlsConf) {
+            auto *p = getOrStartSender(locator, tlsConf);
             if (userToWireHook) {
                 auto hook = userToWireHook->hook;
                 return [p,hook](basic::ByteDataWithTopic &&data) {
@@ -682,14 +748,15 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             std::function<std::string()> clientCommunicationIDCreator,
             std::function<void(bool, basic::ByteDataWithID &&)> client,
             std::optional<ByteDataHookPair> hookPair,
-            uint32_t *clientNumberOutput) {
+            uint32_t *clientNumberOutput, 
+            TLSClientConfigurationComponent *tlsConf) {
             std::optional<WireToUserHook> wireToUserHook;
             if (hookPair) {
                 wireToUserHook = hookPair->wireToUser;
             } else {
                 wireToUserHook = std::nullopt;
             }
-            auto *conn = createRpcClientConnection(locator, clientCommunicationIDCreator);
+            auto *conn = createRpcClientConnection(locator, clientCommunicationIDCreator, tlsConf);
             auto clientNum = conn->addClient(client, wireToUserHook);
             if (clientNumberOutput) {
                 *clientNumberOutput = clientNum;
@@ -718,14 +785,15 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         }
         std::function<void(bool, basic::ByteDataWithID &&)> setRPCServer(ConnectionLocator const &locator,
             std::function<void(basic::ByteDataWithID &&)> server,
-            std::optional<ByteDataHookPair> hookPair) {
+            std::optional<ByteDataHookPair> hookPair,
+            TLSClientConfigurationComponent *tlsConf) {
             std::optional<WireToUserHook> wireToUserHook;
             if (hookPair) {
                 wireToUserHook = hookPair->wireToUser;
             } else {
                 wireToUserHook = std::nullopt;
             }
-            auto *conn = createRpcServerConnection(locator, server, wireToUserHook);
+            auto *conn = createRpcServerConnection(locator, server, wireToUserHook, tlsConf);
             if (hookPair && hookPair->userToWire) {
                 auto hook = hookPair->userToWire->hook;
                 return [conn,hook](bool isFinal, basic::ByteDataWithID &&data) {
@@ -756,6 +824,9 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             return retVal;
         }
     };
+#if HIREDIS_USE_SSL
+    const int RedisComponentImpl::_ssl_initialized = RedisComponentImpl::initializeSSL();
+#endif
 
     RedisComponent::RedisComponent() : impl_(std::make_unique<RedisComponentImpl>()) {}
     RedisComponent::~RedisComponent() {}
@@ -765,20 +836,20 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         std::string const &topic,
         std::function<void(basic::ByteDataWithTopic &&)> client,
         std::optional<WireToUserHook> wireToUserHook) {
-        return impl_->addSubscriptionClient(locator, topic, client, wireToUserHook);
+        return impl_->addSubscriptionClient(locator, topic, client, wireToUserHook, dynamic_cast<TLSClientConfigurationComponent *>(this));
     }
     void RedisComponent::redis_removeSubscriptionClient(uint32_t id) {
         impl_->removeSubscriptionClient(id);
     }
     std::function<void(basic::ByteDataWithTopic &&)> RedisComponent::redis_getPublisher(ConnectionLocator const &locator, std::optional<UserToWireHook> userToWireHook) {
-        return impl_->getPublisher(locator, userToWireHook);
+        return impl_->getPublisher(locator, userToWireHook, dynamic_cast<TLSClientConfigurationComponent *>(this));
     }
     std::function<void(basic::ByteDataWithID &&)> RedisComponent::redis_setRPCClient(ConnectionLocator const &locator,
                         std::function<std::string()> clientCommunicationIDCreator,
                         std::function<void(bool, basic::ByteDataWithID &&)> client,
                         std::optional<ByteDataHookPair> hookPair,
                         uint32_t *clientNumberOutput) {
-        return impl_->setRPCClient(locator, clientCommunicationIDCreator, client, hookPair, clientNumberOutput);
+        return impl_->setRPCClient(locator, clientCommunicationIDCreator, client, hookPair, clientNumberOutput, dynamic_cast<TLSClientConfigurationComponent *>(this));
     }
     void RedisComponent::redis_removeRPCClient(ConnectionLocator const &locator, uint32_t clientNumber) {
         impl_->removeRPCClient(locator, clientNumber);
@@ -786,7 +857,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
     std::function<void(bool, basic::ByteDataWithID &&)> RedisComponent::redis_setRPCServer(ConnectionLocator const &locator,
                     std::function<void(basic::ByteDataWithID &&)> server,
                     std::optional<ByteDataHookPair> hookPair) {
-        return impl_->setRPCServer(locator, server, hookPair);
+        return impl_->setRPCServer(locator, server, hookPair, dynamic_cast<TLSClientConfigurationComponent *>(this));
     }
     std::unordered_map<ConnectionLocator, std::thread::native_handle_type> RedisComponent::redis_threadHandles() {
         return impl_->threadHandles();
