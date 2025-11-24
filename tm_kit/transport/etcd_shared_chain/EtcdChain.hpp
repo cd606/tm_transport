@@ -21,6 +21,12 @@
 #endif
 #include <libetcd/rpc.grpc.pb.h>
 #include <libetcd/kv.pb.h>
+#if __has_include(<hiredis/hiredis_ssl.h>)
+#include <hiredis/hiredis_ssl.h>
+#define TM_TRANSPORT_ETCD_SHARED_CHAIN_HIREDIS_USE_SSL 1
+#else
+#define TM_TRANSPORT_ETCD_SHARED_CHAIN_HIREDIS_USE_SSL 0
+#endif
 
 namespace dev { namespace cd606 { namespace tm { namespace transport { namespace etcd_shared_chain {
     #define EtcdChainItemFields \
@@ -73,6 +79,13 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         bool duplicateFromRedis=false;
         uint16_t redisTTLSeconds = 0;
         bool automaticallyDuplicateToRedis=false;
+        std::optional<std::string> redisUserName = std::nullopt;
+        std::optional<std::string> redisPassword = std::nullopt;
+#if TM_TRANSPORT_ETCD_SHARED_CHAIN_HIREDIS_USE_SSL 
+        std::optional<std::string> redisCaCertFile = std::nullopt;
+        std::optional<std::string> redisClientCertFile = std::nullopt;
+        std::optional<std::string> redisClientKeyFile = std::nullopt;
+#endif
 
         EtcdChainConfiguration() = default;
         EtcdChainConfiguration(EtcdChainConfiguration const &) = default;
@@ -127,6 +140,28 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             automaticallyDuplicateToRedis = b;
             return *this;
         }
+        EtcdChainConfiguration &RedisUserName(std::string const &p) {
+            redisUserName = p;
+            return *this;
+        }
+        EtcdChainConfiguration &RedisPassword(std::string const &p) {
+            redisPassword = p;
+            return *this;
+        }
+#if TM_TRANSPORT_ETCD_SHARED_CHAIN_HIREDIS_USE_SSL 
+        EtcdChainConfiguration &RedisCaCertFile(std::string const &f) {
+            redisCaCertFile = f;
+            return *this;
+        }
+        EtcdChainConfiguration &RedisClientCertFile(std::string const &f) {
+            redisClientCertFile = f;
+            return *this;
+        }
+        EtcdChainConfiguration &RedisClientKeyFile(std::string const &f) {
+            redisClientKeyFile = f;
+            return *this;
+        }
+#endif
     };
 
     class EtcdChainException : public std::runtime_error {
@@ -315,6 +350,41 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                         )
                     )
                 );
+#if TM_TRANSPORT_ETCD_SHARED_CHAIN_HIREDIS_USE_SSL 
+                redisSSLContext *ssl_context = nullptr;
+                redisSSLContextError ssl_error = REDIS_SSL_CTX_NONE;
+                if (configuration_.redisCaCertFile && configuration_.redisClientCertFile && configuration_.redisClientKeyFile) {
+                    ssl_context = redisCreateSSLContext(
+                        configuration_.redisCaCertFile->c_str()
+                        , nullptr
+                        , configuration_.redisClientCertFile->c_str()
+                        , configuration_.redisClientKeyFile->c_str()
+                        , nullptr
+                        , &ssl_error
+                        );
+                    if (ssl_context == nullptr || ssl_error != REDIS_SSL_CTX_NONE) {
+                        throw std::runtime_error("Redis SSL context creation error");
+                    }
+                }
+                if (ssl_context != nullptr) {
+                    if (redisInitiateSSLWithContext(redisCtx_, ssl_context) != REDIS_OK) {
+                        throw std::runtime_error("Redis SSL negotiation error");
+                    }
+                }
+#endif
+                if (!configuration_.redisPassword) {
+                    return;
+                }
+                redisReply *r = nullptr;
+                if (configuration_.redisUserName) {
+                    r = (redisReply *) redisCommand(redisCtx_, "AUTH %s %s", configuration_.redisUserName->c_str(), configuration_.redisPassword->c_str());
+                } else {
+                    r = (redisReply *) redisCommand(redisCtx_, "AUTH %s", configuration_.redisPassword->c_str());
+                }
+                if (!r || r->type == REDIS_REPLY_ERROR) {
+                    throw std::runtime_error("Failure to authenticate with Redis server for "+configuration_.redisServerAddr);
+                }
+                freeReplyObject((void *) r);
             }
         }
         ~EtcdChain() {
@@ -1116,5 +1186,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         return std::get<0>(x);
     }
 }}}}}
+
+#undef TM_TRANSPORT_ETCD_SHARED_CHAIN_HIREDIS_USE_SSL
 
 #endif
