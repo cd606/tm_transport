@@ -13,6 +13,12 @@
 #undef max
 #endif
 #include <hiredis/hiredis.h>
+#if __has_include(<hiredis/hiredis_ssl.h>)
+#include <hiredis/hiredis_ssl.h>
+#define TM_TRANSPORT_REDIS_SHARED_CHAIN_HIREDIS_USE_SSL 1
+#else
+#define TM_TRANSPORT_REDIS_SHARED_CHAIN_HIREDIS_USE_SSL 0
+#endif
 
 namespace dev { namespace cd606 { namespace tm { namespace transport { namespace redis_shared_chain {
     #define RedisChainItemFields \
@@ -34,6 +40,13 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         std::string chainPrefix="shared_chain_test";
         std::string dataPrefix="shared_chain_test_data";
         std::string extraDataPrefix="shared_chain_test_extra_data";
+        std::optional<std::string> userName = std::nullopt;
+        std::optional<std::string> password = std::nullopt;
+#if TM_TRANSPORT_REDIS_SHARED_CHAIN_HIREDIS_USE_SSL 
+        std::optional<std::string> caCertFile = std::nullopt;
+        std::optional<std::string> clientCertFile = std::nullopt;
+        std::optional<std::string> clientKeyFile = std::nullopt;
+#endif
         
         RedisChainConfiguration() = default;
         RedisChainConfiguration(RedisChainConfiguration const &) = default;
@@ -61,6 +74,28 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             extraDataPrefix = p;
             return *this;
         }
+        RedisChainConfiguration &UserName(std::string const &p) {
+            userName = p;
+            return *this;
+        }
+        RedisChainConfiguration &Password(std::string const &p) {
+            password = p;
+            return *this;
+        }
+#if TM_TRANSPORT_REDIS_SHARED_CHAIN_HIREDIS_USE_SSL 
+        RedisChainConfiguration &CaCertFile(std::string const &f) {
+            caCertFile = f;
+            return *this;
+        }
+        RedisChainConfiguration &ClientCertFile(std::string const &f) {
+            clientCertFile = f;
+            return *this;
+        }
+        RedisChainConfiguration &ClientKeyFile(std::string const &f) {
+            clientKeyFile = f;
+            return *this;
+        }
+#endif
     };
 
     class RedisChainException : public std::runtime_error {
@@ -138,6 +173,41 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                         )
                     )
                 );
+#if TM_TRANSPORT_REDIS_SHARED_CHAIN_HIREDIS_USE_SSL 
+                redisSSLContext *ssl_context = nullptr;
+                redisSSLContextError ssl_error = REDIS_SSL_CTX_NONE;
+                if (configuration_.caCertFile && configuration_.clientCertFile && configuration_.clientKeyFile) {
+                    ssl_context = redisCreateSSLContext(
+                        configuration_.caCertFile->c_str()
+                        , nullptr
+                        , configuration_.clientCertFile->c_str()
+                        , configuration_.clientKeyFile->c_str()
+                        , nullptr
+                        , &ssl_error
+                        );
+                    if (ssl_context == nullptr || ssl_error != REDIS_SSL_CTX_NONE) {
+                        throw std::runtime_error("Redis SSL context creation error");
+                    }
+                }
+                if (ssl_context != nullptr) {
+                    if (redisInitiateSSLWithContext(redisCtx_, ssl_context) != REDIS_OK) {
+                        throw std::runtime_error("Redis SSL negotiation error");
+                    }
+                }
+#endif
+                if (!configuration_.password) {
+                    return;
+                }
+                redisReply *r = nullptr;
+                if (configuration_.userName) {
+                    r = (redisReply *) redisCommand(redisCtx_, "AUTH %s %s", configuration_.userName->c_str(), configuration_.password->c_str());
+                } else {
+                    r = (redisReply *) redisCommand(redisCtx_, "AUTH %s", configuration_.password->c_str());
+                }
+                if (!r || r->type == REDIS_REPLY_ERROR) {
+                    throw std::runtime_error("Failure to authenticate with Redis server for "+configuration_.redisServerAddr);
+                }
+                freeReplyObject((void *) r);
             }
         }
         ~RedisChain() {
@@ -483,5 +553,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         }
     };
 }}}}}
+
+#undef TM_TRANSPORT_REDIS_SHARED_CHAIN_HIREDIS_USE_SSL
 
 #endif

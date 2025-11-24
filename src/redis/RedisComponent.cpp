@@ -48,8 +48,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                     , &ssl_error
                     );
                 if (ssl_context == nullptr || ssl_error != REDIS_SSL_CTX_NONE) {
-                    std::cerr << "Redis SSL context creation error\n";
-                    return;
+                    throw std::runtime_error("Redis SSL context creation error");
                 }
             } else {
                 auto sslInfo = tlsConf?(tlsConf->getConfigurationItem(
@@ -69,15 +68,13 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                         , &ssl_error
                         );
                     if (ssl_context == nullptr || ssl_error != REDIS_SSL_CTX_NONE) {
-                        std::cerr << "Redis SSL context creation error\n";
-                        return;
+                        throw std::runtime_error("Redis SSL context creation error");
                     }
                 }
             }
             if (ssl_context != nullptr) {
                 if (redisInitiateSSLWithContext(ctx, ssl_context) != REDIS_OK) {
-                    std::cerr << "Redis SSL negotiation error\n";
-                    return;
+                    throw std::runtime_error("Redis SSL negotiation error");
                 }
             }
 #endif
