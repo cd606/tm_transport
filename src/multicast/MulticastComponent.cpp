@@ -360,15 +360,20 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 boost::asio::ip::udp::resolver resolver(*service);
                 boost::system::error_code ec;
 #if BOOST_VERSION >= 108700
-                auto iter = resolver.resolve(locator.host(), std::to_string(locator.port()), ec);
+                auto result = resolver.resolve(locator.host(), std::to_string(locator.port()), ec);
+                auto iter = result.begin();
+                if (ec || iter == result.end()) {
+                    throw std::runtime_error(std::string("OneMulticastSender resolve locator failed: ") + ec.message());
+                }
+                destination_ = iter->endpoint();
 #else
                 boost::asio::ip::udp::resolver::query query(locator.host(), std::to_string(locator.port()));
                 auto iter = resolver.resolve(query, ec);
-#endif
                 if (ec || iter == boost::asio::ip::udp::resolver::iterator()) {
                     throw std::runtime_error(std::string("OneMulticastSender resolve locator failed: ") + ec.message());
                 }
                 destination_ = *iter;
+#endif
 
                 sock_.open(destination_.protocol(), ec);
                 if (ec) {
@@ -454,7 +459,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 sock_.async_send_to(
                     const_buffer
                     , destination_
-                    , [buffer = std::move(buffer)](boost::system::error_code const &ec, std::size_t) mutable {
+                    , [buffer = std::move(buffer)](boost::system::error_code const &/*ec*/, std::size_t) mutable {
                         buffer.reset();
                     }
                 );
