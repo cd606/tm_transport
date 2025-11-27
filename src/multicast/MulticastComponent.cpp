@@ -9,6 +9,10 @@
 #include <tm_kit/transport/multicast/MulticastComponent.hpp>
 #include "InterfaceToIP.hpp"
 
+#ifdef _MSC_VER
+#include <malloc.h>
+#endif
+
 namespace dev { namespace cd606 { namespace tm { namespace transport { namespace multicast {
     
     enum class MulticastComponentTopicEncodingChoice {
@@ -287,7 +291,11 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             {
                 std::size_t blockStride = align_up(chunkSize, CACHELINE_SIZE); // align to cacheline
                 std::size_t totalSize = blockStride * chunkCount;
+#ifdef _MSC_VER
+                void *ptr = _aligned_malloc(totalSize, CACHELINE_SIZE);
+#else
                 void *ptr = aligned_alloc(CACHELINE_SIZE, totalSize);
+#endif
                 if (!ptr)
                     throw std::bad_alloc();
                 storage_ = static_cast<char *>(ptr);
