@@ -2,6 +2,7 @@
 #include <mutex>
 #include <cstring>
 #include <unordered_map>
+#include <cstdlib>
 #include <boost/asio.hpp>
 #include <boost/bind/bind.hpp>
 
@@ -261,36 +262,138 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             }
         };
         std::unordered_map<ConnectionLocator, std::unique_ptr<OneMulticastSubscription>> subscriptions_;
-        
+
+        class SenderBufferPool {
+            static constexpr std::size_t CACHELINE_SIZE = 64;
+            inline std::size_t align_up(std::size_t n, std::size_t alignment) {
+                return (n + alignment - 1) & ~(alignment - 1);
+            }
+        public:
+            struct Buffer {
+                char* data;
+            };
+
+            struct BufferDeleter {
+                SenderBufferPool *pool;
+                BufferDeleter(SenderBufferPool *pool) : pool(pool) {}
+                void operator()(Buffer *p) const noexcept { pool->deallocate(p); }
+            };
+
+            using BufferPtr = std::unique_ptr<Buffer, BufferDeleter>;
+
+            SenderBufferPool(std::size_t chunkSize, std::size_t chunkCount)
+                : chunkSize_(chunkSize)
+                , chunkCount_(chunkCount)
+            {
+                std::size_t blockStride = align_up(chunkSize, CACHELINE_SIZE); // align to cacheline
+                std::size_t totalSize = blockStride * chunkCount;
+                void *ptr = aligned_alloc(CACHELINE_SIZE, totalSize);
+                if (!ptr)
+                    throw std::bad_alloc();
+                storage_ = static_cast<char *>(ptr);
+                blockStride_ = blockStride;
+                for (std::size_t i = 0; i < chunkCount; ++i) {
+                    freeList_.push_back(storage_ + i * blockStride_);
+                }
+            }
+
+            ~SenderBufferPool()
+            {
+                free(storage_);
+            }
+
+            BufferPtr allocate()
+            {
+                std::lock_guard<std::mutex> _(mtx_);
+                if (freeList_.empty())
+                    return BufferPtr(nullptr, BufferDeleter(this));
+                char *p = freeList_.back();
+                freeList_.pop_back();
+                return BufferPtr(new Buffer{p}, BufferDeleter(this));
+            }
+
+            void deallocate(Buffer *p)
+            {
+                if (!p->data) {
+                    return;
+                }
+                std::lock_guard<std::mutex> _(mtx_);
+                freeList_.push_back(p->data);
+            }
+
+        private:
+            char *storage_ {nullptr};
+            std::size_t chunkSize_;
+            std::size_t chunkCount_;
+            std::size_t blockStride_;
+            std::vector<char *> freeList_;
+            std::mutex mtx_;
+        };
+
         class OneMulticastSender {
         private:
+            constexpr static std::size_t SAFE_PAYLOAD_SIZE = 1200;  // avoid IP fragmentation
             MulticastComponentTopicEncodingChoice encodingChoice_;
             boost::asio::ip::udp::socket sock_;
             boost::asio::ip::udp::endpoint destination_;
+#ifdef MULTICAST_COMPONENT_SENDER_USE_ZERO_COPY_BUFFER
+            SenderBufferPool senderBufferPool_;
+#endif
             std::mutex mutex_;
             int ttl_;
-            void handleSend(boost::system::error_code const &) {
-            }
+
         public:
 #if BOOST_VERSION >= 108700
             OneMulticastSender(MulticastComponentTopicEncodingChoice encodingChoice, boost::asio::io_context *service, ConnectionLocator const &locator, std::string const &interface)
 #else
             OneMulticastSender(MulticastComponentTopicEncodingChoice encodingChoice, boost::asio::io_service *service, ConnectionLocator const &locator, std::string const &interface)
 #endif            
-                : encodingChoice_(encodingChoice), sock_(*service), destination_(), mutex_(), ttl_(0)
+                : encodingChoice_(encodingChoice)
+                , sock_(*service)
+                , destination_()
+#ifdef MULTICAST_COMPONENT_SENDER_USE_ZERO_COPY_BUFFER
+                , senderBufferPool_(SAFE_PAYLOAD_SIZE, 1024)
+#endif
+                , mutex_()
+                , ttl_(0)
             {
                 boost::asio::ip::udp::resolver resolver(*service);
-#if BOOST_VERSION >= 108700   
-                destination_ = resolver.resolve(locator.host(), std::to_string(locator.port())).begin()->endpoint();             
+                boost::system::error_code ec;
+#if BOOST_VERSION >= 108700
+                auto iter = resolver.resolve(locator.host(), std::to_string(locator.port()), ec);
 #else
                 boost::asio::ip::udp::resolver::query query(locator.host(), std::to_string(locator.port()));
-                destination_ = resolver.resolve(query)->endpoint();
+                auto iter = resolver.resolve(query, ec);
 #endif
+                if (ec || iter == boost::asio::ip::udp::resolver::iterator()) {
+                    throw std::runtime_error(std::string("OneMulticastSender resolve locator failed: ") + ec.message());
+                }
+                destination_ = *iter;
 
-                sock_.open(destination_.protocol());
+                sock_.open(destination_.protocol(), ec);
+                if (ec) {
+                    throw std::runtime_error(std::string("OneMulticastSender open socket failed: ") + ec.message());
+                }
                 sock_.set_option(boost::asio::ip::udp::socket::reuse_address(true));
                 sock_.set_option(boost::asio::ip::udp::socket::send_buffer_size(16*1024*1024));
                 //sock_.set_option(boost::asio::ip::multicast::enable_loopback(true));
+
+                if (interface != "") {
+                    auto interfaceAddr = getAddressForInterface(interface);
+                    if (interfaceAddr != "") {
+                        #if BOOST_VERSION >= 108700                            
+                        auto addr = boost::asio::ip::make_address(interfaceAddr).to_v4();
+#else
+                        auto addr = boost::asio::ip::address::from_string(interfaceAddr).to_v4();
+#endif
+                        boost::asio::ip::udp::endpoint local(addr, 0);
+                        sock_.bind(local, ec);
+                        if (ec) {
+                            throw std::runtime_error(std::string("OneMulticastSender bind local address failed: ") + ec.message());
+                        }
+                    }
+                }
+
                 if (interface != "") {
                     auto interfaceAddr = getAddressForInterface(interface);
                     //std::cerr << "interface " << interface << " has address '" << interfaceAddr << "'\n";
@@ -309,26 +412,51 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 sock_.close();
             }
             void publish(basic::ByteDataWithTopic &&data, int ttl) {
-                std::string v;
+#ifdef MULTICAST_COMPONENT_SENDER_USE_ZERO_COPY_BUFFER
+                auto buffer = senderBufferPool_.allocate();
+                if (!buffer->data) {
+                    // std::cerr << "sender buffer is full" << std::endl;
+                    return;
+                }
+                char* pbuffer = buffer->data;
+#else
+                auto buffer = std::make_unique<std::string>();
+                buffer->resize(SAFE_PAYLOAD_SIZE);
+                char* pbuffer = buffer->data();
+#endif
+                std::size_t dataSize = 0;
                 if (encodingChoice_ == MulticastComponentTopicEncodingChoice::CBOR) {
-                    v = basic::bytedata_utils::RunCBORSerializer<basic::ByteDataWithTopic>::apply(data);
+                    dataSize = basic::bytedata_utils::RunCBORSerializer<basic::ByteDataWithTopic>::calculateSize(data);
+                    if (dataSize > SAFE_PAYLOAD_SIZE) {
+                        // std::cerr << "data size " << dataSize << " is larger than safe payload size " << SAFE_PAYLOAD_SIZE << std::endl;
+                        return;
+                    }
+                    if (basic::bytedata_utils::RunCBORSerializer<basic::ByteDataWithTopic>::apply(data, pbuffer) != dataSize) {
+                        return;
+                    }
                 } else {
-                    v.resize(sizeof(uint32_t)+data.topic.length()+data.content.length());
-                    char *p = v.data();
+                    dataSize = sizeof(uint32_t)+data.topic.length()+data.content.length();
+                    if (dataSize > SAFE_PAYLOAD_SIZE) {
+                        // std::cerr << "data size " << dataSize << " is larger than safe payload size " << SAFE_PAYLOAD_SIZE << std::endl;
+                        return;
+                    }
                     uint32_t topicLen = (uint32_t) (data.topic.length());
-                    std::memcpy(p, &topicLen, sizeof(uint32_t));
-                    std::memcpy(p+sizeof(uint32_t), data.topic.data(), topicLen);
-                    std::memcpy(p+sizeof(uint32_t)+topicLen, data.content.data(), data.content.length());
+                    std::memcpy(pbuffer, &topicLen, sizeof(uint32_t));
+                    std::memcpy(pbuffer+sizeof(uint32_t), data.topic.data(), topicLen);
+                    std::memcpy(pbuffer+sizeof(uint32_t)+topicLen, data.content.data(), data.content.length());
                 }
                 std::lock_guard<std::mutex> _(mutex_);
                 if (ttl != ttl_) {
                     sock_.set_option(boost::asio::ip::multicast::hops(ttl));
                     ttl_ = ttl;
                 }
+                auto const_buffer = boost::asio::buffer(reinterpret_cast<const char *>(pbuffer), dataSize);
                 sock_.async_send_to(
-                    boost::asio::buffer(reinterpret_cast<const char *>(v.data()), v.size())
+                    const_buffer
                     , destination_
-                    , boost::bind(&OneMulticastSender::handleSend, this, boost::asio::placeholders::error)
+                    , [buffer = std::move(buffer)](boost::system::error_code const &ec, std::size_t) mutable {
+                        buffer.reset();
+                    }
                 );
             }
         };
