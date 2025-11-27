@@ -307,7 +307,11 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
 
             ~SenderBufferPool()
             {
+#ifdef _MSC_VER
+		_aligned_free(storage_);    
+#else
                 free(storage_);
+#endif
             }
 
             BufferPtr allocate()
