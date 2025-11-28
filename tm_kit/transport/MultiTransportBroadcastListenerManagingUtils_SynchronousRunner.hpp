@@ -378,6 +378,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
             , std::optional<WireToUserHook> const &dataHook = std::nullopt
             , std::optional<WireToUserHook> const &heartbeatHook = std::nullopt
         ) {
+            static std::string s_hostName = hostname_util::hostname();
             auto importer = oneBroadcastListenerWithTopic<HeartbeatMessage>(
                 r, heartbeatChannelSpec, heartbeatChannelTopicDescription, heartbeatHook
             );
@@ -388,7 +389,15 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                         return false;
                     }
                     auto iter = h.timedData.value.content.broadcastChannels().find(broadcastSourceLookupName);
-                    return (iter != h.timedData.value.content.broadcastChannels().end() && !iter->second.empty());
+                    if (iter != h.timedData.value.content.broadcastChannels().end() && !iter->second.empty()) {
+                        auto spec = *(iter->second.begin());
+                        auto parsed = parseMultiTransportBroadcastChannel(spec);
+                        if (parsed) {
+                            return (!multiTransportBroadcastChannelIsLocal(*parsed) || (s_hostName == h.timedData.value.content.host()));
+                        } else {
+                            return false;
+                        } 
+                    }
                 }
             )->consumeUntilLastFuture().get();
             if (!std::regex_match(heartbeatMsg.timedData.value.content.senderDescription(), serverNameRE)) {
@@ -399,6 +408,14 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                 throw std::runtime_error("[MultiTransportBroadcastListenerManagingUtils (Synchronous Runner)::workThroughHeartbeat_internal] Cannot find heartbeat entry for source '"+broadcastSourceLookupName+"'");
             }
             auto spec = *(iter->second.begin());
+            auto parsed = parseMultiTransportBroadcastChannel(spec);
+            if (parsed) {
+                if (multiTransportBroadcastChannelIsLocal(*parsed) && (s_hostName != heartbeatMsg.timedData.value.content.host())) {
+                    throw std::runtime_error("[MultiTransportBroadcastListenerManagingUtils (Synchronous Runner)::workThroughHeartbeat_internal] The heartbeat entry spec '"+spec+"' is local, but this host '"+s_hostName+"' is not the same as sender host '"+heartbeatMsg.timedData.value.content.host()+"'");
+                } 
+            } else {
+                throw std::runtime_error("[MultiTransportBroadcastListenerManagingUtils (Synchronous Runner)::workThroughHeartbeat_internal] Cannot parse the heartbeat entry spec '"+spec+"'");
+            } 
             r.environment()->log(
                 infra::LogLevel::Info
                 , std::string("[MultiTransportBroadcastListenerManagingUtils (Synchronous Runner)::workThroughHeartbeat_internal] ")

@@ -128,6 +128,26 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
         }
         return std::nullopt;
     }
+    inline bool multiTransportBroadcastChannelIsLocal(std::tuple<MultiTransportBroadcastListenerConnectionType, ConnectionLocator> const &c) {
+        switch (std::get<0>(c)) {
+        case MultiTransportBroadcastListenerConnectionType::Multicast:
+        case MultiTransportBroadcastListenerConnectionType::SharedMemoryBroadcast:
+            return true;
+            break;
+        case MultiTransportBroadcastListenerConnectionType::ZeroMQ:
+           {
+               auto const &h = std::get<1>(c).host();
+               return (h == "ipc" || h == "inproc" || h == "127.0.0.1" || h == "localhost");
+           }
+           break;
+        default:
+           {
+               auto const &h = std::get<1>(c).host();
+               return (h == "127.0.0.1" || h == "localhost");
+           }
+           break;
+        }
+    }
     struct MultiTransportBroadcastListenerAddSubscription {
         MultiTransportBroadcastListenerConnectionType connectionType;
         ConnectionLocator connectionLocator;

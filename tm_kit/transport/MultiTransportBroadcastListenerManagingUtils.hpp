@@ -12,6 +12,7 @@
 #include <tm_kit/transport/shared_memory_broadcast/SharedMemoryBroadcastImporterExporter.hpp>
 #include <tm_kit/transport/websocket/WebSocketImporterExporter.hpp>
 #include <tm_kit/transport/singlecast/SinglecastImporterExporter.hpp>
+#include <tm_kit/transport/HostNameUtil.hpp>
 
 #include <tm_kit/basic/CommonFlowUtils.hpp>
 #include <tm_kit/basic/AppRunnerUtils.hpp>
@@ -623,12 +624,14 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
             std::regex serverNameRE_;
             std::string lookupName_;
             std::string topic_;
+            Env *env_;
         public:
-            AddSubscriptionCreator(std::regex const &serverNameRE, std::string const &lookupName, std::string const &topic) : seenLocators_(), mutex_(), serverNameRE_(serverNameRE), lookupName_(lookupName), topic_(topic) {}
+            AddSubscriptionCreator(std::regex const &serverNameRE, std::string const &lookupName, std::string const &topic, Env *env=nullptr) : seenLocators_(), mutex_(), serverNameRE_(serverNameRE), lookupName_(lookupName), topic_(topic), env_(env) {}
             AddSubscriptionCreator(AddSubscriptionCreator &&c)
-                : seenLocators_(std::move(c.seenLocators_)), mutex_(), serverNameRE_(std::move(c.serverNameRE_)), lookupName_(std::move(c.lookupName_)), topic_(std::move(c.topic_)) {}
+                : seenLocators_(std::move(c.seenLocators_)), mutex_(), serverNameRE_(std::move(c.serverNameRE_)), lookupName_(std::move(c.lookupName_)), topic_(std::move(c.topic_)), env_(c.env_) {}
         private:
             std::vector<MultiTransportBroadcastListenerInput> handleHeartbeat(HeartbeatMessage const &msg) {
+                static std::string s_hostName = hostname_util::hostname();
                 std::vector<MultiTransportBroadcastListenerInput> ret;
                 if (!std::regex_match(msg.senderDescription(), serverNameRE_)) {
                     return ret;
@@ -641,13 +644,22 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                             seenLocators_.insert(c);
                             auto parsed = parseMultiTransportBroadcastChannel(c);
                             if (parsed) {
-                                ret.push_back(MultiTransportBroadcastListenerInput {
-                                    MultiTransportBroadcastListenerAddSubscription {
-                                        std::get<0>(*parsed)
-                                        , std::get<1>(*parsed)
-                                        , topic_
+                                if (!multiTransportBroadcastChannelIsLocal(*parsed) || (s_hostName == msg.host())) {
+                                    if (env_) {
+                                        env_->log(infra::LogLevel::Info, "[MulticastTransportBroadcastListenerManagingUtils::AddSubscriptionCreator::handleHeartbeat] adding possible subscription "+c+" for "+lookupName_);
                                     }
-                                });
+                                    ret.push_back(MultiTransportBroadcastListenerInput {
+                                        MultiTransportBroadcastListenerAddSubscription {
+                                            std::get<0>(*parsed)
+                                            , std::get<1>(*parsed)
+                                            , topic_
+                                        }
+                                    });
+                                } else {
+                                    if (env_) {
+                                        env_->log(infra::LogLevel::Info, "[MulticastTransportBroadcastListenerManagingUtils::AddSubscriptionCreator::handleHeartbeat] Not adding subscription "+c+" for "+lookupName_+" because it is a local broadcast channel and this host "+s_hostName+" is not the same as "+msg.host());
+                                    }
+                                }
                             }
                         }
                     }
@@ -690,14 +702,14 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                 using T = std::decay_t<decltype(x)>;
                 if constexpr (std::is_same_v<T, typename R::template ConvertibleToSourceoid<HeartbeatMessage>>) {
                     auto addSubscriptionCreator = M::template liftMulti<HeartbeatMessage>(
-                        AddSubscriptionCreator(serverNameRE, broadcastSourceLookupName, broadcastTopic)
+                        AddSubscriptionCreator(serverNameRE, broadcastSourceLookupName, broadcastTopic, r.environment())
                     );
                     r.registerAction(prefix+"/addSubscriptionCreator", addSubscriptionCreator);
                     (R::convertToSourceoid(std::move(x)))(r, r.actionAsSink(addSubscriptionCreator));
                     r.execute(keyify, r.actionAsSource(addSubscriptionCreator));
                 } else {
                     auto addSubscriptionCreator = M::template liftMulti<std::shared_ptr<HeartbeatMessage const>>(
-                        AddSubscriptionCreator(serverNameRE, broadcastSourceLookupName, broadcastTopic)
+                        AddSubscriptionCreator(serverNameRE, broadcastSourceLookupName, broadcastTopic, r.environment())
                     );
                     r.registerAction(prefix+"/addSubscriptionCreator", addSubscriptionCreator);
                     (R::convertToSourceoid(std::move(x)))(r, r.actionAsSink(addSubscriptionCreator));
