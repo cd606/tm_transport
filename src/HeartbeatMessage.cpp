@@ -284,4 +284,58 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
         }
         return ret;
     }
+
+    void HeartbeatMessage::print(std::ostream &os) const {
+        os << "HeartbeatMessage{"
+            << "uuidStr='" << uuidStr_ << "'"
+            << ", heartbeatTime=" << infra::withtime_utils::localTimeString(heartbeatTime_)
+            << ", host='" << host_ << "'"
+            << ", pid=" << pid_
+            << ", senderDescription='" << senderDescription_ << "'"
+            << ", broadcastChannels={";
+        bool firstItem = true;
+        for (auto const &item : broadcastChannels_) {
+            if (!firstItem) {
+                os << ',';
+            }
+            firstItem = false;
+            os << item.first << "=[";
+            bool firstChannel = true;
+            for (auto const &c : item.second) {
+                if (!firstChannel) {
+                    os << ',';
+                }
+                firstChannel = false;
+                os << c;
+            }
+            os << ']';
+        }
+        os << "}, facilityChannels={";
+        firstItem = true;
+        for (auto const &item : facilityChannels_) {
+            if (!firstItem) {
+                os << ',';
+            }
+            firstItem = false;
+            os << item.first << '=' << item.second;
+        }
+        os << "}, details={";
+        firstItem = true;
+        for (auto const &item: details_) {
+            if (!firstItem) {
+                os << ',';
+            }
+            firstItem = false;
+            os << item.first << "=>{";
+            os << "status=" << statusString(item.second.status)
+                << ",info='" << item.second.info << "'";
+            os << '}';
+        }
+        os << "}}";
+    }
+
+    std::ostream &operator<<(std::ostream &os, HeartbeatMessage const &heartbeat) {
+        heartbeat.print(os);
+        return os;
+    }
 } } } }

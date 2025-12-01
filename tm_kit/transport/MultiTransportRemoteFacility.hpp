@@ -1383,6 +1383,11 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
             , bool autoDisconnect = true
             , uint32_t *clientNumberOutput = nullptr
         ) {
+            if (env) {
+                std::ostringstream oss;
+                oss << "[OneShotMultiTransportRemoteFacilityCall::call] calling " << facilityDescriptor;
+                env->log(infra::LogLevel::Info, oss.str());
+            }
             auto parseRes = parseMultiTransportRemoteFacilityChannel(facilityDescriptor);
             if (parseRes) {
                 return call<A,B>(env, std::get<0>(*parseRes), std::get<1>(*parseRes), std::move(request), hooks, autoDisconnect, clientNumberOutput);
@@ -1701,6 +1706,11 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
             , bool autoDisconnect = true
             , uint32_t *clientNumberOutput = nullptr
         ) {
+            if (env) {
+                std::ostringstream oss;
+                oss << "[OneShotMultiTransportRemoteFacilityCall::callByHeartbeat] calling by heartbeat, spec='" << heartbeatChannelSpec << "', topic description='" << heartbeatTopicDescription << "'";
+                env->log(infra::LogLevel::Info, oss.str());
+            }
             auto heartbeatResult = MultiTransportBroadcastFirstUpdateQueryManagingUtils<Env>
                 ::template fetchTypedFirstUpdateAndDisconnect<HeartbeatMessage>
                 (
@@ -1715,6 +1725,11 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                     }
                     , heartbeatHook
                 ).get().content;
+            if (env) {
+                std::ostringstream oss;
+                oss << "[OneShotMultiTransportRemoteFacilityCall::callByHeartbeat] received heartbeat result" << heartbeatResult;
+                env->log(infra::LogLevel::Info, oss.str());
+            }
             auto iter = heartbeatResult.facilityChannels().find(facilityNameInServer);
             if (iter == heartbeatResult.facilityChannels().end()) {
                 throw std::runtime_error("OneShotMultiTransportRemoteFacilityCall::callByHeartbeat: no facility name "+facilityNameInServer+" in heartbeat message");

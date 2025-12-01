@@ -924,6 +924,11 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
             , std::optional<WireToUserHook> hook = std::nullopt
         )
         {
+            if (env) {
+                std::ostringstream oss;
+                oss << "[MultiTransportBroadcastListenerManagingUtils::fetchTypedFirstUpdateAndDisconnect] waiting for channel spec '"+channelSpec+"'";
+                env->log(infra::LogLevel::Info, oss.str());
+            }
             auto parsed = parseMultiTransportBroadcastChannel(channelSpec);
             if (!parsed) {
                 throw std::runtime_error("[MultiTransportBroadcastListenerManagingUtils::fetchTypedFirstUpdateAndDisconnect] Unknown channel spec '"+channelSpec+"'");

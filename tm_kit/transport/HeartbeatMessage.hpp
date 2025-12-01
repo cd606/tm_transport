@@ -83,7 +83,10 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
         std::optional<HeartbeatMessage::OneItemStatus> status(std::string const &entry) const;
         std::unordered_set<std::string> allEntries() const;
         std::unordered_set<std::string> allEntriesRE(std::regex const &re) const;
+        void print(std::ostream &os) const;
     };
+
+    extern std::ostream &operator<<(std::ostream &os, HeartbeatMessage const &heartbeat);
 
 } } } }
 

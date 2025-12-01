@@ -57,9 +57,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 std::optional<WireToUserHook> hook;
             };
             std::vector<ClientCB> clients_;
-            std::thread th_;
             std::mutex mutex_;
-            std::atomic<bool> running_;
 
             inline void callClient(ClientCB const &c, basic::ByteDataWithTopic &&d) {
                 if (c.hook) {
@@ -72,42 +70,31 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 }
             }
 
-            void run() {                
-                try {
-                    natsConnection_SubscribeSync(&sub_, conn_, topic_.c_str());
-                    while (running_) {
-                        natsMsg *msg = nullptr;
-                        auto status = natsSubscription_NextMsg(&msg, sub_, 1);
-                        if (status == NATS_TIMEOUT) {
-                            continue;
-                        }
-                        if (status != NATS_OK) {
-                            if (msg) {
-                                natsMsg_Destroy(msg);
-                            }
-                            break;
-                        }
-                        if (!running_) {
-                            if (msg) {
-                                natsMsg_Destroy(msg);
-                            }
-                            break;
-                        }
-                        std::string topic {natsMsg_GetSubject(msg)};
-                        std::string content {natsMsg_GetData(msg), (std::size_t) natsMsg_GetDataLength(msg)};
-
-                        natsMsg_Destroy(msg);
-
-                        if (!running_) {
-                            break;
-                        }
-                        std::lock_guard<std::mutex> _(mutex_);
-                        for (auto const &cb : clients_) {
-                            callClient(cb, {topic, content});
+            static void onReply(natsConnection *nc, natsSubscription * /*unused*/, natsMsg *msg, void *closure) {
+                OneNATSSubscription *client = (OneNATSSubscription *) closure;
+                if (client->conn_ != nc) {
+                    natsMsg_Destroy(msg);
+                    return;
+                }
+                {
+                    std::lock_guard<std::mutex> _(client->mutex_);
+                    if (client->clients_.empty()) {
+                        if (msg) {
+                            natsMsg_Destroy(msg);
+                            return;
                         }
                     }
-                } catch (...) {}
+                    std::string topic {natsMsg_GetSubject(msg)};
+                    std::string content {natsMsg_GetData(msg), (std::size_t) natsMsg_GetDataLength(msg)};
+
+                    natsMsg_Destroy(msg);
+
+                    for (auto const &cb : client->clients_) {
+                        client->callClient(cb, {topic, content});
+                    }
+                }
             }
+
         public:
             OneNATSSubscription(ConnectionLocator const &locator, std::string const &topic, TLSClientConfigurationComponent *tlsConf) 
                 : locator_(locator)
@@ -116,9 +103,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 , conn_(nullptr)
                 , sub_(nullptr)
                 , clients_()
-                , th_()
                 , mutex_()
-                , running_(true)
             {
                 natsOptions_Create(&opts_);
                 std::ostringstream oss;
@@ -128,23 +113,17 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
 
                 natsConnection_Connect(&conn_, opts_);
 
-                th_ = std::thread(&OneNATSSubscription::run, this);
-                th_.detach();
+                natsConnection_Subscribe(&sub_, conn_, topic_.c_str(), &OneNATSSubscription::onReply, (void *) this);
             }
             ~OneNATSSubscription() {
                 //std::cerr << this << ": being released\n";
-                running_ = false;
-                if (th_.joinable()) {
-                    try {
-                        th_.join();
-                    } catch (std::system_error const &) {
-                    }
-                }
                 if (sub_) {
+                    natsSubscription_Unsubscribe(sub_);
                     natsSubscription_Destroy(sub_);
                     sub_ = nullptr;
                 }
                 if (conn_) {
+                    natsConnection_Close(conn_);
                     natsConnection_Destroy(conn_);
                     conn_ = nullptr;
                 }
@@ -174,26 +153,19 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             bool checkWhetherNeedsToStop() {
                 std::lock_guard<std::mutex> _(mutex_);
                 if (clients_.empty()) {
-                    running_ = false;
                     return true;
                 } else {
                     return false;
                 }
             }
             void unsubscribe() {
-                //std::cerr << this << ": calling unsubscribe\n";
-                running_ = false;
-                if (th_.joinable()) {
-                    try {
-                        th_.join();
-                    } catch (std::system_error const &) {
-                    }
-                }
                 if (sub_) {
+                    natsSubscription_Unsubscribe(sub_);
                     natsSubscription_Destroy(sub_);
                     sub_ = nullptr;
                 }
                 if (conn_) {
+                    natsConnection_Close(conn_);
                     natsConnection_Destroy(conn_);
                     conn_ = nullptr;
                 }
@@ -204,9 +176,6 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             }
             ConnectionLocator const &locator() const {
                 return locator_;
-            }
-            std::thread::native_handle_type getThreadHandle() {
-                return th_.native_handle();
             }
         };
         
@@ -411,60 +380,41 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             std::function<void(basic::ByteDataWithID &&)> callback_;
             std::optional<WireToUserHook> wireToUserHook_;
             std::unordered_map<std::string, std::string> replyTopicMap_;
-            std::thread th_;
             std::mutex mutex_;
-            std::atomic<bool> running_;
-            void run() {
-                natsConnection_SubscribeSync(&sub_, conn_, rpcTopic_.c_str());
-                while (running_) {
-                    natsMsg *msg = nullptr;
-                    auto status = natsSubscription_NextMsg(&msg, sub_, 1);
-                    if (status == NATS_TIMEOUT) {
-                        continue;
-                    }
-                    if (status != NATS_OK) {
-                        if (msg) {
-                            natsMsg_Destroy(msg);
-                        }
-                        break;
-                    }
-                    if (!running_) {
-                        if (msg) {
-                            natsMsg_Destroy(msg);
-                        }
-                        break;
-                    }
-                    std::string topic {natsMsg_GetSubject(msg)};
-                    //std::cerr << "Got message on topic '" << topic << "'\n";
-                    if (topic != rpcTopic_) {
-                        natsMsg_Destroy(msg);
-                        continue;
-                    }
-
-                    auto parseRes = basic::bytedata_utils::RunCBORDeserializer<basic::ByteDataWithID>::apply(std::string_view {natsMsg_GetData(msg), (std::size_t) natsMsg_GetDataLength(msg)}, 0);
-                    if (!parseRes || std::get<1>(*parseRes) != (std::size_t) natsMsg_GetDataLength(msg)) {
-                        natsMsg_Destroy(msg);
-                        continue;
-                    }
-                    //std::cerr << "Parsed correctly\n";
-                    std::string reply {natsMsg_GetReply(msg)};
+            static void onReply(natsConnection *nc, natsSubscription * /*unused*/, natsMsg *msg, void *closure) {
+                OneNATSRPCServerConnection *client = (OneNATSRPCServerConnection *) closure;
+                //std::cerr << "Got RPC reply\n";
+                if (client->conn_ != nc) {
                     natsMsg_Destroy(msg);
-                    if (!running_) {
-                        break;
+                    return;
+                }
+                std::string topic {natsMsg_GetSubject(msg)};
+                //std::cerr << "Got message on topic '" << topic << "'\n";
+                if (topic != client->rpcTopic_) {
+                    natsMsg_Destroy(msg);
+                    return;
+                }
+
+                auto parseRes = basic::bytedata_utils::RunCBORDeserializer<basic::ByteDataWithID>::apply(std::string_view {natsMsg_GetData(msg), (std::size_t) natsMsg_GetDataLength(msg)}, 0);
+                if (!parseRes || std::get<1>(*parseRes) != (std::size_t) natsMsg_GetDataLength(msg)) {
+                    natsMsg_Destroy(msg);
+                    return;
+                }
+                //std::cerr << "Parsed correctly\n";
+                std::string reply {natsMsg_GetReply(msg)};
+                natsMsg_Destroy(msg);
+                {
+                    std::lock_guard<std::mutex> _(client->mutex_);
+                    client->replyTopicMap_[std::get<0>(*parseRes).id] = reply;
+                }
+                if (client->wireToUserHook_) {
+                    auto d = (client->wireToUserHook_->hook)(basic::ByteDataView {std::string_view(std::get<0>(*parseRes).content)});
+                    if (d) {
+                        client->callback_({std::move(std::get<0>(*parseRes).id), std::move(d->content)});
                     }
-                    {
-                        std::lock_guard<std::mutex> _(mutex_);
-                        replyTopicMap_[std::get<0>(*parseRes).id] = reply;
-                    }
-                    if (wireToUserHook_) {
-                        auto d = (wireToUserHook_->hook)(basic::ByteDataView {std::string_view(std::get<0>(*parseRes).content)});
-                        if (d) {
-                            callback_({std::move(std::get<0>(*parseRes).id), std::move(d->content)});
-                        }
-                    } else {
-                        //std::cerr << "Calling callback\n";
-                        callback_(std::move(std::get<0>(*parseRes)));
-                    }
+                } else {
+                    //std::cerr << "Calling callback\n";
+                    client->callback_(std::move(std::get<0>(*parseRes)));
                 }
             }
         public:
@@ -475,9 +425,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 , rpcTopic_(locator.identifier())
                 , callback_(callback)
                 , wireToUserHook_(wireToUserHook)
-                , th_()
                 , mutex_()
-                , running_(true)
             {                
                 natsOptions_Create(&opts_);
                 std::ostringstream oss;
@@ -485,24 +433,17 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 natsOptions_SetURL(opts_, oss.str().c_str());
                 NATSComponentImpl::auth(locator, tlsConf, opts_);
 
-                natsConnection_Connect(&conn_, opts_);                
-
-                th_ = std::thread(&OneNATSRPCServerConnection::run, this);
-                th_.detach();
+                natsConnection_Connect(&conn_, opts_);  
+                natsConnection_Subscribe(&sub_, conn_, rpcTopic_.c_str(), &OneNATSRPCServerConnection::onReply, this);              
             }
             ~OneNATSRPCServerConnection() {
-                running_ = false;
-                if (th_.joinable()) {
-                    try {
-                        th_.join();
-                    } catch (std::system_error const &) {
-                    }
-                }
                 if (sub_) {
+                    natsSubscription_Unsubscribe(sub_);
                     natsSubscription_Destroy(sub_);
                     sub_ = nullptr;
                 }
                 if (conn_) {
+                    natsConnection_Close(conn_);
                     natsConnection_Destroy(conn_);
                     conn_ = nullptr;
                 }
@@ -527,9 +468,6 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 }
                 auto encodedData = basic::bytedata_utils::RunSerializer<basic::CBOR<std::tuple<bool,basic::ByteDataWithID>>>::apply({{isFinal, std::move(data)}});
                 natsConnection_Publish(conn_, replyTopic.c_str(), encodedData.data(), encodedData.length());
-            }
-            std::thread::native_handle_type getThreadHandle() {
-                return th_.native_handle();
             }
         };
         std::unordered_map<ConnectionLocator, std::unique_ptr<OneNATSRPCServerConnection>> rpcServerConnections_;
@@ -718,18 +656,15 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             }
         }
         std::unordered_map<ConnectionLocator, std::thread::native_handle_type> threadHandles() {
+            return {};
+            /*
             std::unordered_map<ConnectionLocator, std::thread::native_handle_type> retVal;
             std::lock_guard<std::mutex> _(mutex_);
-            for (auto &item : subscriptions_) {
-                for (auto &innerItem : item.second) {
-                    ConnectionLocator l {item.first.host(), item.first.port(), "", "", innerItem.first};
-                    retVal[l] = innerItem.second->getThreadHandle();
-                }
-            }
             for (auto &item : rpcServerConnections_) {
                 retVal[item.first] = item.second->getThreadHandle();
             }
             return retVal;
+            */
         }
     };
 
