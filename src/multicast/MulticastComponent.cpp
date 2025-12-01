@@ -367,7 +367,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 , senderBufferPool_(SAFE_PAYLOAD_SIZE, 1024)
 #endif
                 , mutex_()
-                , ttl_(0)
+                , ttl_(1)
             {
                 boost::asio::ip::udp::resolver resolver(*service);
                 boost::system::error_code ec;
