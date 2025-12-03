@@ -243,6 +243,9 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                             if (!predicate || predicate(t)) {
                                 basic::TypedDataWithTopic<T> res {std::move(d.topic), std::move(t)};
                                 done = true;
+                                if (env) {
+                                    env->log(infra::LogLevel::Info, "[MulticastImporterExporter::fetchTypedFirstUpdateAndDisconnect] received data");
+                                }
                                 std::thread([env, ret, id, res = std::move(res)]() mutable {
                                     try {
                                         std::this_thread::sleep_for(std::chrono::milliseconds(10));

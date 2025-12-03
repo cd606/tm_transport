@@ -218,7 +218,6 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         static std::future<basic::TypedDataWithTopic<T>> fetchTypedFirstUpdateAndDisconnect(Env *env, ConnectionLocator const &locator, std::string const &topic, std::function<bool(T const &)> predicate = std::function<bool(T const &)>(), std::optional<WireToUserHook> hook = std::nullopt) {
             std::shared_ptr<std::promise<basic::TypedDataWithTopic<T>>> ret = std::make_shared<std::promise<basic::TypedDataWithTopic<T>>>();
             std::shared_ptr<std::atomic<uint32_t>> id = std::make_shared<std::atomic<uint32_t>>();
-                
             bool done = false;
             *id = env->nats_addSubscriptionClient(
                 locator
@@ -231,6 +230,9 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                             if (!predicate || predicate(t)) {
                                 basic::TypedDataWithTopic<T> res {std::move(d.topic), std::move(t)};
                                 done = true;
+                                if (env) {
+                                    env->log(infra::LogLevel::Info, "[NATSImporterExporter::fetchTypedFirstUpdateAndDisconnect] received data");
+                                }
                                 std::thread([env, ret, id, res = std::move(res)]() mutable {
                                     try {
                                         std::this_thread::sleep_for(std::chrono::milliseconds(10));
