@@ -11,12 +11,15 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
     
     enum class SinglecastComponentTopicEncodingChoice {
         CBOR
+        , Binary
         , BinaryAdHoc
     };
 
     SinglecastComponentTopicEncodingChoice parseEncodingChoice(std::string const &s) {
-        if (s == "binary" || s == "binary-adhoc") {
+        if (s == "binary-adhoc") {
             return SinglecastComponentTopicEncodingChoice::BinaryAdHoc;
+        } else if (s == "binary") {
+            return SinglecastComponentTopicEncodingChoice::Binary;
         } else {
             return SinglecastComponentTopicEncodingChoice::CBOR;
         }
@@ -44,7 +47,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
 
             std::atomic<bool> running_;
 
-            inline void callClient(ClientCB const &c, basic::ByteDataWithTopic &&d) {
+            inline void callClient(ClientCB const &c, basic::ByteDataWithTopic d) {
                 if (c.hook) {
                     auto b = (c.hook->hook)(basic::ByteDataView {std::string_view(d.content)});
                     if (b) {
@@ -63,7 +66,15 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                     std::optional<std::tuple<basic::ByteDataWithTopic, std::size_t>> parseRes;
                     if (encodingChoice_ == SinglecastComponentTopicEncodingChoice::CBOR) {
                         parseRes = basic::bytedata_utils::RunCBORDeserializer<basic::ByteDataWithTopic>::apply(std::string_view {buffer_.data(), bytesReceived}, 0);
-                    } else {
+                    } else if (encodingChoice_ == SinglecastComponentTopicEncodingChoice::Binary) {
+                        parseRes = std::tuple<basic::ByteDataWithTopic, std::size_t> {
+                            basic::ByteDataWithTopic {
+                                .topic = std::string(),
+                                .content = std::string(buffer_.data(), bytesReceived),
+                            }
+                            , bytesReceived
+                        };
+                    } else if (encodingChoice_ == SinglecastComponentTopicEncodingChoice::BinaryAdHoc) {
                         if (bytesReceived < sizeof(uint32_t)) {
                             parseRes = std::nullopt;
                         } else {
@@ -83,26 +94,30 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                                 };
                             }
                         }
+                    } else {
+                        return;
                     }
                     if (parseRes && std::get<1>(*parseRes) == bytesReceived) {
                         basic::ByteDataWithTopic data = std::move(std::get<0>(*parseRes));
 
                         std::lock_guard<std::mutex> _(mutex_);
-                        
+
+                        const bool filterByTopic = (encodingChoice_ != SinglecastComponentTopicEncodingChoice::Binary);
+
                         for (auto const &f : noFilterClients_) {
-                            callClient(f, std::move(data));
+                            callClient(f, data);
                         }
                         for (auto const &f : stringMatchClients_) {
-                            if (data.topic == std::get<0>(f)) {
-                                callClient(std::get<1>(f), std::move(data));
+                            if (!filterByTopic || data.topic == std::get<0>(f)) {
+                                callClient(std::get<1>(f), data);
                             }
                         }
                         for (auto const &f : regexMatchClients_) {
-                            if (std::regex_match(data.topic, std::get<0>(f))) {
-                                callClient(std::get<1>(f), std::move(data));
+                            if (!filterByTopic || std::regex_match(data.topic, std::get<0>(f))) {
+                                callClient(std::get<1>(f), data);
                             }
                         }
-                    }  
+                    }
                     sock_.async_receive_from(
                         boost::asio::buffer(buffer_.data(), buffer_.size())
                         , senderPoint_
@@ -227,13 +242,14 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         
         class OneSinglecastSender {
         private:
+            constexpr static std::size_t SAFE_PAYLOAD_SIZE = 1200;  // avoid IP fragmentation
             SinglecastComponentTopicEncodingChoice encodingChoice_;
             boost::asio::ip::udp::socket sock_;
             boost::asio::ip::udp::endpoint destination_;
             void handleSend(boost::system::error_code const &) {
             }
         public:
-#if BOOST_VERSION >= 108700        
+#if BOOST_VERSION >= 108700  
             OneSinglecastSender(SinglecastComponentTopicEncodingChoice encodingChoice, boost::asio::io_context *service, ConnectionLocator const &locator)
 #else
             OneSinglecastSender(SinglecastComponentTopicEncodingChoice encodingChoice, boost::asio::io_service *service, ConnectionLocator const &locator)
@@ -255,21 +271,31 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 sock_.close();
             }
             void publish(basic::ByteDataWithTopic &&data) {
-                std::string v;
+                auto v = std::make_unique<std::string>();
                 if (encodingChoice_ == SinglecastComponentTopicEncodingChoice::CBOR) {
-                    v = basic::bytedata_utils::RunCBORSerializer<basic::ByteDataWithTopic>::apply(data);
-                } else {
-                    v.resize(sizeof(uint32_t)+data.topic.length()+data.content.length());
-                    char *p = v.data();
+                    *v = basic::bytedata_utils::RunCBORSerializer<basic::ByteDataWithTopic>::apply(data);
+                    if (v->size() > SAFE_PAYLOAD_SIZE) {
+                        return;
+                    }
+                } else if (encodingChoice_ == SinglecastComponentTopicEncodingChoice::Binary || encodingChoice_ == SinglecastComponentTopicEncodingChoice::BinaryAdHoc) {
+                    auto dataSize = sizeof(uint32_t)+data.topic.length()+data.content.length();
+                    if (dataSize > SAFE_PAYLOAD_SIZE) {
+                        return;
+                    }
+                    v->resize(dataSize);
+                    char *p = v->data();
                     uint32_t topicLen = (uint32_t) (data.topic.length());
                     std::memcpy(p, &topicLen, sizeof(uint32_t));
                     std::memcpy(p+sizeof(uint32_t), data.topic.data(), topicLen);
                     std::memcpy(p+sizeof(uint32_t)+topicLen, data.content.data(), data.content.length());
+                } else {
+                    return;
                 }
+                auto const_buffer = boost::asio::buffer(reinterpret_cast<const char *>(v->data()), v->size());
                 sock_.async_send_to(
-                    boost::asio::buffer(reinterpret_cast<const char *>(v.data()), v.size())
+                    const_buffer
                     , destination_
-                    , boost::bind(&OneSinglecastSender::handleSend, this, boost::asio::placeholders::error)
+                    , [v=std::move(v)](boost::system::error_code const &/*ec*/, std::size_t) {}
                 );
             }
         };
