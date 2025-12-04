@@ -24,7 +24,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
     MulticastComponentTopicEncodingChoice parseEncodingChoice(std::string const &s) {
         if (s == "binary-adhoc") {
             return MulticastComponentTopicEncodingChoice::BinaryAdHoc;
-        } else if (s == "binary") {
+        } else if (s == "binary" || s == "raw-binary") {
             return MulticastComponentTopicEncodingChoice::Binary;
         } else {
             return MulticastComponentTopicEncodingChoice::CBOR;
@@ -515,6 +515,9 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             auto iter = subscriptions_.find(hostAndPort);
             if (iter == subscriptions_.end()) {
                 auto choice = parseEncodingChoice(d.query("envelop", "cbor"));
+                if (d.query("ignoreTopic", "false") == "true") {
+                    choice = MulticastComponentTopicEncodingChoice::Binary;
+                }
                 auto interface = d.query("interface", "");
 #if BOOST_VERSION >= 108700    
                 std::unique_ptr<boost::asio::io_context> svc = std::make_unique<boost::asio::io_context>();            
@@ -558,6 +561,9 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             auto iter = senders_.find(hostAndPort);
             if (iter == senders_.end()) {
                 auto choice = parseEncodingChoice(d.query("envelop", "cbor"));
+                if (d.query("ignoreTopic", "false") == "true") {
+                    choice = MulticastComponentTopicEncodingChoice::Binary;
+                }
                 auto interface = d.query("interface", "");
                 iter = senders_.insert({hostAndPort, std::make_unique<OneMulticastSender>(choice, &senderService_, hostAndPort, interface)}).first;
             }
