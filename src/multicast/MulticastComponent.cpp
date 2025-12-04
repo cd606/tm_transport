@@ -17,12 +17,15 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
     
     enum class MulticastComponentTopicEncodingChoice {
         CBOR
+        , Binary
         , BinaryAdHoc
     };
 
     MulticastComponentTopicEncodingChoice parseEncodingChoice(std::string const &s) {
-        if (s == "binary" || s == "binary-adhoc") {
+        if (s == "binary-adhoc") {
             return MulticastComponentTopicEncodingChoice::BinaryAdHoc;
+        } else if (s == "binary") {
+            return MulticastComponentTopicEncodingChoice::Binary;
         } else {
             return MulticastComponentTopicEncodingChoice::CBOR;
         }
@@ -51,7 +54,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
 
             std::atomic<bool> running_;
 
-            inline void callClient(ClientCB const &c, basic::ByteDataWithTopic &&d) {
+            inline void callClient(ClientCB const &c, basic::ByteDataWithTopic d) {
                 if (c.hook) {
                     auto b = (c.hook->hook)(basic::ByteDataView {std::string_view(d.content)});
                     if (b) {
@@ -70,7 +73,15 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                     std::optional<std::tuple<basic::ByteDataWithTopic, std::size_t>> parseRes;
                     if (encodingChoice_ == MulticastComponentTopicEncodingChoice::CBOR) {
                         parseRes = basic::bytedata_utils::RunCBORDeserializer<basic::ByteDataWithTopic>::apply(std::string_view {buffer_.data(), bytesReceived}, 0);
-                    } else {
+                    } else if (encodingChoice_ == MulticastComponentTopicEncodingChoice::Binary) {
+                        parseRes = std::tuple<basic::ByteDataWithTopic, std::size_t> {
+                            basic::ByteDataWithTopic {
+                                .topic = std::string(),
+                                .content = std::string(buffer_.data(), bytesReceived),
+                            }
+                            , bytesReceived
+                        };
+                    } else if (encodingChoice_ == MulticastComponentTopicEncodingChoice::BinaryAdHoc) {
                         if (bytesReceived < sizeof(uint32_t)) {
                             parseRes = std::nullopt;
                         } else {
@@ -90,23 +101,26 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                                 };
                             }
                         }
+                    } else {
+                        return;
                     }
                     if (parseRes && std::get<1>(*parseRes) == bytesReceived) {
                         basic::ByteDataWithTopic data = std::move(std::get<0>(*parseRes));
 
                         std::lock_guard<std::mutex> _(mutex_);
+                        const bool filterByTopic = (encodingChoice_ != MulticastComponentTopicEncodingChoice::Binary);
                         
                         for (auto const &f : noFilterClients_) {
-                            callClient(f, std::move(data));
+                            callClient(f, data);
                         }
                         for (auto const &f : stringMatchClients_) {
-                            if (data.topic == std::get<0>(f)) {
-                                callClient(std::get<1>(f), std::move(data));
+                            if (!filterByTopic || data.topic == std::get<0>(f)) {
+                                callClient(std::get<1>(f), data);
                             }
                         }
                         for (auto const &f : regexMatchClients_) {
-                            if (std::regex_match(data.topic, std::get<0>(f))) {
-                                callClient(std::get<1>(f), std::move(data));
+                            if (!filterByTopic || std::regex_match(data.topic, std::get<0>(f))) {
+                                callClient(std::get<1>(f), data);
                             }
                         }
                     }  
@@ -451,7 +465,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                     if (basic::bytedata_utils::RunCBORSerializer<basic::ByteDataWithTopic>::apply(data, pbuffer) != dataSize) {
                         return;
                     }
-                } else {
+                } else if (encodingChoice_ == MulticastComponentTopicEncodingChoice::Binary || encodingChoice_ == MulticastComponentTopicEncodingChoice::BinaryAdHoc) {
                     dataSize = sizeof(uint32_t)+data.topic.length()+data.content.length();
                     if (dataSize > SAFE_PAYLOAD_SIZE) {
                         // std::cerr << "data size " << dataSize << " is larger than safe payload size " << SAFE_PAYLOAD_SIZE << std::endl;
@@ -461,6 +475,8 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                     std::memcpy(pbuffer, &topicLen, sizeof(uint32_t));
                     std::memcpy(pbuffer+sizeof(uint32_t), data.topic.data(), topicLen);
                     std::memcpy(pbuffer+sizeof(uint32_t)+topicLen, data.content.data(), data.content.length());
+                } else {
+                    return;
                 }
                 std::lock_guard<std::mutex> _(mutex_);
                 if (ttl != ttl_) {
