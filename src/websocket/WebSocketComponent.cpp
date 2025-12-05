@@ -522,26 +522,48 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 
                 if (ignoreTopic_) {
                     //std::cerr << "Will publish\n";
-                    for (auto const &f : noFilterClients_) {
-                        callClient(f, basic::ByteDataWithTopic {"", std::move(input)});
+                    std::lock_guard<std::mutex> _(clientsMutex_);
+                    if (!noFilterClients_.empty()) {
+                        if (noFilterClients_.size() == 1) {
+                            callClient(noFilterClients_.front(), basic::ByteDataWithTopic {"", std::move(input)});
+                        } else {
+                            for (auto const &f : noFilterClients_) {
+                                callClient(f, basic::ByteDataWithTopic {"", input});
+                            }
+                        }
                     }
                 } else {
                     basic::ByteDataWithTopic data;
                     auto parseRes = basic::bytedata_utils::RunCBORDeserializer<basic::ByteDataWithTopic>::applyInPlace(data, std::string_view {input}, 0);
                     if (parseRes && *parseRes == input.length()) {
                         std::lock_guard<std::mutex> _(clientsMutex_);
-                        
-                        for (auto const &f : noFilterClients_) {
-                            callClient(f, std::move(data));
-                        }
-                        for (auto const &f : stringMatchClients_) {
-                            if (data.topic == std::get<0>(f)) {
-                                callClient(std::get<1>(f), std::move(data));
+                        if (noFilterClients_.size()+stringMatchClients_.size()+regexMatchClients_.size() <= 1) {
+                            for (auto const &f : noFilterClients_) {
+                                callClient(f, std::move(data));
                             }
-                        }
-                        for (auto const &f : regexMatchClients_) {
-                            if (std::regex_match(data.topic, std::get<0>(f))) {
-                                callClient(std::get<1>(f), std::move(data));
+                            for (auto const &f : stringMatchClients_) {
+                                if (data.topic == std::get<0>(f)) {
+                                    callClient(std::get<1>(f), std::move(data));
+                                }
+                            }
+                            for (auto const &f : regexMatchClients_) {
+                                if (std::regex_match(data.topic, std::get<0>(f))) {
+                                    callClient(std::get<1>(f), std::move(data));
+                                }
+                            }
+                        } else {
+                            for (auto const &f : noFilterClients_) {
+                                callClient(f, basic::ByteDataWithTopic {data});
+                            }
+                            for (auto const &f : stringMatchClients_) {
+                                if (data.topic == std::get<0>(f)) {
+                                    callClient(std::get<1>(f), basic::ByteDataWithTopic {data});
+                                }
+                            }
+                            for (auto const &f : regexMatchClients_) {
+                                if (std::regex_match(data.topic, std::get<0>(f))) {
+                                    callClient(std::get<1>(f), basic::  ByteDataWithTopic {data});
+                                }
                             }
                         }
                     }
@@ -685,26 +707,48 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                             }
                             
                             if (ignoreTopic_) {
-                                for (auto const &f : noFilterClients_) {
-                                    callClient(f, basic::ByteDataWithTopic {"", std::move(input)});
+                                std::lock_guard<std::mutex> _(clientsMutex_);
+                                if (!noFilterClients_.empty()) {
+                                    if (noFilterClients_.size() == 1) {
+                                        callClient(noFilterClients_.front(), basic::ByteDataWithTopic {"", std::move(input)});
+                                    } else {
+                                        for (auto const &f : noFilterClients_) {
+                                            callClient(f, basic::ByteDataWithTopic {"", input});
+                                        }
+                                    }
                                 }
                             } else {
                                 basic::ByteDataWithTopic data;
                                 auto parseRes = basic::bytedata_utils::RunCBORDeserializer<basic::ByteDataWithTopic>::applyInPlace(data, std::string_view {input}, 0);
                                 if (parseRes && *parseRes == input.length()) {
                                     std::lock_guard<std::mutex> _(clientsMutex_);
-                                    
-                                    for (auto const &f : noFilterClients_) {
-                                        callClient(f, std::move(data));
-                                    }
-                                    for (auto const &f : stringMatchClients_) {
-                                        if (data.topic == std::get<0>(f)) {
-                                            callClient(std::get<1>(f), std::move(data));
+                                    if (noFilterClients_.size()+stringMatchClients_.size()+regexMatchClients_.size() <= 1) {
+                                        for (auto const &f : noFilterClients_) {
+                                            callClient(f, std::move(data));
                                         }
-                                    }
-                                    for (auto const &f : regexMatchClients_) {
-                                        if (std::regex_match(data.topic, std::get<0>(f))) {
-                                            callClient(std::get<1>(f), std::move(data));
+                                        for (auto const &f : stringMatchClients_) {
+                                            if (data.topic == std::get<0>(f)) {
+                                                callClient(std::get<1>(f), std::move(data));
+                                            }
+                                        }
+                                        for (auto const &f : regexMatchClients_) {
+                                            if (std::regex_match(data.topic, std::get<0>(f))) {
+                                                callClient(std::get<1>(f), std::move(data));
+                                            }
+                                        }
+                                    } else {
+                                        for (auto const &f : noFilterClients_) {
+                                            callClient(f, basic::ByteDataWithTopic {data});
+                                        }
+                                        for (auto const &f : stringMatchClients_) {
+                                            if (data.topic == std::get<0>(f)) {
+                                                callClient(std::get<1>(f), basic::ByteDataWithTopic {data});
+                                            }
+                                        }
+                                        for (auto const &f : regexMatchClients_) {
+                                            if (std::regex_match(data.topic, std::get<0>(f))) {
+                                                callClient(std::get<1>(f), basic::ByteDataWithTopic {data});
+                                            }
                                         }
                                     }
                                 }
