@@ -54,7 +54,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
 
             std::atomic<bool> running_;
 
-            inline void callClient(ClientCB const &c, basic::ByteDataWithTopic d) {
+            inline void callClient(ClientCB const &c, basic::ByteDataWithTopic &&d) {
                 if (c.hook) {
                     auto b = (c.hook->hook)(basic::ByteDataView {std::string_view(d.content)});
                     if (b) {
@@ -109,18 +109,33 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
 
                         std::lock_guard<std::mutex> _(mutex_);
                         const bool filterByTopic = (encodingChoice_ != MulticastComponentTopicEncodingChoice::Binary);
-                        
-                        for (auto const &f : noFilterClients_) {
-                            callClient(f, data);
-                        }
-                        for (auto const &f : stringMatchClients_) {
-                            if (!filterByTopic || data.topic == std::get<0>(f)) {
-                                callClient(std::get<1>(f), data);
+                        if (noFilterClients_.size()+stringMatchClients_.size()+regexMatchClients_.size() <= 1) {
+                            for (auto const &f : noFilterClients_) {
+                                callClient(f, std::move(data));
                             }
-                        }
-                        for (auto const &f : regexMatchClients_) {
-                            if (!filterByTopic || std::regex_match(data.topic, std::get<0>(f))) {
-                                callClient(std::get<1>(f), data);
+                            for (auto const &f : stringMatchClients_) {
+                                if (!filterByTopic || data.topic == std::get<0>(f)) {
+                                    callClient(std::get<1>(f), std::move(data));
+                                }
+                            }
+                            for (auto const &f : regexMatchClients_) {
+                                if (!filterByTopic || std::regex_match(data.topic, std::get<0>(f))) {
+                                    callClient(std::get<1>(f), std::move(data));
+                                }
+                            }
+                        } else {
+                            for (auto const &f : noFilterClients_) {
+                                callClient(f, basic::ByteDataWithTopic {data});
+                            }
+                            for (auto const &f : stringMatchClients_) {
+                                if (!filterByTopic || data.topic == std::get<0>(f)) {
+                                    callClient(std::get<1>(f), basic::ByteDataWithTopic {data});
+                                }
+                            }
+                            for (auto const &f : regexMatchClients_) {
+                                if (!filterByTopic || std::regex_match(data.topic, std::get<0>(f))) {
+                                    callClient(std::get<1>(f), basic::ByteDataWithTopic {data});
+                                }
                             }
                         }
                     }  
