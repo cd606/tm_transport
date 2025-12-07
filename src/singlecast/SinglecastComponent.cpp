@@ -69,8 +69,13 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                     } else if (encodingChoice_ == SinglecastComponentTopicEncodingChoice::Binary) {
                         parseRes = std::tuple<basic::ByteDataWithTopic, std::size_t> {
                             basic::ByteDataWithTopic {
+#ifdef _MSC_VER
+                                std::string(),
+                                std::string(buffer_.data(), bytesReceived),
+#else
                                 .topic = std::string(),
                                 .content = std::string(buffer_.data(), bytesReceived),
+#endif
                             }
                             , bytesReceived
                         };
