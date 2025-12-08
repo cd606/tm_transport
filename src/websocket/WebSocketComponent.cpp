@@ -71,6 +71,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             uint64_t messageCount_;
             bool binary_;
             bool useIXWebSocket_;
+            bool logEveryReceivedMessage_;
         public:
             OneSubscriber(
                 WebSocketComponentImpl *parent
@@ -106,6 +107,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 , messageCount_(0)
                 , binary_(locator.query("binary", "true") == "true")
                 , useIXWebSocket_(locator.query("useIXWebSocket", "false") == "true")
+                , logEveryReceivedMessage_(locator.query("logEveryReceivedMessage", "false") == "true")
             {
                 if (useIXWebSocket_) {
                     if (loggingBase_) {
@@ -518,6 +520,17 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 std::optional<basic::ByteData> reactorRes = std::nullopt;
                 if (protocolReactor_) {
                     reactorRes = protocolReactor_(basic::ByteDataView {std::string_view {input}});
+                }
+
+                if (logEveryReceivedMessage_ && loggingBase_) {
+                    std::ostringstream oss;
+                    oss << "[WebSocketComponentImpl::OneSubscriber::onRead] received ";
+                    if (binary_) {
+                        oss << "binary data of " << input.length() << "bytes";
+                    } else {
+                        oss << "'" << input << "'";
+                    }
+                    loggingBase_->logThroughLoggingComponentBase(infra::LogLevel::Info, oss.str());
                 }
                 
                 if (ignoreTopic_) {
