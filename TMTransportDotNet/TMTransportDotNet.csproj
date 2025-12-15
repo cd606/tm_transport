@@ -1,20 +1,22 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <ItemGroup>
-    <ProjectReference Include="..\..\tm_basic\TMBasicDotNet\TMBasicDotNet.csproj" />
-    <ProjectReference Include="..\..\tm_infra\TMInfraDotNet\TMInfraDotNet.csproj" />
-  </ItemGroup>
-
-  <ItemGroup>
-    <PackageReference Include="dotnet-etcd" Version="4.1.1" />
-    <PackageReference Include="NetMQ" Version="4.0.1.6" />
-    <PackageReference Include="RabbitMQ.Client" Version="6.2.1" />
-    <PackageReference Include="Sodium.Core" Version="1.2.3" />
-    <PackageReference Include="StackExchange.Redis" Version="2.1.58" />
+    <PackageReference Include="dotnet-etcd" Version="8.0.1" />
+    <PackageReference Include="NetMQ" Version="4.0.2.2" />
+    <PackageReference Include="RabbitMQ.Client" Version="6.8.1" />
+    <PackageReference Include="Sodium.Core" Version="1.4.0" />
+    <PackageReference Include="StackExchange.Redis" Version="2.10.1" />
+    <PackageReference Include="TMBasic" Version="1.0.0" />
+    <PackageReference Include="TMInfra" Version="1.0.0" />
   </ItemGroup>
 
   <PropertyGroup>
-    <TargetFramework>netstandard2.1</TargetFramework>
+    <TargetFramework>net9.0</TargetFramework>
+    <PackageId>TMTransport</PackageId>
+    <Version>1.0.0</Version>
+    <Authors>cd606</Authors>
+    <Description>My C# implementation of tm_transport (partial)</Description>
+    <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
   </PropertyGroup>
 
 </Project>
