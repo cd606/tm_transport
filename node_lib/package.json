@@ -1,0 +1,42 @@
+{
+    "name": "@dev_cd606/tm_transport",
+    "version": "1.0.0",
+    "description": "Pure Node.js implementation of tm_transport(currently only partial functionalities)",
+    "license": "MIT",
+    "main": "dist/index.js",
+    "types": "dist/index.d.ts",
+    "files": [
+        "dist/"
+    ],
+    "scripts": {
+        "build": "tsc"
+    },
+    "engines": {
+        "node": ">=18"
+    },
+    "devDependencies": {
+        "@types/amqplib": "^0.10.8",
+        "@types/elliptic": "^6.4.18",
+        "@types/lodash": "^4.17.21",
+        "@types/node": "^25.0.2",
+        "typescript": "^5.4.0"
+    },
+    "dependencies": {
+        "@dev_cd606/tm_basic": "file:../../tm_basic/node_lib",
+        "@dev_cd606/tm_infra": "file:../../tm_infra/node_lib",
+        "amqplib": "^0.10.9",
+        "cbor": "^10.0.11",
+        "date-fns": "^4.1.0",
+        "dgram": "^1.0.1",
+        "elliptic": "^6.6.1",
+        "etcd3": "^1.1.2",
+        "fs": "^0.0.1-security",
+        "lodash": "^4.17.21",
+        "os": "^0.1.2",
+        "process": "^0.11.10",
+        "redis": "^5.10.0",
+        "stream": "^0.0.3",
+        "uuid": "^13.0.0",
+        "zeromq": "^6.5.0"
+    }
+}

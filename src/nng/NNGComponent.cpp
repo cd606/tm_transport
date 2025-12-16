@@ -47,7 +47,11 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 sock.set_opt_ms(NNG_OPT_RECVTIMEO, 1000);
 
                 std::ostringstream oss;
-                oss << "tcp://" << locator.host() << ":" << locator.port();
+                if (locator.host() == "ipc") {
+                    oss << locator.host() << "://" << locator.identifier();
+                } else {
+                    oss << "tcp://" << locator.host() << ":" << locator.port();
+                }
                 std::string locatorStr = oss.str();
 
                 while (running_) {
@@ -206,11 +210,15 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             std::mutex mutex_;
             ::nng::socket sock_;
         public:
-            OneNNGSender(int port)
+            OneNNGSender(ConnectionLocator const &locator)
                 : mutex_(), sock_(::nng::pub::open())
             {
                 std::ostringstream oss;
-                oss << "tcp://*:" << port;
+                if (locator.host() == "ipc") {
+                    oss << locator.host() << "://" << locator.identifier();
+                } else {
+                    oss << "tcp://*:" << locator.port();
+                }
                 sock_.listen(oss.str().c_str());
             }
             ~OneNNGSender() {
@@ -232,7 +240,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             }
         };
 
-        std::unordered_map<int, std::unique_ptr<OneNNGSender>> senders_;
+        std::unordered_map<ConnectionLocator, std::unique_ptr<OneNNGSender>> senders_;
 
         std::mutex mutex_;
 
@@ -241,11 +249,11 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         std::mutex idMutex_;
 
         OneNNGSubscription *getOrStartSubscription(ConnectionLocator const &d) {
-            ConnectionLocator hostAndPort {d.host(), d.port()};
+            ConnectionLocator hostAndPortAndIdentifier {d.host(), d.port(), "", "", d.identifier()};
             std::lock_guard<std::mutex> _(mutex_);
-            auto iter = subscriptions_.find(hostAndPort);
+            auto iter = subscriptions_.find(hostAndPortAndIdentifier);
             if (iter == subscriptions_.end()) {
-                iter = subscriptions_.insert({hostAndPort, std::make_unique<OneNNGSubscription>(hostAndPort)}).first;
+                iter = subscriptions_.insert({hostAndPortAndIdentifier, std::make_unique<OneNNGSubscription>(hostAndPortAndIdentifier)}).first;
             }
             return iter->second.get();
         }
@@ -256,10 +264,11 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             }
         }
         OneNNGSender *getOrStartSender(ConnectionLocator const &d) {
+            ConnectionLocator hostAndPortAndIdentifier {d.host(), d.port(), "", "", d.identifier()};    
             std::lock_guard<std::mutex> _(mutex_);
-            auto iter = senders_.find(d.port());
+            auto iter = senders_.find(hostAndPortAndIdentifier);
             if (iter == senders_.end()) {
-                iter = senders_.insert({d.port(), std::make_unique<OneNNGSender>(d.port())}).first;
+                iter = senders_.insert({hostAndPortAndIdentifier, std::make_unique<OneNNGSender>(hostAndPortAndIdentifier)}).first;
             }
             return iter->second.get();
         }

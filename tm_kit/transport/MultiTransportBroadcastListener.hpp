@@ -140,6 +140,12 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                return (h == "ipc" || h == "inproc" || h == "127.0.0.1" || h == "localhost");
            }
            break;
+        case MultiTransportBroadcastListenerConnectionType::NNG:
+           {
+               auto const &h = std::get<1>(c).host();
+               return (h == "ipc" || h == "127.0.0.1" || h == "localhost");
+           }
+           break;
         default:
            {
                auto const &h = std::get<1>(c).host();
