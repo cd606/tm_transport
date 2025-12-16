@@ -1246,11 +1246,11 @@ export namespace RemoteComponents {
         , heartbeatHook?: ((data: Buffer) => Buffer)
         , facilityParams?: Types.ClientFacilityStreamParameters
     ): Promise<OutputT> {
-        let h = await fetchTypedFirstUpdateAndDisconnect<Heartbeat>(
-            (d: Buffer) => cbor.decode(d) as Heartbeat
+        let h = await fetchTypedFirstUpdateAndDisconnect<Types.Heartbeat>(
+            (d: Buffer) => cbor.decode(d) as Types.Heartbeat
             , heartbeatAddress
             , heartbeatTopic
-            , (data: Heartbeat) => heartbeatSenderRE.test(data.sender_description)
+            , (data: Types.Heartbeat) => heartbeatSenderRE.test(data.sender_description)
             , heartbeatHook
         );
         let o = await call<InputT, OutputT>(
@@ -1313,29 +1313,11 @@ export namespace RemoteComponents {
         );
     }
 
-    export interface Heartbeat {
-        uuid_str: string;
-        timestamp: number;
-        host: string;
-        pid: number;
-        sender_description: string;
-        broadcast_channels: Record<string, string[]>;
-        facility_channels: Record<string, string>;
-        details: Record<string, { status: string, info: string }>;
-    }
-    export interface Alert {
-        alertTime: number;
-        host: string;
-        pid: number;
-        sender: string;
-        level: string;
-        message: string;
-    }
     export class HeartbeatPublisher {
         private _address: string;
         private _topic: string;
         private _frequencyMs: number;
-        private _value: Heartbeat;
+        private _value: Types.Heartbeat;
         constructor(address: string, topic: string, description: string, frequencyMs: number) {
             this._address = address;
             this._topic = topic;
@@ -1411,13 +1393,13 @@ export namespace RemoteComponents {
         , facilityParam?: Types.ClientFacilityStreamParameters
         , heartbeatHook?: ((data: Buffer) => Buffer)
     ): Promise<TMInfra.RealTimeApp_OnOrderFacility<Env, InputT, OutputT> | null> {
-        let importer = createTypedImporter<Env, Heartbeat>(
-            (b: Buffer) => cbor.decode(b) as Heartbeat
+        let importer = createTypedImporter<Env, Types.Heartbeat>(
+            (b: Buffer) => cbor.decode(b) as Types.Heartbeat
             , heartbeatSpec
             , heartbeatTopic
             , heartbeatHook
         );
-        let cond = (h: TMInfra.TimedDataWithEnvironment<Env, TMBasic.TypedDataWithTopic<Heartbeat>>) => {
+        let cond = (h: TMInfra.TimedDataWithEnvironment<Env, TMBasic.TypedDataWithTopic<Types.Heartbeat>>) => {
             let h1 = h.timedData.value.content;
             if (!facilityServerHeartbeatIdentityRE.test(h1.sender_description)) {
                 return false;
