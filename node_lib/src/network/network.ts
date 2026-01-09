@@ -1,6 +1,7 @@
 import * as dgram from 'dgram';
 import * as amqp from 'amqplib';
 import * as redis from 'redis';
+import * as nats from 'nats';
 import * as zmq from 'zeromq';
 import * as cbor from 'cbor';
 import * as Stream from 'stream';
@@ -97,6 +98,8 @@ export class TMTransportUtils {
             return [Types.Transport.Redis, this.parseConnectionLocator(address.substr("redis://".length))];
         } else if (address.startsWith("zeromq://")) {
             return [Types.Transport.ZeroMQ, this.parseConnectionLocator(address.substr("zeromq://".length))];
+        } else if (address.startsWith("nats://")) {
+            return [Types.Transport.NATS, this.parseConnectionLocator(address.substr("nats://".length))];
         } else {
             return null;
         }
@@ -120,11 +123,13 @@ export class TMTransportUtils {
                 return { matchType: Types.TopicMatchType.MatchExact, exactString: topic, regex: null };
             case Types.Transport.ZeroMQ:
                 return this.parseComplexTopic(topic);
+            case Types.Transport.NATS:
+                return { matchType: Types.TopicMatchType.MatchExact, exactString: topic, regex: null };
             default:
                 return null;
         }
     }
-    static async createAMQPConnection(locator: Types.ConnectionLocator): Promise<amqp.ChannelModel | null> {
+    static async createAMQPConnection<Env>(env: Env, locator: Types.ConnectionLocator): Promise<amqp.ChannelModel | null> {
         if ("ssl" in locator.properties && locator.properties.ssl === "true") {
             if (!("ca_cert" in locator.properties)) {
                 return null;
@@ -139,9 +144,21 @@ export class TMTransportUtils {
                 ca: [fs.readFileSync(locator.properties.ca_cert)]
             };
 
-            if ("client_key" in locator.properties && "client_cert" in locator.properties) {
-                opt["cert"] = fs.readFileSync(locator.properties.client_cert);
-                opt["key"] = fs.readFileSync(locator.properties.client_key);
+            let tlsConfig: Types.OneTLSClientConfiguration | null = null;
+            if ('client_cert' in locator.properties && 'client_key' in locator.properties) {
+                tlsConfig = {
+                    ca_cert: '',
+                    client_cert: locator.properties.client_cert,
+                    client_key: locator.properties.client_key
+                };
+            } else {
+                if ('getTLSClientConfigurationItem' in (env as any)) {
+                    tlsConfig = (env as any).getTLSClientConfigurationItem(locator.host, locator.port);
+                }
+            }
+            if (tlsConfig != null) {
+                opt["cert"] = fs.readFileSync(tlsConfig.client_cert);
+                opt["key"] = fs.readFileSync(tlsConfig.client_key);
             }
             return amqp.connect(url, opt);
         } else {
@@ -151,6 +168,73 @@ export class TMTransportUtils {
             }
             return amqp.connect(url);
         }
+    }
+    static createRedisClient<Env>(env: Env, locator: Types.ConnectionLocator) {
+        let connectionParams: redis.RedisClientOptions = {
+            url: `redis://${locator.host}:${((locator.port > 0) ? locator.port : 6379)}`
+        };
+        if (locator.username != '') {
+            connectionParams.username = locator.username;
+        }
+        if (locator.password != '') {
+            connectionParams.password = locator.password;
+        }
+        let tlsConfig: Types.OneTLSClientConfiguration | null = null;
+        if ('ca_cert' in locator.properties && 'client_cert' in locator.properties && 'client_key' in locator.properties) {
+            tlsConfig = {
+                ca_cert: locator.properties.ca_cert,
+                client_cert: locator.properties.client_cert,
+                client_key: locator.properties.client_key
+            };
+        } else {
+            if ('getTLSClientConfigurationItem' in (env as any)) {
+                tlsConfig = (env as any).getTLSClientConfigurationItem(locator.host, locator.port);
+            }
+        }
+        if (tlsConfig != null) {
+            connectionParams.socket = {
+                tls: true,
+                ca: tlsConfig.ca_cert,
+                cert: tlsConfig.client_cert,
+                key: tlsConfig.client_key,
+                servername: locator.host
+            };
+        }
+        return redis.createClient(connectionParams);
+    }
+    static async createNATSClient<Env>(env: Env, locator: Types.ConnectionLocator) {
+        let connectionParams: nats.ConnectionOptions = {
+            servers: `nats://${locator.host}:${((locator.port > 0) ? locator.port : 4222)}`
+        };
+        if (locator.username != '') {
+            connectionParams.user = locator.username;
+        }
+        if (locator.password != '') {
+            connectionParams.pass = locator.password;
+        }
+        let tlsConfig: Types.OneTLSClientConfiguration | null = null;
+        if ('ca_cert' in locator.properties && 'client_cert' in locator.properties && 'client_key' in locator.properties) {
+            tlsConfig = {
+                ca_cert: locator.properties.ca_cert,
+                client_cert: locator.properties.client_cert,
+                client_key: locator.properties.client_key
+            };
+        } else {
+            if ('getTLSClientConfigurationItem' in (env as any)) {
+                tlsConfig = (env as any).getTLSClientConfigurationItem(locator.host, locator.port);
+            }
+        }
+        if (tlsConfig != null) {
+            connectionParams.tls = {
+                caFile: tlsConfig.ca_cert,
+                certFile: tlsConfig.client_cert,
+                keyFile: tlsConfig.client_key,
+                servername: locator.host
+            } as any;
+        }
+        console.log(connectionParams);
+        const nc = await nats.connect(connectionParams);
+        return nc;
     }
     static bufferTransformer(f: ((data: Buffer) => Buffer) | null): Stream.Transform {
         let t = new Stream.Transform({
@@ -165,8 +249,22 @@ export class TMTransportUtils {
     }
 }
 
+export class TLSClientConfigurationEnv extends TMBasic.ClockEnv implements Types.ITLSClientConfigurationComponent {
+    configs: Map<[string, number], Types.OneTLSClientConfiguration>;
+    constructor() {
+        super();
+        this.configs = new Map();
+    }
+    public setTLSClientConfigurationItem(host: string, port: number, config: Types.OneTLSClientConfiguration) {
+        this.configs.set([host, port], config);
+    }
+    public getTLSClientConfigurationItem(host: string, port: number): Types.OneTLSClientConfiguration | null {
+        return this.configs.get([host, port]) || null;
+    }
+}
+
 export class MultiTransportListener {
-    private static multicastInputToStream(locator: Types.ConnectionLocator, topic: Types.TopicSpec, stream: Stream.Readable) {
+    private static multicastInputToStream<Env>(env: Env, locator: Types.ConnectionLocator, topic: Types.TopicSpec, stream: Stream.Readable) {
         let filter = function (s: string) { return true; }
         switch (topic.matchType) {
             case Types.TopicMatchType.MatchAll:
@@ -224,9 +322,9 @@ export class MultiTransportListener {
         });
     }
 
-    private static rabbitmqInputToStream(locator: Types.ConnectionLocator, topic: Types.TopicSpec, stream: Stream.Readable) {
+    private static rabbitmqInputToStream<Env>(env: Env, locator: Types.ConnectionLocator, topic: Types.TopicSpec, stream: Stream.Readable) {
         (async () => {
-            let connection = await TMTransportUtils.createAMQPConnection(locator);
+            let connection = await TMTransportUtils.createAMQPConnection(env, locator);
             let channel = await connection!.createChannel();
             channel.assertExchange(
                 locator.identifier
@@ -258,11 +356,12 @@ export class MultiTransportListener {
         })();
     }
 
-    private static redisInputToStream(locator: Types.ConnectionLocator, topic: Types.TopicSpec, stream: Stream.Readable) {
+    private static redisInputToStream<Env>(env: Env, locator: Types.ConnectionLocator, topic: Types.TopicSpec, stream: Stream.Readable) {
         (async () => {
-            let subscriber = redis.createClient({
-                url: `redis://${locator.host}:${((locator.port > 0) ? locator.port : 6379)}`
-            });
+            let subscriber = TMTransportUtils.createRedisClient(env, locator);
+            if (subscriber == null) {
+                return;
+            }
             await subscriber.connect();
             await subscriber.pSubscribe(topic.exactString, function (message, channel) {
                 stream.push([channel, message]);
@@ -273,7 +372,21 @@ export class MultiTransportListener {
         })();
     }
 
-    private static zeromqInputToStream(locator: Types.ConnectionLocator, topic: Types.TopicSpec, stream: Stream.Readable) {
+    private static natsInputToStream<Env>(env: Env, locator: Types.ConnectionLocator, topic: Types.TopicSpec, stream: Stream.Readable) {
+        (async () => {
+            const nc = await TMTransportUtils.createNATSClient(env, locator);
+            const subscriber = await nc.subscribe(topic.exactString);
+            for await (const msg of subscriber) {
+                stream.push([msg.subject, msg.data]);
+            }
+            stream.on('close', function () {
+                subscriber.unsubscribe();
+                nc.close();
+            });
+        })();
+    }
+
+    private static zeromqInputToStream<Env>(env: Env, locator: Types.ConnectionLocator, topic: Types.TopicSpec, stream: Stream.Readable) {
         let filter = function (s: string) { return true; }
         switch (topic.matchType) {
             case Types.TopicMatchType.MatchAll:
@@ -331,7 +444,7 @@ export class MultiTransportListener {
         }
     }
 
-    static inputStream(address: string, topic?: string, wireToUserHook?: ((data: Buffer) => Buffer) | null): Stream.Readable | null {
+    static inputStream<Env>(env: Env, address: string, topic?: string, wireToUserHook?: ((data: Buffer) => Buffer) | null): Stream.Readable | null {
         let parsedAddr = TMTransportUtils.parseAddress(address);
         if (parsedAddr == null) {
             return null;
@@ -351,16 +464,19 @@ export class MultiTransportListener {
         });
         switch (parsedAddr[0]) {
             case Types.Transport.Multicast:
-                this.multicastInputToStream(parsedAddr[1], parsedTopic, s);
+                this.multicastInputToStream<Env>(env, parsedAddr[1], parsedTopic, s);
                 break;
             case Types.Transport.RabbitMQ:
-                this.rabbitmqInputToStream(parsedAddr[1], parsedTopic, s);
+                this.rabbitmqInputToStream<Env>(env, parsedAddr[1], parsedTopic, s);
                 break;
             case Types.Transport.Redis:
-                this.redisInputToStream(parsedAddr[1], parsedTopic, s);
+                this.redisInputToStream<Env>(env, parsedAddr[1], parsedTopic, s);
                 break;
             case Types.Transport.ZeroMQ:
-                this.zeromqInputToStream(parsedAddr[1], parsedTopic, s);
+                this.zeromqInputToStream<Env>(env, parsedAddr[1], parsedTopic, s);
+                break;
+            case Types.Transport.NATS:
+                this.natsInputToStream<Env>(env, parsedAddr[1], parsedTopic, s);
                 break;
             default:
                 return null;
@@ -376,7 +492,7 @@ export class MultiTransportListener {
 }
 
 export class MultiTransportPublisher {
-    private static multicastWrite(locator: Types.ConnectionLocator): (chunk: [string, Buffer], encoding: BufferEncoding) => void {
+    private static multicastWrite<Env>(env: Env, locator: Types.ConnectionLocator): (chunk: [string, Buffer], encoding: BufferEncoding) => void {
         let sock = dgram.createSocket({ type: 'udp4', reuseAddr: true });
         sock.bind(locator.port, function () {
             sock.setBroadcast(true);
@@ -400,8 +516,8 @@ export class MultiTransportPublisher {
             }
         }
     }
-    private static async rabbitmqWrite(locator: Types.ConnectionLocator): Promise<(chunk: [string, Buffer], encoding: BufferEncoding) => void> {
-        let connection = await TMTransportUtils.createAMQPConnection(locator);
+    private static async rabbitmqWrite<Env>(env: Env, locator: Types.ConnectionLocator): Promise<(chunk: [string, Buffer], encoding: BufferEncoding) => void> {
+        let connection = await TMTransportUtils.createAMQPConnection(env, locator);
         let channel = await connection!.createChannel();
         let exchange = locator.identifier;
         return function (chunk: [string, Buffer], encoding: BufferEncoding) {
@@ -417,10 +533,11 @@ export class MultiTransportPublisher {
             );
         }
     }
-    private static async redisWrite(locator: Types.ConnectionLocator): Promise<(chunk: [string, Buffer], encoding: BufferEncoding) => void> {
-        let publisher = redis.createClient({
-            url: `redis://${locator.host}:${((locator.port > 0) ? locator.port : 6379)}`
-        });
+    private static async redisWrite<Env>(env: Env, locator: Types.ConnectionLocator): Promise<(chunk: [string, Buffer], encoding: BufferEncoding) => void> {
+        let publisher = TMTransportUtils.createRedisClient(env, locator);
+        if (publisher == null) {
+            return function (chunk: [string, Buffer], _encoding: BufferEncoding) { };
+        }
         await publisher.connect();
         return function (chunk: [string, Buffer], _encoding: BufferEncoding) {
             (async () => {
@@ -428,7 +545,18 @@ export class MultiTransportPublisher {
             })().then((_res) => { });
         }
     }
-    private static zeromqWrite(locator: Types.ConnectionLocator): (chunk: [string, Buffer], encoding: BufferEncoding) => void {
+    private static async natsWrite<Env>(env: Env, locator: Types.ConnectionLocator): Promise<(chunk: [string, Buffer], encoding: BufferEncoding) => void> {
+        let publisher = await TMTransportUtils.createNATSClient(env, locator);
+        if (publisher == null) {
+            return function (chunk: [string, Buffer], _encoding: BufferEncoding) { };
+        }
+        return function (chunk: [string, Buffer], _encoding: BufferEncoding) {
+            (async () => {
+                await publisher.publish(chunk[0], chunk[1]);
+            })().then((_res) => { });
+        }
+    }
+    private static zeromqWrite<Env>(env: Env, locator: Types.ConnectionLocator): (chunk: [string, Buffer], encoding: BufferEncoding) => void {
         let sock = new zmq.Publisher();
         if (locator.host == 'inproc' || locator.host == 'ipc') {
             sock.bindSync(`${locator.host}://${locator.identifier}`);
@@ -439,7 +567,7 @@ export class MultiTransportPublisher {
             sock.send(cbor.encode(chunk));
         };
     }
-    static async outputStream(address: string, userToWireHook?: ((data: Buffer) => Buffer) | null): Promise<Stream.Writable | null> {
+    static async outputStream<Env>(env: Env, address: string, userToWireHook?: ((data: Buffer) => Buffer) | null): Promise<Stream.Writable | null> {
         let parsedAddr = TMTransportUtils.parseAddress(address);
         if (parsedAddr == null) {
             return null;
@@ -448,16 +576,19 @@ export class MultiTransportPublisher {
         }
         switch (parsedAddr[0]) {
             case Types.Transport.Multicast:
-                writeFunc = this.multicastWrite(parsedAddr[1]);
+                writeFunc = this.multicastWrite<Env>(env, parsedAddr[1]);
                 break;
             case Types.Transport.RabbitMQ:
-                writeFunc = await this.rabbitmqWrite(parsedAddr[1]);
+                writeFunc = await this.rabbitmqWrite<Env>(env, parsedAddr[1]);
                 break;
             case Types.Transport.Redis:
-                writeFunc = await this.redisWrite(parsedAddr[1]);
+                writeFunc = await this.redisWrite<Env>(env, parsedAddr[1]);
                 break;
             case Types.Transport.ZeroMQ:
-                writeFunc = this.zeromqWrite(parsedAddr[1]);
+                writeFunc = this.zeromqWrite<Env>(env, parsedAddr[1]);
+                break;
+            case Types.Transport.NATS:
+                writeFunc = await this.natsWrite<Env>(env, parsedAddr[1]);
                 break;
             default:
                 return null;
@@ -480,8 +611,8 @@ export class MultiTransportPublisher {
 }
 
 export class MultiTransportFacilityClient {
-    private static async rabbitmqFacilityStream(locator: Types.ConnectionLocator): Promise<Stream.Duplex> {
-        let connection = await TMTransportUtils.createAMQPConnection(locator);
+    private static async rabbitmqFacilityStream<Env>(env: Env, locator: Types.ConnectionLocator): Promise<Stream.Duplex> {
+        let connection = await TMTransportUtils.createAMQPConnection(env, locator);
         let channel = await connection?.createChannel();
         let replyQueue = await channel?.assertQueue('', { exclusive: true, autoDelete: true });
 
@@ -537,14 +668,10 @@ export class MultiTransportFacilityClient {
 
         return stream;
     }
-    private static async redisFacilityStream(locator: Types.ConnectionLocator): Promise<Stream.Duplex> {
-        let publisher = redis.createClient({
-            url: `redis://${locator.host}:${((locator.port > 0) ? locator.port : 6379)}`
-        });
+    private static async redisFacilityStream<Env>(env: Env, locator: Types.ConnectionLocator): Promise<Stream.Duplex> {
+        let publisher = TMTransportUtils.createRedisClient(env, locator);
         await publisher.connect();
-        let subscriber = redis.createClient({
-            url: `redis://${locator.host}:${((locator.port > 0) ? locator.port : 6379)}`
-        });
+        let subscriber = TMTransportUtils.createRedisClient(env, locator);
         await subscriber.connect();
 
         let streamID = uuidv4();
@@ -606,7 +733,7 @@ export class MultiTransportFacilityClient {
         return stream;
     }
 
-    static async facilityStream(param: Types.ClientFacilityStreamParameters): Promise<[Stream.Writable, Stream.Readable] | null> {
+    static async facilityStream<Env>(env: Env, param: Types.ClientFacilityStreamParameters): Promise<[Stream.Writable, Stream.Readable] | null> {
         let parsedAddr = TMTransportUtils.parseAddress(param.address);
         if (parsedAddr == null) {
             return null;
@@ -614,10 +741,10 @@ export class MultiTransportFacilityClient {
         let s: Stream.Duplex | null = null;
         switch (parsedAddr[0]) {
             case Types.Transport.RabbitMQ:
-                s = await this.rabbitmqFacilityStream(parsedAddr[1]);
+                s = await this.rabbitmqFacilityStream<Env>(env, parsedAddr[1]);
                 break;
             case Types.Transport.Redis:
-                s = await this.redisFacilityStream(parsedAddr[1]);
+                s = await this.redisFacilityStream<Env>(env, parsedAddr[1]);
                 break;
             default:
                 return null;
@@ -667,8 +794,8 @@ export class MultiTransportFacilityClient {
 }
 
 export class MultiTransportFacilityServer {
-    private static async rabbitmqFacilityStream(locator: Types.ConnectionLocator): Promise<Stream.Duplex> {
-        let connection = await TMTransportUtils.createAMQPConnection(locator);
+    private static async rabbitmqFacilityStream<Env>(env: Env, locator: Types.ConnectionLocator): Promise<Stream.Duplex> {
+        let connection = await TMTransportUtils.createAMQPConnection(env, locator);
         let channel = await connection?.createChannel();
         let serviceQueue = await channel?.assertQueue(
             locator.identifier
@@ -729,14 +856,10 @@ export class MultiTransportFacilityServer {
 
         return ret;
     }
-    private static async redisFacilityStream(locator: Types.ConnectionLocator): Promise<Stream.Duplex> {
-        let publisher = redis.createClient({
-            url: `redis://${locator.host}:${((locator.port > 0) ? locator.port : 6379)}`
-        });
+    private static async redisFacilityStream<Env>(env: Env, locator: Types.ConnectionLocator): Promise<Stream.Duplex> {
+        let publisher = TMTransportUtils.createRedisClient(env, locator);
         await publisher.connect();
-        let subscriber = redis.createClient({
-            url: `redis://${locator.host}:${((locator.port > 0) ? locator.port : 6379)}`
-        });
+        let subscriber = TMTransportUtils.createRedisClient(env, locator);
         await subscriber.connect();
 
         let replyMap = new Map<string, string>();
@@ -788,7 +911,7 @@ export class MultiTransportFacilityServer {
         return ret;
     }
 
-    static async facilityStream(param: Types.ServerFacilityStreamParameters): Promise<[Stream.Writable, Stream.Readable] | null> {
+    static async facilityStream<Env>(env: Env, param: Types.ServerFacilityStreamParameters): Promise<[Stream.Writable, Stream.Readable] | null> {
         let parsedAddr = TMTransportUtils.parseAddress(param.address);
         if (parsedAddr == null) {
             return null;
@@ -796,10 +919,10 @@ export class MultiTransportFacilityServer {
         let s: Stream.Duplex | null = null;
         switch (parsedAddr[0]) {
             case Types.Transport.RabbitMQ:
-                s = await this.rabbitmqFacilityStream(parsedAddr[1]);
+                s = await this.rabbitmqFacilityStream<Env>(env, parsedAddr[1]);
                 break;
             case Types.Transport.Redis:
-                s = await this.redisFacilityStream(parsedAddr[1]);
+                s = await this.redisFacilityStream<Env>(env, parsedAddr[1]);
                 break;
             default:
                 return null;
@@ -873,7 +996,7 @@ export namespace RemoteComponents {
             }
             public start(e: Env) {
                 this.env = e;
-                let s = MultiTransportListener.inputStream(this.address, this.topic, this.wireToUserHook);
+                let s = MultiTransportListener.inputStream<Env>(e, this.address, this.topic, this.wireToUserHook);
                 if (s == null) {
                     e.log(TMInfra.LogLevel.Warning, `Cannot open input stream from ${this.address} for topic ${this.topic}`);
                 } else {
@@ -912,7 +1035,7 @@ export namespace RemoteComponents {
             }
             public start(e: Env) {
                 this.env = e;
-                let s = MultiTransportListener.inputStream(this.address, this.topic, this.wireToUserHook);
+                let s = MultiTransportListener.inputStream<Env>(e, this.address, this.topic, this.wireToUserHook);
                 if (s == null) {
                     e.log(TMInfra.LogLevel.Warning, `Cannot open input stream from ${this.address} for topic ${this.topic}`);
                 } else {
@@ -950,9 +1073,9 @@ export namespace RemoteComponents {
             this.wireToUserHook = wireToUserHook || null;
         }
         private doAddSubscription(address: string, topic?: string): void {
-            let s = MultiTransportListener.inputStream(address, topic, this.wireToUserHook);
+            let s = MultiTransportListener.inputStream<Env>(this.env!, address, topic, this.wireToUserHook);
             if (s == null) {
-                this.env?.log(TMInfra.LogLevel.Warning, `Cannot open input stream from ${address} for topic ${topic}`);
+                this.env!.log(TMInfra.LogLevel.Warning, `Cannot open input stream from ${address} for topic ${topic}`);
             } else {
                 s.pipe(this.conversionStream);
             }
@@ -986,7 +1109,7 @@ export namespace RemoteComponents {
             }
             public start(e: Env) {
                 (async () => {
-                    let outputStream = await MultiTransportPublisher.outputStream(this.address, this.userToWireHook);
+                    let outputStream = await MultiTransportPublisher.outputStream(e, this.address, this.userToWireHook);
                     if (outputStream == null) {
                         e.log(TMInfra.LogLevel.Warning, `Cannot open output stream to ${this.address}`);
                     } else {
@@ -1018,7 +1141,7 @@ export namespace RemoteComponents {
             }
             public start(e: Env) {
                 (async () => {
-                    let outputStream = await MultiTransportPublisher.outputStream(this.address, this.userToWireHook);
+                    let outputStream = await MultiTransportPublisher.outputStream(e, this.address, this.userToWireHook);
                     if (outputStream == null) {
                         e.log(TMInfra.LogLevel.Warning, `Cannot open output stream to ${this.address}`);
                     } else {
@@ -1078,7 +1201,7 @@ export namespace RemoteComponents {
             public start(e: Env) {
                 this.env = e;
                 (async () => {
-                    let s = await MultiTransportFacilityClient.facilityStream(this.param);
+                    let s = await MultiTransportFacilityClient.facilityStream(e, this.param);
                     if (s == null) {
                         e.log(TMInfra.LogLevel.Warning, `Cannot open remote facility to ${this.param.address}`);
                     } else {
@@ -1140,7 +1263,7 @@ export namespace RemoteComponents {
             this.env = e;
             if (this.currentParam?.address !== undefined && this.currentParam?.address !== null && this.currentParam?.address != "") {
                 (async () => {
-                    let s = await MultiTransportFacilityClient.facilityStream(this.currentParam!);
+                    let s = await MultiTransportFacilityClient.facilityStream(e, this.currentParam!);
                     if (s == null) {
                         e.log(TMInfra.LogLevel.Warning, `Cannot open remote facility to ${this.currentParam?.address}`);
                     } else {
@@ -1155,7 +1278,7 @@ export namespace RemoteComponents {
             if (address !== undefined && address !== null && address != "" && address != this.currentParam!.address) {
                 this.currentParam!.address = address;
                 (async () => {
-                    let s = await MultiTransportFacilityClient.facilityStream(this.currentParam!);
+                    let s = await MultiTransportFacilityClient.facilityStream(this.env, this.currentParam!);
                     if (s == null) {
                         this.env!.log(TMInfra.LogLevel.Warning, `Cannot open remote facility to ${this.currentParam!.address}`);
                     } else {
@@ -1178,10 +1301,10 @@ export namespace RemoteComponents {
         }
     }
 
-    export async function fetchFirstUpdateAndDisconnect(
-        address: string, topic?: string, wireToUserHook?: ((data: Buffer) => Buffer)
+    export async function fetchFirstUpdateAndDisconnect<Env extends TMBasic.ClockEnv>(
+        env: Env, address: string, topic?: string, wireToUserHook?: ((data: Buffer) => Buffer)
     ): Promise<TMBasic.ByteDataWithTopic> {
-        let s = MultiTransportListener.inputStream(address, topic, wireToUserHook);
+        let s = MultiTransportListener.inputStream<Env>(env, address, topic, wireToUserHook);
         let t: TMBasic.ByteDataWithTopic | null;
         if (s != null) {
             for await (let chunk of s) {
@@ -1196,10 +1319,10 @@ export namespace RemoteComponents {
         return t!;
     }
 
-    export async function fetchTypedFirstUpdateAndDisconnect<T>(
-        decoder: Decoder<T>, address: string, topic?: string, predicate?: ((data: T) => boolean), wireToUserHook?: ((data: Buffer) => Buffer)
+    export async function fetchTypedFirstUpdateAndDisconnect<Env extends TMBasic.ClockEnv, T>(
+        env: Env, decoder: Decoder<T>, address: string, topic?: string, predicate?: ((data: T) => boolean), wireToUserHook?: ((data: Buffer) => Buffer)
     ): Promise<TMBasic.TypedDataWithTopic<T>> {
-        let s = MultiTransportListener.inputStream(address, topic, wireToUserHook);
+        let s = MultiTransportListener.inputStream<Env>(env, address, topic, wireToUserHook);
         let t: TMBasic.TypedDataWithTopic<T> | null = null;
         if (s != null) {
             for await (let chunk of s) {
@@ -1220,8 +1343,8 @@ export namespace RemoteComponents {
         return t!;
     }
 
-    export async function call<InputT, OutputT>(input: InputT, encoder: Encoder<InputT>, decoder: Decoder<OutputT>, param: Types.ClientFacilityStreamParameters, closeOnFirstCallback: boolean = false): Promise<OutputT> {
-        let s = await MultiTransportFacilityClient.facilityStream(param);
+    export async function call<Env extends TMBasic.ClockEnv, InputT, OutputT>(env: Env, input: InputT, encoder: Encoder<InputT>, decoder: Decoder<OutputT>, param: Types.ClientFacilityStreamParameters, closeOnFirstCallback: boolean = false): Promise<OutputT> {
+        let s = await MultiTransportFacilityClient.facilityStream(env, param);
         let o: OutputT | null = null;
         if (s != null) {
             s[0].write([uuidv4(), encoder(input)]);
@@ -1236,8 +1359,9 @@ export namespace RemoteComponents {
         return o!;
     }
 
-    export async function callByHeartbeat<InputT, OutputT>(
-        heartbeatAddress: string
+    export async function callByHeartbeat<Env extends TMBasic.ClockEnv, InputT, OutputT>(
+        env: Env
+        , heartbeatAddress: string
         , heartbeatTopic: string
         , heartbeatSenderRE: RegExp
         , facilityNameInServer: string
@@ -1246,15 +1370,17 @@ export namespace RemoteComponents {
         , heartbeatHook?: ((data: Buffer) => Buffer)
         , facilityParams?: Types.ClientFacilityStreamParameters
     ): Promise<OutputT> {
-        let h = await fetchTypedFirstUpdateAndDisconnect<Types.Heartbeat>(
-            (d: Buffer) => cbor.decode(d) as Types.Heartbeat
+        let h = await fetchTypedFirstUpdateAndDisconnect<Env, Types.Heartbeat>(
+            env
+            , (d: Buffer) => cbor.decode(d) as Types.Heartbeat
             , heartbeatAddress
             , heartbeatTopic
             , (data: Types.Heartbeat) => heartbeatSenderRE.test(data.sender_description)
             , heartbeatHook
         );
-        let o = await call<InputT, OutputT>(
-            request
+        let o = await call<Env, InputT, OutputT>(
+            env
+            , request
             , (t: InputT) => cbor.encode(t)
             , (d: Buffer) => cbor.decode(d) as OutputT
             , {
@@ -1275,7 +1401,7 @@ export namespace RemoteComponents {
         , decoder: Decoder<InputT>
         , param: Types.ServerFacilityStreamParameters
     ) {
-        var s = await MultiTransportFacilityServer.facilityStream(param);
+        var s = await MultiTransportFacilityServer.facilityStream(r.environment(), param);
         if (s === null) {
             throw new Error("Cannot open facility stream");
         }

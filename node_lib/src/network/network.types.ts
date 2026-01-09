@@ -3,6 +3,7 @@ export enum Transport {
     , RabbitMQ
     , Redis
     , ZeroMQ
+    , NATS
 }
 
 export enum TopicMatchType {
@@ -65,4 +66,15 @@ export interface Alert {
     sender: string;
     level: string;
     message: string;
+}
+
+export interface OneTLSClientConfiguration {
+    ca_cert: string;
+    client_cert: string;
+    client_key: string;
+}
+
+export interface ITLSClientConfigurationComponent {
+    setTLSClientConfigurationItem(host: string, port: number, config: OneTLSClientConfiguration): void;
+    getTLSClientConfigurationItem(host: string, port: number): OneTLSClientConfiguration | null;
 }
