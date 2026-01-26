@@ -333,6 +333,9 @@ namespace dev { namespace cd606 { namespace tm { namespace basic {
             return data->convert_to<std::string>();
         }
         static transport::bcl_compat::BclDecimal fromString(std::string_view const &s) {
+            if (s == "") {
+                return transport::bcl_compat::BclDecimal();
+            }
             return transport::bcl_compat::BclDecimal(std::string(s));
         }
     };
