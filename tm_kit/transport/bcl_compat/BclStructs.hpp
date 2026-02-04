@@ -287,7 +287,7 @@ namespace std {
     }
 }
 
-namespace dev { namespace cd606 { namespace tm { namespace basic { 
+namespace dev { namespace cd606 { namespace tm { namespace basic {
     namespace proto_interop {
         template <class Env>
         class IgnoreProxiesForProtoInterop<transport::bcl_compat::BclGuid<Env>> {
@@ -311,13 +311,13 @@ namespace dev { namespace cd606 { namespace tm { namespace basic {
     class PrintHelper<transport::bcl_compat::BclDecimal> {
     public:
         static void print(std::ostream &os, transport::bcl_compat::BclDecimal const &value) {
-            os << *value;
+            os << value->convert_to<std::string>();
         }
     };
     template <class Env>
     class ConvertibleWithString<transport::bcl_compat::BclGuid<Env>> {
     public:
-        static constexpr bool value = true; 
+        static constexpr bool value = true;
         static std::string toString(transport::bcl_compat::BclGuid<Env> const &id) {
             return Env::id_to_string(*id);
         }
@@ -328,7 +328,7 @@ namespace dev { namespace cd606 { namespace tm { namespace basic {
     template <>
     class ConvertibleWithString<transport::bcl_compat::BclDecimal> {
     public:
-        static constexpr bool value = true; 
+        static constexpr bool value = true;
         static std::string toString(transport::bcl_compat::BclDecimal const &data) {
             return data->convert_to<std::string>();
         }
@@ -373,13 +373,13 @@ namespace dev { namespace cd606 { namespace tm { namespace basic {
         template <>
         struct RunCBORSerializer<transport::bcl_compat::BclDecimal, void> {
             static std::string apply(transport::bcl_compat::BclDecimal const &value) {
-                return RunCBORSerializer<std::string>::apply(boost::lexical_cast<std::string>(*value));
+                return RunCBORSerializer<std::string>::apply(value->convert_to<std::string>());
             }
             static std::size_t apply(transport::bcl_compat::BclDecimal const &value, char *output) {
-                return RunCBORSerializer<std::string>::apply(boost::lexical_cast<std::string>(*value), output);
+                return RunCBORSerializer<std::string>::apply(value->convert_to<std::string>(), output);
             }
             static std::size_t calculateSize(transport::bcl_compat::BclDecimal const &value) {
-                return RunCBORSerializer<std::string>::calculateSize(boost::lexical_cast<std::string>(*value));
+                return RunCBORSerializer<std::string>::calculateSize(value->convert_to<std::string>());
             }
         };
         template <>
@@ -389,14 +389,14 @@ namespace dev { namespace cd606 { namespace tm { namespace basic {
                 if (!valueStr) {
                     return std::nullopt;
                 }
-                return std::tuple<transport::bcl_compat::BclDecimal,size_t> {transport::bcl_compat::BclDecimal {boost::lexical_cast<boost::multiprecision::cpp_dec_float_100>(std::get<0>(*valueStr))}, std::get<1>(*valueStr)};
+                return std::tuple<transport::bcl_compat::BclDecimal,size_t> {transport::bcl_compat::BclDecimal {std::get<0>(*valueStr)}, std::get<1>(*valueStr)};
             }
             static std::optional<size_t> applyInPlace(transport::bcl_compat::BclDecimal &output, std::string_view const &s, size_t start) {
                 auto valueStr = RunCBORDeserializer<std::string>::apply(s, start);
                 if (!valueStr) {
                     return std::nullopt;
                 }
-                output = boost::lexical_cast<boost::multiprecision::cpp_dec_float_100>(std::get<0>(*valueStr));
+                output = transport::bcl_compat::BclDecimal {std::get<0>(*valueStr)};
                 return std::get<1>(*valueStr);
             }
         };
@@ -476,6 +476,6 @@ namespace dev { namespace cd606 { namespace tm { namespace basic {
         };
     }
 
-} } } } 
+} } } }
 
 #endif
