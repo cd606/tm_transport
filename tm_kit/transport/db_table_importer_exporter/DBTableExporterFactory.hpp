@@ -28,9 +28,10 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         }
         template <class T>
         static std::string insertTemplate(std::shared_ptr<soci::session> const &session, std::string const &tableName) {
-            if (dynamic_cast<soci::mysql_session_backend*>(session->get_backend())) {
+            std::string backend = session->get_backend_name();
+            if (backend == "mysql") {
                 return insertTemplate_internal<T, struct_field_info_utils::db_table_importer_exporter::db_traits::MysqlTraits>(tableName);
-            } else if (dynamic_cast<soci::sqlite3_session_backend*>(session->get_backend())) {
+            } else if (backend == "sqlite3") {
                 return insertTemplate_internal<T, struct_field_info_utils::db_table_importer_exporter::db_traits::Sqlite3Traits>(tableName);
             } else {
                 return insertTemplate_internal<T, void>(tableName);
@@ -63,9 +64,10 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         }
         template <class ItemKey, class ItemData>
         static std::string insertTemplateWithDuplicateCheck(std::shared_ptr<soci::session> const &session, std::string const &tableName) {
-            if (dynamic_cast<soci::mysql_session_backend*>(session->get_backend())) {
+            std::string backend = session->get_backend_name();
+            if (backend == "mysql") {
                 return insertTemplateWithDuplicateCheck_internal<ItemKey, ItemData, struct_field_info_utils::db_table_importer_exporter::db_traits::MysqlTraits>(tableName);
-            } else if (dynamic_cast<soci::sqlite3_session_backend*>(session->get_backend())) {
+            } else if (backend == "sqlite3") {
                 return insertTemplateWithDuplicateCheck_internal<ItemKey, ItemData, struct_field_info_utils::db_table_importer_exporter::db_traits::Sqlite3Traits>(tableName);
             } else {
                 return insertTemplateWithDuplicateCheck_internal<ItemKey, ItemData, void>(tableName);
@@ -114,7 +116,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             sociBindFields_internal<T, basic::StructFieldInfo<T>::FIELD_NAMES.size(), 0>(stmt, data, deletors);
         }
         template <class T, int FieldCount, int FieldIndex>
-        static void sociBindFieldsBatch_internal(soci::statement &stmt, std::vector<T> const &data, std::vector<std::function<void()>> &deletors) {            
+        static void sociBindFieldsBatch_internal(soci::statement &stmt, std::vector<T> const &data, std::vector<std::function<void()>> &deletors) {
             if constexpr (FieldIndex>=0 && FieldIndex<FieldCount) {
                 if constexpr (std::is_same_v<typename basic::StructFieldTypeInfo<T,FieldIndex>::TheType, basic::DateHolder>) {
                     auto *v = new std::vector<std::tm>();
@@ -183,7 +185,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                     T &&data
                 ) {
                     static std::string insertStmt = insertTemplate<T>(session, tableName);
-                    
+
                     soci::statement stmt(*session);
                     stmt.alloc();
                     stmt.prepare(insertStmt);
@@ -206,7 +208,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                     std::tuple<ItemKey,ItemData> &&data
                 ) {
                     static std::string insertStmt = insertTemplateWithDuplicateCheck<ItemKey,ItemData>(session, tableName);
-                    
+
                     soci::statement stmt(*session);
                     stmt.alloc();
                     stmt.prepare(insertStmt);
@@ -233,7 +235,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                         return;
                     }
                     static std::string insertStmt = insertTemplate<T>(session, tableName);
-                    
+
                     std::vector<std::function<void()>> deletors;
                     soci::statement stmt(*session);
                     stmt.alloc();
@@ -244,7 +246,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                     for (auto const &d : deletors) {
                         d();
                     }
-                    
+
                 }
             );
         }
@@ -256,7 +258,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             if (batch.empty()) {
                 return;
             }
-            
+
             std::vector<std::function<void()>> deletors;
             soci::statement stmt(*session);
             stmt.alloc();
@@ -347,14 +349,15 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         >
         static void deleteByKey(std::shared_ptr<soci::session> const& session, std::string const& tableName, Key const &key)
         {
-            if (dynamic_cast<soci::mysql_session_backend*>(session->get_backend()))
+            std::string backend = session->get_backend_name();
+            if (backend == "mysql")
             {
                 return deleteByKey_internal<
                     Key
                     , transport::struct_field_info_utils::db_table_importer_exporter::StructFieldInfoBasedDataFiller<Key, struct_field_info_utils::db_table_importer_exporter::db_traits::MysqlTraits>
                 >(session, tableName, key);
             }
-            else if (dynamic_cast<soci::sqlite3_session_backend*>(session->get_backend()))
+            else if (backend == "sqlite3")
             {
                 return deleteByKey_internal<
                     Key

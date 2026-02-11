@@ -27,11 +27,12 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         }
         template <class T>
         static std::string selectStatement(std::shared_ptr<soci::session> const& session, std::string const &input) {
-            if (dynamic_cast<soci::mysql_session_backend*>(session->get_backend()))
+            std::string backend = session->get_backend_name();
+            if (backend == "mysql")
             {
                 return selectStatement_internal<T, transport::struct_field_info_utils::db_table_importer_exporter::StructFieldInfoBasedDataFiller<T, struct_field_info_utils::db_table_importer_exporter::db_traits::MysqlTraits>>(input);
             }
-            else if (dynamic_cast<soci::sqlite3_session_backend*>(session->get_backend()))
+            else if (backend == "sqlite3")
             {
                 return selectStatement_internal<T, transport::struct_field_info_utils::db_table_importer_exporter::StructFieldInfoBasedDataFiller<T, struct_field_info_utils::db_table_importer_exporter::db_traits::Sqlite3Traits>>(input);
             }
@@ -46,7 +47,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             -> std::vector<T>
         {
             std::vector<T> value;
-            soci::rowset<soci::row> queryRes = 
+            soci::rowset<soci::row> queryRes =
                 session->prepare << selectStatement_internal<T, DF>(importerInput);
             for (auto const &r : queryRes) {
                 value.push_back(DF::retrieveData(r,0));
@@ -58,11 +59,12 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         template <class T, typename = std::enable_if_t<basic::StructFieldInfo<T>::HasGeneratedStructFieldInfo>>
         static auto getTableData(std::shared_ptr<soci::session> const& session, std::string const& importerInput) -> std::vector<T>
         {
-            if (dynamic_cast<soci::mysql_session_backend*>(session->get_backend()))
+            std::string backend = session->get_backend_name();
+            if (backend == "mysql")
             {
                 return getTableData_internal<T, transport::struct_field_info_utils::db_table_importer_exporter::StructFieldInfoBasedDataFiller<T, struct_field_info_utils::db_table_importer_exporter::db_traits::MysqlTraits>>(session, importerInput);
             }
-            else if (dynamic_cast<soci::sqlite3_session_backend*>(session->get_backend()))
+            else if (backend == "sqlite3")
             {
                 return getTableData_internal<T, transport::struct_field_info_utils::db_table_importer_exporter::StructFieldInfoBasedDataFiller<T, struct_field_info_utils::db_table_importer_exporter::db_traits::Sqlite3Traits>>(session, importerInput);
             }
@@ -117,11 +119,12 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         }
         template <class... Ts>
         static std::string selectStatementForCombined(std::shared_ptr<soci::session> const &session, std::string const &input) {
-            if (dynamic_cast<soci::mysql_session_backend*>(session->get_backend()))
+            std::string backend = session->get_backend_name();
+            if (backend == "mysql")
             {
                 return selectStatementForCombined_internal<struct_field_info_utils::db_table_importer_exporter::db_traits::MysqlTraits, Ts...>(input);
             }
-            else if (dynamic_cast<soci::sqlite3_session_backend*>(session->get_backend()))
+            else if (backend == "sqlite3")
             {
                 return selectStatementForCombined_internal<struct_field_info_utils::db_table_importer_exporter::db_traits::Sqlite3Traits, Ts...>(input);
             }
@@ -151,7 +154,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         {
             static_assert(allHaveGeneratedStructFieldInfo<Ts...>(), "the types must all have generated struct field info");
             std::vector<std::tuple<Ts...>> value;
-            soci::rowset<soci::row> queryRes = 
+            soci::rowset<soci::row> queryRes =
                 session->prepare << selectStatementForCombined<Ts...>(session, importerInput);
             for (auto const &r : queryRes) {
                 std::tuple<Ts...> v;
@@ -171,13 +174,13 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 ) -> std::tuple<bool, typename M::template Data<std::vector<T>>> {
                     using DF = transport::struct_field_info_utils::db_table_importer_exporter::StructFieldInfoBasedDataFiller<T>;
                     std::vector<T> value;
-                    soci::rowset<soci::row> queryRes = 
+                    soci::rowset<soci::row> queryRes =
                         session->prepare << selectStatement<T>(session, importerInput);
                     for (auto const &r : queryRes) {
                         value.push_back(DF::retrieveData(r,0));
                     }
                     return {
-                        false 
+                        false
                         , typename M::template InnerData<std::vector<T>> {
                             env
                             , {
@@ -207,13 +210,13 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                     first = false;
                     try {
                         std::vector<T> value;
-                        soci::rowset<soci::row> queryRes = 
+                        soci::rowset<soci::row> queryRes =
                             session->prepare << selectStatement<T>(session, importerInput);
                         for (auto const &r : queryRes) {
                             value.push_back(DF::retrieveData(r,0));
                         }
                         return {
-                            true 
+                            true
                             , typename M::template InnerData<std::vector<T>> {
                                 env
                                 , {
@@ -242,14 +245,14 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                     using Key = std::decay_t<decltype(keyExtractor(std::declval<T>()))>;
                     static bool first = true;
                     static std::unordered_set<Key, basic::struct_field_info_utils::StructFieldInfoBasedHash<Key>> seen;
-                    
+
                     if (!first) {
                         std::this_thread::sleep_for(interval);
                     }
                     first = false;
                     try {
                         std::vector<T> value;
-                        soci::rowset<soci::row> queryRes = 
+                        soci::rowset<soci::row> queryRes =
                             session->prepare << selectStatement<T>(session, importerInput);
                         for (auto const &r : queryRes) {
                             auto d = DF::retrieveData(r, 0);
@@ -260,7 +263,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                             }
                         }
                         return {
-                            true 
+                            true
                             , typename M::template InnerData<std::vector<T>> {
                                 env
                                 , {
@@ -368,7 +371,8 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         >
         static auto queryTableData(std::shared_ptr<soci::session> const& session, std::string const& tableName, Key const &key) -> std::vector<Data>
         {
-            if (dynamic_cast<soci::mysql_session_backend*>(session->get_backend()))
+            std::string backend = session->get_backend_name();
+            if (backend == "mysql")
             {
                 return queryTableData_internal<
                     Key
@@ -377,7 +381,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                     , transport::struct_field_info_utils::db_table_importer_exporter::StructFieldInfoBasedDataFiller<Data, struct_field_info_utils::db_table_importer_exporter::db_traits::MysqlTraits>
                 >(session, tableName, key);
             }
-            else if (dynamic_cast<soci::sqlite3_session_backend*>(session->get_backend()))
+            else if (backend == "sqlite3")
             {
                 return queryTableData_internal<
                     Key
