@@ -1,4 +1,5 @@
 ﻿using System;
+using System.IO;
 using System.Collections.Generic;
 using Here;
 using StackExchange.Redis;
@@ -6,6 +7,7 @@ using PeterO.Cbor;
 using Dev.CD606.TM.Infra;
 using Dev.CD606.TM.Infra.RealTimeApp;
 using Dev.CD606.TM.Basic;
+using System.Security.Cryptography.X509Certificates;
 
 namespace Dev.CD606.TM.Transport
 {
@@ -18,9 +20,27 @@ namespace Dev.CD606.TM.Transport
         }
         private static Dictionary<ConnectionLocator, MultiplexerInfo> multiplexers = new Dictionary<ConnectionLocator, MultiplexerInfo>();
         private static object multiplexerLock = new object();
-        private static ConnectionMultiplexer getMultiplexer(ConnectionLocator l)
+        private static OneTLSClientConfiguration findTLSConfiguration(Env env, ConnectionLocator locator)
+        {
+            if (locator.HasProperty("ca_cert") && locator.HasProperty("client_cert") && locator.HasProperty("client_key"))
+            {
+                return new OneTLSClientConfiguration()
+                {
+                    caCert = locator.GetProperty("ca_cert")
+                    , clientCert = locator.GetProperty("client_cert")
+                    , clientKey = locator.GetProperty("client_key")
+                };
+            }
+            if (env is TLSClientConfigurationEnv)
+            {
+                return (env as TLSClientConfigurationEnv).getTLSClientConfigurationItem(locator.Host, locator.Port);
+            }
+            return null;
+        }
+        private static ConnectionMultiplexer getMultiplexer(Env env, ConnectionLocator l)
         {
             var simplifiedLocator = new ConnectionLocator(host: l.Host, port : l.Port);
+            var tlsConfiguration = findTLSConfiguration(env, l);
             lock (multiplexerLock)
             {
                 if (multiplexers.TryGetValue(simplifiedLocator, out MultiplexerInfo m))
@@ -28,10 +48,41 @@ namespace Dev.CD606.TM.Transport
                     ++m.count;
                     return m.multiplexer;
                 }
-                m = new MultiplexerInfo() {
-                    multiplexer = ConnectionMultiplexer.Connect($"{l.Host}:{((l.Port==0)?6379:l.Port)}")
-                    , count = 1
-                };
+                if (tlsConfiguration != null)
+                {
+                    var clientCert = X509Certificate2.CreateFromPem(File.ReadAllText(tlsConfiguration.clientCert), File.ReadAllText(tlsConfiguration.clientKey));
+                    var caCert = X509Certificate2.CreateFromPem(File.ReadAllText(tlsConfiguration.caCert));
+                    var options = new ConfigurationOptions()
+                    {
+                        EndPoints = { $"{l.Host}:{((l.Port==0)?6379:l.Port)}" }
+                        , Ssl = true
+                    };
+                    if (l.Password != "")
+                    {
+                        options.Password = l.Password;
+                    }
+                    options.CertificateSelection += (_, _, _, _, _) => clientCert;
+                    options.CertificateValidation += (_, cert, chain, errors) =>
+                    {
+                        chain.ChainPolicy.ExtraStore.Add(caCert);
+                        chain.ChainPolicy.VerificationFlags =
+                            X509VerificationFlags.AllowUnknownCertificateAuthority;
+
+                        return chain.Build((X509Certificate2)cert);
+                    };
+
+                    m = new MultiplexerInfo() {
+                        multiplexer = ConnectionMultiplexer.Connect(options)
+                        , count = 1
+                    };
+                }
+                else
+                {
+                    m = new MultiplexerInfo() {
+                        multiplexer = ConnectionMultiplexer.Connect($"{l.Host}:{((l.Port==0)?6379:l.Port)}")
+                        , count = 1
+                    };
+                }
                 multiplexers.Add(simplifiedLocator, m);
                 return m.multiplexer;
             }
@@ -67,7 +118,7 @@ namespace Dev.CD606.TM.Transport
             }
             public override void start(Env env)
             {
-                multiplexer = getMultiplexer(locator);
+                multiplexer = getMultiplexer(env, locator);
                 multiplexer.GetSubscriber().Subscribe(
                     new RedisChannel(topicSpec.ExactString, RedisChannel.PatternMode.Pattern)
                     , (channel, message) => {
@@ -124,7 +175,7 @@ namespace Dev.CD606.TM.Transport
             }
             public override void start(Env env)
             {
-                multiplexer = getMultiplexer(locator);
+                multiplexer = getMultiplexer(env, locator);
                 multiplexer.GetSubscriber().Subscribe(
                     new RedisChannel(topicSpec.ExactString, RedisChannel.PatternMode.Pattern)
                     , (channel, message) => {
@@ -181,7 +232,7 @@ namespace Dev.CD606.TM.Transport
             }
             public void start(Env env)
             {
-                subscriber = getMultiplexer(locator).GetSubscriber();
+                subscriber = getMultiplexer(env, locator).GetSubscriber();
             }
             public void handle(TimedDataWithEnvironment<Env,ByteDataWithTopic> data)
             {
@@ -217,7 +268,7 @@ namespace Dev.CD606.TM.Transport
             }
             public void start(Env env)
             {
-                subscriber = getMultiplexer(locator).GetSubscriber();
+                subscriber = getMultiplexer(env, locator).GetSubscriber();
             }
             public void handle(TimedDataWithEnvironment<Env,TypedDataWithTopic<T>> data)
             {
@@ -264,7 +315,7 @@ namespace Dev.CD606.TM.Transport
             }
             public override void start(Env env)
             {
-                subscriber = getMultiplexer(locator).GetSubscriber();
+                subscriber = getMultiplexer(env, locator).GetSubscriber();
                 var channel = subscriber.Subscribe(
                     new RedisChannel(myID, RedisChannel.PatternMode.Literal)
                 );
@@ -384,7 +435,7 @@ namespace Dev.CD606.TM.Transport
             }
             public override void start(Env env)
             {
-                subscriber = getMultiplexer(locator).GetSubscriber();
+                subscriber = getMultiplexer(env, locator).GetSubscriber();
                 var channel = subscriber.Subscribe(
                     new RedisChannel(locator.Identifier, RedisChannel.PatternMode.Literal)
                 );
@@ -476,7 +527,7 @@ namespace Dev.CD606.TM.Transport
             }
             public override void start(Env env)
             {
-                subscriber = getMultiplexer(locator).GetSubscriber();
+                subscriber = getMultiplexer(env, locator).GetSubscriber();
                 var channel = subscriber.Subscribe(
                     new RedisChannel(locator.Identifier, RedisChannel.PatternMode.Literal)
                 );
@@ -565,7 +616,7 @@ namespace Dev.CD606.TM.Transport
             }
             public void start(Env env)
             {
-                subscriber = getMultiplexer(locator).GetSubscriber();
+                subscriber = getMultiplexer(env, locator).GetSubscriber();
             }
             public void handle(TimedDataWithEnvironment<Env, KeyedData<(Identity,InT),OutT>> data)
             {
@@ -652,7 +703,7 @@ namespace Dev.CD606.TM.Transport
             }
             public override void start(Env env)
             {
-                subscriber = getMultiplexer(locator).GetSubscriber();
+                subscriber = getMultiplexer(env, locator).GetSubscriber();
                 var channel = subscriber.Subscribe(
                     new RedisChannel(locator.Identifier, RedisChannel.PatternMode.Literal)
                 );
@@ -732,7 +783,7 @@ namespace Dev.CD606.TM.Transport
             }
             public override void start(Env env)
             {
-                subscriber = getMultiplexer(locator).GetSubscriber();
+                subscriber = getMultiplexer(env, locator).GetSubscriber();
                 var channel = subscriber.Subscribe(
                     new RedisChannel(locator.Identifier, RedisChannel.PatternMode.Literal)
                 );
@@ -809,7 +860,7 @@ namespace Dev.CD606.TM.Transport
             }
             public void start(Env env)
             {
-                subscriber = getMultiplexer(locator).GetSubscriber();
+                subscriber = getMultiplexer(env, locator).GetSubscriber();
             }
             public void handle(TimedDataWithEnvironment<Env, KeyedData<InT,OutT>> data)
             {

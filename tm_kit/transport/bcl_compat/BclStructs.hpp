@@ -145,7 +145,13 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         BclDecimal(boost::multiprecision::cpp_dec_float_100 &&value) : value_(std::move(value)) {}
         BclDecimal(std::string const &valueInStringFormat) : value_(valueInStringFormat) {}
         template <class T, typename=std::enable_if_t<std::is_arithmetic_v<T>>>
-        BclDecimal(T const &t) : value_(boost::lexical_cast<std::string>(t)) {}
+        BclDecimal(T const &t) : value_() {
+            if constexpr (std::is_integral_v<T> || std::is_floating_point_v<T>) {
+                value_ = boost::multiprecision::cpp_dec_float_100(t);
+            } else {
+                value_ = boost::multiprecision::cpp_dec_float_100(boost::lexical_cast<std::string>(t));
+            }
+        }
         BclDecimal(BclDecimal const &) = default;
         BclDecimal(BclDecimal &&) = default;
         BclDecimal &operator=(BclDecimal const &) = default;
@@ -166,7 +172,11 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         }
         template <class T, typename=std::enable_if_t<std::is_arithmetic_v<T>>>
         BclDecimal &operator=(T const &t) {
-            value_ = boost::multiprecision::cpp_dec_float_100(boost::lexical_cast<std::string>(t));
+            if constexpr (std::is_integral_v<T> || std::is_floating_point_v<T>) {
+                value_ = boost::multiprecision::cpp_dec_float_100(t);
+            } else {
+                value_ = boost::multiprecision::cpp_dec_float_100(boost::lexical_cast<std::string>(t));
+            }
             return *this;
         }
         bool operator==(BclDecimal const &d) const {
@@ -235,6 +245,24 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             BclDecimal x(*this);
             ++x;
             return x;
+        }
+        static BclDecimal zero() {
+            return BclDecimal();
+        }        
+        BclDecimal abs() const {
+            return BclDecimal(boost::multiprecision::abs(value_));
+        }
+        static BclDecimal powerOf10(int exponent) {
+            return BclDecimal(boost::multiprecision::pow(boost::multiprecision::cpp_dec_float_100(10), exponent));
+        }
+        BclDecimal roundDownTo(BclDecimal const &minIncrement) const {
+            return BclDecimal(boost::multiprecision::floor(value_ / minIncrement.value_) * minIncrement.value_);
+        }
+        BclDecimal roundUpTo(BclDecimal const &minIncrement) const {
+            return BclDecimal(boost::multiprecision::ceil(value_ / minIncrement.value_) * minIncrement.value_);
+        }
+        BclDecimal roundTo(BclDecimal const &minIncrement) const {
+            return BclDecimal(boost::multiprecision::round(value_ / minIncrement.value_) * minIncrement.value_);
         }
         BclDecimalProto toProto() const {
             BclDecimalProtoWrapper w;

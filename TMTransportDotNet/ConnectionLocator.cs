@@ -233,6 +233,10 @@ namespace Dev.CD606.TM.Transport
             c.properties.Add(name, value);
             return c;
         }
+        public bool HasProperty(string name)
+        {
+            return properties.ContainsKey(name);
+        }
     }
 
     public enum Transport 

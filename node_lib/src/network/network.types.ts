@@ -4,6 +4,7 @@ export enum Transport {
     , Redis
     , ZeroMQ
     , NATS
+    , WebSocket
 }
 
 export enum TopicMatchType {

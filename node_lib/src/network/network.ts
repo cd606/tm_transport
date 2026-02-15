@@ -12,6 +12,7 @@ import * as _ from 'lodash';
 import * as date_fns from 'date-fns';
 import { v4 as uuidv4 } from "uuid";
 import { eddsa as EDDSA } from "elliptic";
+import WebSocket, { WebSocketServer } from 'ws';
 
 import * as TMInfra from "@dev_cd606/tm_infra";
 import * as TMBasic from "@dev_cd606/tm_basic";
@@ -100,7 +101,8 @@ export class TMTransportUtils {
             return [Types.Transport.ZeroMQ, this.parseConnectionLocator(address.substr("zeromq://".length))];
         } else if (address.startsWith("nats://")) {
             return [Types.Transport.NATS, this.parseConnectionLocator(address.substr("nats://".length))];
-        } else {
+        } else if (address.startsWith("websocket://")) {
+            return [Types.Transport.WebSocket, this.parseConnectionLocator(address.substr("websocket://".length))];} else {
             return null;
         }
     }
@@ -429,6 +431,67 @@ export class MultiTransportListener {
         });
     }
 
+    private static webSocketInputToStream<Env>(env: Env, locator: Types.ConnectionLocator, topic: Types.TopicSpec, stream: Stream.Readable, initialReactor? : () => void, perMessageReactor? : (data: Buffer) => void) {
+        let filter = function (s: string) { return true; }
+        switch (topic.matchType) {
+            case Types.TopicMatchType.MatchAll:
+                break;
+            case Types.TopicMatchType.MatchExact:
+                let matchS = topic.exactString;
+                filter = function (s: string) {
+                    return s === matchS;
+                }
+                break;
+            case Types.TopicMatchType.MatchRE:
+                let matchRE = topic.regex;
+                filter = function (s: string) {
+                    return matchRE!.test(s);
+                }
+                break;
+        }
+        let tlsConfig: Types.OneTLSClientConfiguration | null = null;
+        if ('ca_cert' in locator.properties && 'client_cert' in locator.properties && 'client_key' in locator.properties) {
+            tlsConfig = {
+                ca_cert: locator.properties.ca_cert,
+                client_cert: locator.properties.client_cert,
+                client_key: locator.properties.client_key
+            };
+        } else {
+            if ('getTLSClientConfigurationItem' in (env as any)) {
+                tlsConfig = (env as any).getTLSClientConfigurationItem(locator.host, locator.port);
+            }
+        }
+        const ignoreTopic = (('ignore_topic' in locator.properties) && (locator.properties.ignore_topic === 'true'));
+        let port = locator.port;
+        if (port == 0) {
+            port = (tlsConfig != null) ? 443 : 80;
+        }
+        let protocol = (tlsConfig != null) ? 'wss' : 'ws';
+        const ws = new WebSocket(`${protocol}://${locator.host}:${port}/${locator.identifier}`);
+        ws.on('open', function open() {
+            if (initialReactor) {
+                initialReactor();
+            }
+        });
+        ws.on('message', function message(data: Buffer) {
+            if (perMessageReactor) {
+                perMessageReactor(data);
+            }
+            if (ignoreTopic) {
+                stream.push(['', data]);
+            } else {
+                let decoded = cbor.decode(data);
+                let t = decoded[0] as string;
+                if (filter(t)) {
+                    stream.push([t, decoded[1] as Buffer]);
+                }   
+            }
+        });
+        stream.on('close', function () {
+            ws.close();
+        });
+    }
+
     private static defaultTopic(transport: Types.Transport): string {
         switch (transport) {
             case Types.Transport.Multicast:
@@ -439,12 +502,16 @@ export class MultiTransportListener {
                 return "*";
             case Types.Transport.ZeroMQ:
                 return "";
+            case Types.Transport.NATS:
+                return "*";
+            case Types.Transport.WebSocket:
+                return "";
             default:
                 return "";
         }
     }
 
-    static inputStream<Env>(env: Env, address: string, topic?: string, wireToUserHook?: ((data: Buffer) => Buffer) | null): Stream.Readable | null {
+    static inputStream<Env>(env: Env, address: string, topic?: string, wireToUserHook?: ((data: Buffer) => Buffer) | null, protocolParams?: any): Stream.Readable | null {
         let parsedAddr = TMTransportUtils.parseAddress(address);
         if (parsedAddr == null) {
             return null;
@@ -477,6 +544,13 @@ export class MultiTransportListener {
                 break;
             case Types.Transport.NATS:
                 this.natsInputToStream<Env>(env, parsedAddr[1], parsedTopic, s);
+                break;
+            case Types.Transport.WebSocket:
+                {
+                    let initialReactor = protocolParams && 'initialReactor' in protocolParams ? protocolParams.initialReactor : undefined;
+                    let perMessageReactor = protocolParams && 'perMessageReactor' in protocolParams ? protocolParams.perMessageReactor : undefined;
+                    this.webSocketInputToStream<Env>(env, parsedAddr[1], parsedTopic, s, initialReactor, perMessageReactor);
+                }                
                 break;
             default:
                 return null;
@@ -567,6 +641,34 @@ export class MultiTransportPublisher {
             sock.send(cbor.encode(chunk));
         };
     }
+    private static webSocketWrite<Env>(env: Env, locator: Types.ConnectionLocator): (chunk: [string, Buffer], encoding: BufferEncoding) => void {
+        let tlsConfig: Types.OneTLSClientConfiguration | null = null;
+        if ('ca_cert' in locator.properties && 'client_cert' in locator.properties && 'client_key' in locator.properties) {
+            tlsConfig = {
+                ca_cert: locator.properties.ca_cert,
+                client_cert: locator.properties.client_cert,
+                client_key: locator.properties.client_key
+            };
+        } else {
+            if ('getTLSClientConfigurationItem' in (env as any)) {
+                tlsConfig = (env as any).getTLSClientConfigurationItem(locator.host, locator.port);
+            }
+        }
+        const ignoreTopic = (('ignore_topic' in locator.properties) && (locator.properties.ignore_topic === 'true'));
+        let port = locator.port;
+        if (port == 0) {
+            port = (tlsConfig != null) ? 443 : 80;
+        }
+        let protocol = (tlsConfig != null) ? 'wss' : 'ws';
+        const ws = new WebSocket(`${protocol}://${locator.host}:${port}/${locator.identifier}`);
+        return function (chunk: [string, Buffer], _encoding: BufferEncoding) {
+            if (ignoreTopic) {
+                ws.send(chunk[1]);
+            } else {
+                ws.send(cbor.encode(chunk));            
+            }
+        };
+    }
     static async outputStream<Env>(env: Env, address: string, userToWireHook?: ((data: Buffer) => Buffer) | null): Promise<Stream.Writable | null> {
         let parsedAddr = TMTransportUtils.parseAddress(address);
         if (parsedAddr == null) {
@@ -589,6 +691,9 @@ export class MultiTransportPublisher {
                 break;
             case Types.Transport.NATS:
                 writeFunc = await this.natsWrite<Env>(env, parsedAddr[1]);
+                break;
+            case Types.Transport.WebSocket:
+                writeFunc = await this.webSocketWrite<Env>(env, parsedAddr[1]);
                 break;
             default:
                 return null;
