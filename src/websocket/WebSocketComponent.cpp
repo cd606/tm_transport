@@ -109,6 +109,21 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 , useIXWebSocket_(locator.query("useIXWebSocket", "false") == "true")
                 , logEveryReceivedMessage_(locator.query("logEveryReceivedMessage", "false") == "true")
             {
+                if (loggingBase_) {
+                    std::ostringstream oss;
+                    oss << "[WebSocketComponentImpl::OneSubscriber::(constructor)]"
+                        << " starting with locator "
+                        << locator.toPrintFormat()
+                        << ", binary="
+                        << (binary_?"true":"false")
+                        << ", useIXWebSocket="
+                        << (useIXWebSocket_?"true":"false")
+                        << ", logEveryReceivedMessage="
+                        << (logEveryReceivedMessage_?"true":"false")
+                        << ", logPerMessageCount="
+                        << logPerMessageCount_;
+                    loggingBase_->logThroughLoggingComponentBase(infra::LogLevel::Info, oss.str());
+                }
                 if (useIXWebSocket_) {
                     if (loggingBase_) {
                         loggingBase_->logThroughLoggingComponentBase(infra::LogLevel::Info, std::string("[WebSocketComponentImpl::OneSubscriber::(constructor)] will subscribe using IXWebSocket"));
