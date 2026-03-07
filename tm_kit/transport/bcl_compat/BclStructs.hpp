@@ -279,6 +279,9 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         operator double() const {
             return (double) value_;
         }
+        operator float() const {
+            return (float) value_;
+        }
     };
 
 } } } } }

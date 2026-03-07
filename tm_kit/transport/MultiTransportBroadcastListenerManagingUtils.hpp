@@ -218,6 +218,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                                 std::get<1>(*parsedSpec)
                                 , MultiTransportBroadcastListenerTopicHelper<web_socket::WebSocketComponent>::parseTopic(getTopic_internal(std::get<0>(*parsedSpec), spec.topicDescription))
                                 , hookFactory(spec.name)
+                                , std::function<std::vector<basic::ByteData>()> {}
                             );
                             r.registerImporter(prefix+"/"+spec.name, sub);
                         } else {
@@ -591,6 +592,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                         std::get<1>(*parsed)
                         , MultiTransportBroadcastListenerTopicHelper<web_socket::WebSocketComponent>::parseTopic(getTopic_internal(std::get<0>(*parsed), topicDescription))
                         , hook
+                        , std::function<std::vector<basic::ByteData>()> {}
                     );
                     r.registerImporter(name, sub);
                     return r.importItem(sub);

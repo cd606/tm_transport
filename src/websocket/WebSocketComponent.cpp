@@ -38,7 +38,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         private:
             WebSocketComponentImpl *parent_;
             ConnectionLocator locator_;
-            std::vector<basic::ByteData> initialData_;
+            std::function<std::vector<basic::ByteData>()> initialDataGenerator_;
             std::function<std::optional<basic::ByteData>(basic::ByteDataView const &)> protocolReactor_;
             std::function<void()> protocolRestartReactor_;
             bool ignoreTopic_;
@@ -76,7 +76,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             OneSubscriber(
                 WebSocketComponentImpl *parent
                 , ConnectionLocator const &locator
-                , std::vector<basic::ByteData> &&initialData
+                , std::function<std::vector<basic::ByteData>()> const &initialDataGenerator
                 , std::function<std::optional<basic::ByteData>(basic::ByteDataView const &)> const &protocolReactor
                 , std::function<void()> const &protocolRestartReactor
                 , std::optional<TLSClientInfo> const &sslInfo
@@ -84,7 +84,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 , bool noVerify
             )
                 : parent_(parent), locator_(locator)
-                , initialData_(std::move(initialData))
+                , initialDataGenerator_(initialDataGenerator)
                 , protocolReactor_(protocolReactor)
                 , protocolRestartReactor_(protocolRestartReactor)
                 , ignoreTopic_(locator.query("ignoreTopic","false")=="true")
@@ -211,7 +211,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 auto p = std::make_shared<OneSubscriber>(
                     parent_
                     , locator_
-                    , std::move(initialData_)
+                    , initialDataGenerator_
                     , protocolReactor_
                     , protocolRestartReactor_
                     , sslInfo_
@@ -439,13 +439,18 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                     return;
                 }
 
+                std::vector<basic::ByteData> initialData;
+                if (initialDataGenerator_) {
+                    initialData = initialDataGenerator_();
+                }
+
                 if (loggingBase_) {
                     loggingBase_->logThroughLoggingComponentBase(infra::LogLevel::Info, std::string("[WebSocketComponentImpl::OneSubscriber::onWebSocketHandshake] websocket subscriber ws handshake succeeded."));
-                    loggingBase_->logThroughLoggingComponentBase(infra::LogLevel::Info, std::string("[WebSocketComponentImpl::OneSubscriber::onWebSocketHandshake] will send "+std::to_string(initialData_.size())+" counts of initial data"));
+                    loggingBase_->logThroughLoggingComponentBase(infra::LogLevel::Info, std::string("[WebSocketComponentImpl::OneSubscriber::onWebSocketHandshake] will send "+std::to_string(initialData.size())+" counts of initial data"));
                 }
                 
                 if (stream_.index() == 1) {
-                    for (auto const &d : initialData_) {
+                    for (auto const &d : initialData) {
                         try {
                             std::get<1>(stream_).write(
                                 boost::asio::buffer(reinterpret_cast<const char *>(d.content.data()), d.content.size())
@@ -473,7 +478,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                         )
                     );
                 } else {
-                    for (auto const &d: initialData_) {
+                    for (auto const &d: initialData) {
                         try {
                             std::get<2>(stream_).write(
                                 boost::asio::buffer(reinterpret_cast<const char *>(d.content.data()), d.content.size())
@@ -698,11 +703,15 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 ws.setOnMessageCallback(
                     [this,&ws](const ix::WebSocketMessagePtr &msg) {
                         if (msg->type == ix::WebSocketMessageType::Open) {
+                            std::vector<basic::ByteData> initialData;
+                            if (initialDataGenerator_) {
+                                initialData = initialDataGenerator_();
+                            }
                             if (loggingBase_) {
                                 loggingBase_->logThroughLoggingComponentBase(infra::LogLevel::Info, std::string("[WebSocketComponentImpl::OneSubscriber::ixWebSocketLoop::callback] connected"));
-                                loggingBase_->logThroughLoggingComponentBase(infra::LogLevel::Info, std::string("[WebSocketComponentImpl::OneSubscriber::ixWebSocketLoop::callback] will send "+std::to_string(initialData_.size())+" counts of initial data"));
+                                loggingBase_->logThroughLoggingComponentBase(infra::LogLevel::Info, std::string("[WebSocketComponentImpl::OneSubscriber::ixWebSocketLoop::callback] will send "+std::to_string(initialData.size())+" counts of initial data"));
                             }
-                            for (auto const &item : initialData_) {
+                            for (auto const &item : initialData) {
                                 ws.send(item.content);
                                 if (loggingBase_) {
                                     if (binary_) {
@@ -2121,7 +2130,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             std::variant<WebSocketComponent::NoTopicSelection, std::string, std::regex> const &topic,
             std::function<void(basic::ByteDataWithTopic &&)> client,
             std::optional<WireToUserHook> wireToUserHook,
-            std::vector<basic::ByteData> &&initialData,
+            std::function<std::vector<basic::ByteData>()> const &initialDataGenerator,
             std::function<std::optional<basic::ByteData>(basic::ByteDataView const &)> const &protocolReactor,
             std::function<void()> const &protocolRestartReactor,
             TLSClientConfigurationComponent *config,
@@ -2149,7 +2158,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                             , std::make_shared<OneSubscriber>(
                                 this
                                 , actualLocator
-                                , std::move(initialData)
+                                , initialDataGenerator
                                 , protocolReactor
                                 , protocolRestartReactor
                                 , (config?config->getConfigurationItem(TLSClientInfoKey {actualLocator.host(), actualLocator.port()}):std::nullopt)
@@ -2410,6 +2419,25 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         std::variant<WebSocketComponent::NoTopicSelection, std::string, std::regex> const &topic,
         std::function<void(basic::ByteDataWithTopic &&)> client,
         std::optional<WireToUserHook> wireToUserHook,
+        std::function<std::vector<basic::ByteData>()> const &initialMessagesGenerator,
+        std::function<std::optional<basic::ByteData>(basic::ByteDataView const &)> const &protocolReactor,
+        std::function<void()> const &protocolRestartReactor) {
+        return impl_->websocket_addSubscriptionClient(
+            locator 
+            , topic 
+            , client 
+            , wireToUserHook 
+            , initialMessagesGenerator
+            , protocolReactor
+            , protocolRestartReactor
+            , dynamic_cast<TLSClientConfigurationComponent *>(this)
+            , dynamic_cast<basic::LoggingComponentBase *>(this)
+        );
+    }
+    uint32_t WebSocketComponent::websocket_addSubscriptionClient(ConnectionLocator const &locator,
+        std::variant<WebSocketComponent::NoTopicSelection, std::string, std::regex> const &topic,
+        std::function<void(basic::ByteDataWithTopic &&)> client,
+        std::optional<WireToUserHook> wireToUserHook,
         std::vector<basic::ByteData> &&initialData,
         std::function<std::optional<basic::ByteData>(basic::ByteDataView const &)> const &protocolReactor,
         std::function<void()> const &protocolRestartReactor) {
@@ -2418,7 +2446,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             , topic 
             , client 
             , wireToUserHook 
-            , std::move(initialData)
+            , [initialData = std::move(initialData)]() { return initialData; }
             , protocolReactor
             , protocolRestartReactor
             , dynamic_cast<TLSClientConfigurationComponent *>(this)

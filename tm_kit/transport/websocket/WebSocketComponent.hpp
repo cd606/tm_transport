@@ -25,6 +25,13 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                         std::variant<NoTopicSelection, std::string, std::regex> const &topic,
                         std::function<void(basic::ByteDataWithTopic &&)> client,
                         std::optional<WireToUserHook> wireToUserHook = std::nullopt,
+                        std::function<std::vector<basic::ByteData>()> const &initialMessagesGenerator = {},
+                        std::function<std::optional<basic::ByteData>(basic::ByteDataView const &)> const &protocolReactor = {},
+                        std::function<void()> const &protocolRestartReactor = {});
+        uint32_t websocket_addSubscriptionClient(ConnectionLocator const &locator,
+                        std::variant<NoTopicSelection, std::string, std::regex> const &topic,
+                        std::function<void(basic::ByteDataWithTopic &&)> client,
+                        std::optional<WireToUserHook> wireToUserHook = std::nullopt,
                         std::vector<basic::ByteData> &&initialMessages = {},
                         std::function<std::optional<basic::ByteData>(basic::ByteDataView const &)> const &protocolReactor = {},
                         std::function<void()> const &protocolRestartReactor = {});

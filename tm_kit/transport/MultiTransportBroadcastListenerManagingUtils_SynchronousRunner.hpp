@@ -127,6 +127,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                             std::get<1>(*parsedSpec)
                             , MultiTransportBroadcastListenerTopicHelper<web_socket::WebSocketComponent>::parseTopic(getTopic_internal(std::get<0>(*parsedSpec), spec.topicDescription))
                             , hookFactory(spec.name)
+                            , std::function<std::vector<basic::ByteData>()> {}
                         );
                     } else {
                         r.environment()->log(infra::LogLevel::Warning, "[MultiTransportBroadcastListenerManagingUtils (Synchronous Runner)::oneBroadcastListenerWithTopic] Trying to create websocket publisher with channel spec '"+spec.channel+"', but websocket is unsupported in the environment");
@@ -343,6 +344,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                         std::get<1>(*parsed)
                         , MultiTransportBroadcastListenerTopicHelper<web_socket::WebSocketComponent>::parseTopic(getTopic_internal(std::get<0>(*parsed), topicDescription))
                         , hook
+                        , std::function<std::vector<basic::ByteData>>() {}
                     );
                     return sub;
                 } else {

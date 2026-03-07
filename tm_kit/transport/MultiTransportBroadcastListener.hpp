@@ -751,6 +751,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                                     }
                                 }
                                 , actualHook
+                                , std::function<std::vector<basic::ByteData>()> {}
                             );
                             {
                                 std::lock_guard<std::mutex> _(subscriptionsMutex_);

@@ -18,20 +18,20 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
     class WebSocketImporterExporter {
     public:
         using M = infra::RealTimeApp<Env>;
-        static std::shared_ptr<typename M::template Importer<basic::ByteDataWithTopic>> createImporter(ConnectionLocator const &locator, std::variant<WebSocketComponent::NoTopicSelection, std::string, std::regex> const &topic=WebSocketComponent::NoTopicSelection(), std::optional<WireToUserHook> wireToUserHook=std::nullopt, std::vector<basic::ByteData> &&initialMessage = {}, std::function<std::optional<basic::ByteData>(basic::ByteDataView const &)> const &protocolReactor = {}, std::function<void()> const &protocolRestartReactor = {}) {
+        static std::shared_ptr<typename M::template Importer<basic::ByteDataWithTopic>> createImporter(ConnectionLocator const &locator, std::variant<WebSocketComponent::NoTopicSelection, std::string, std::regex> const &topic=WebSocketComponent::NoTopicSelection(), std::optional<WireToUserHook> wireToUserHook=std::nullopt, std::function<std::vector<basic::ByteData>()> const &initialDataGenerator = {}, std::function<std::optional<basic::ByteData>(basic::ByteDataView const &)> const &protocolReactor = {}, std::function<void()> const &protocolRestartReactor = {}) {
             class LocalI final : public M::template AbstractImporter<basic::ByteDataWithTopic>, public virtual infra::IControllableNode<Env> {
             private:
                 ConnectionLocator locator_;
                 std::variant<WebSocketComponent::NoTopicSelection, std::string, std::regex> topic_;
                 std::optional<WireToUserHook> wireToUserHook_;
-                std::vector<basic::ByteData> initialMessage_;
+                std::function<std::vector<basic::ByteData>()> initialDataGenerator_;
                 std::function<std::optional<basic::ByteData>(basic::ByteDataView const &)> protocolReactor_;
                 std::function<void()> protocolRestartReactor_;
                 std::optional<uint32_t> client_;
                 std::mutex mutex_;
             public:
-                LocalI(ConnectionLocator const &locator, std::variant<WebSocketComponent::NoTopicSelection, std::string, std::regex> const &topic, std::optional<WireToUserHook> wireToUserHook, std::vector<basic::ByteData> &&initialMessage, std::function<std::optional<basic::ByteData>(basic::ByteDataView const &)> const &protocolReactor, std::function<void()> const &protocolRestartReactor)
-                    : locator_(locator), topic_(topic), wireToUserHook_(wireToUserHook), initialMessage_(std::move(initialMessage)), protocolReactor_(protocolReactor), protocolRestartReactor_(protocolRestartReactor), client_(std::nullopt), mutex_()
+                LocalI(ConnectionLocator const &locator, std::variant<WebSocketComponent::NoTopicSelection, std::string, std::regex> const &topic, std::optional<WireToUserHook> wireToUserHook, std::function<std::vector<basic::ByteData>()> const &initialDataGenerator, std::function<std::optional<basic::ByteData>(basic::ByteDataView const &)> const &protocolReactor, std::function<void()> const &protocolRestartReactor)
+                    : locator_(locator), topic_(topic), wireToUserHook_(wireToUserHook), initialDataGenerator_(initialDataGenerator), protocolReactor_(protocolReactor), protocolRestartReactor_(protocolRestartReactor), client_(std::nullopt), mutex_()
                 {
                 }
                 virtual void start(Env *env) override final {
@@ -45,7 +45,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                                 this->publish(M::template pureInnerData<basic::ByteDataWithTopic>(env, std::move(d)));
                             }
                             , wireToUserHook_
-                            , std::move(initialMessage_)
+                            , initialDataGenerator_
                             , protocolReactor_
                             , protocolRestartReactor_
                         );
@@ -66,23 +66,26 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                     th.detach();
                 }
             };
-            return M::importer(new LocalI(locator, topic, wireToUserHook, std::move(initialMessage), protocolReactor, protocolRestartReactor));
+            return M::importer(new LocalI(locator, topic, wireToUserHook, initialDataGenerator, protocolReactor, protocolRestartReactor));
+        }
+        static std::shared_ptr<typename M::template Importer<basic::ByteDataWithTopic>> createImporter(ConnectionLocator const &locator, std::variant<WebSocketComponent::NoTopicSelection, std::string, std::regex> const &topic=WebSocketComponent::NoTopicSelection(), std::optional<WireToUserHook> wireToUserHook=std::nullopt, std::vector<basic::ByteData> &&initialMessage={}, std::function<std::optional<basic::ByteData>(basic::ByteDataView const &)> const &protocolReactor = {}, std::function<void()> const &protocolRestartReactor = {}) {
+            return createImporter(locator, topic, wireToUserHook, [initialMessage=std::move(initialMessage)]() {return initialMessage;}, protocolReactor, protocolRestartReactor);
         }
         template <class T>
-        static std::shared_ptr<typename M::template Importer<basic::TypedDataWithTopic<T>>> createTypedImporter(ConnectionLocator const &locator, std::variant<WebSocketComponent::NoTopicSelection, std::string, std::regex> const &topic=WebSocketComponent::NoTopicSelection(), std::optional<WireToUserHook> wireToUserHook=std::nullopt, std::vector<basic::ByteData> &&initialMessage={}, std::function<std::optional<basic::ByteData>(basic::ByteDataView const &)> const &protocolReactor = {}, std::function<void()> const &protocolRestartReactor = {}) {
+        static std::shared_ptr<typename M::template Importer<basic::TypedDataWithTopic<T>>> createTypedImporter(ConnectionLocator const &locator, std::variant<WebSocketComponent::NoTopicSelection, std::string, std::regex> const &topic=WebSocketComponent::NoTopicSelection(), std::optional<WireToUserHook> wireToUserHook=std::nullopt, std::function<std::vector<basic::ByteData>()> const &initialDataGenerator = {}, std::function<std::optional<basic::ByteData>(basic::ByteDataView const &)> const &protocolReactor = {}, std::function<void()> const &protocolRestartReactor = {}) {
             class LocalI final : public M::template AbstractImporter<basic::TypedDataWithTopic<T>>, public virtual infra::IControllableNode<Env> {
             private:
                 ConnectionLocator locator_;
                 std::variant<WebSocketComponent::NoTopicSelection, std::string, std::regex> topic_;
                 std::optional<WireToUserHook> wireToUserHook_;
-                std::vector<basic::ByteData> initialMessage_;
+                std::function<std::vector<basic::ByteData>()> initialDataGenerator_;
                 std::function<std::optional<basic::ByteData>(basic::ByteDataView const &)> protocolReactor_;
                 std::function<void()> protocolRestartReactor_;
                 std::optional<uint32_t> client_;
                 std::mutex mutex_;
             public:
-                LocalI(ConnectionLocator const &locator, std::variant<WebSocketComponent::NoTopicSelection, std::string, std::regex> const &topic, std::optional<WireToUserHook> wireToUserHook, std::vector<basic::ByteData> &&initialMessage, std::function<std::optional<basic::ByteData>(basic::ByteDataView const &)> const &protocolReactor, std::function<void()> const &protocolRestartReactor)
-                    : locator_(locator), topic_(topic), wireToUserHook_(wireToUserHook), initialMessage_(std::move(initialMessage)), protocolReactor_(protocolReactor), protocolRestartReactor_(protocolRestartReactor), client_(std::nullopt), mutex_()
+                LocalI(ConnectionLocator const &locator, std::variant<WebSocketComponent::NoTopicSelection, std::string, std::regex> const &topic, std::optional<WireToUserHook> wireToUserHook, std::function<std::vector<basic::ByteData>()> const &initialDataGenerator, std::function<std::optional<basic::ByteData>(basic::ByteDataView const &)> const &protocolReactor, std::function<void()> const &protocolRestartReactor)
+                    : locator_(locator), topic_(topic), wireToUserHook_(wireToUserHook), initialDataGenerator_(initialDataGenerator), protocolReactor_(protocolReactor), protocolRestartReactor_(protocolRestartReactor), client_(std::nullopt), mutex_()
                 {
                 }
                 virtual void start(Env *env) override final {
@@ -103,7 +106,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                                 }
                             }
                             , wireToUserHook_
-                            , std::move(initialMessage_)
+                            , initialDataGenerator_
                             , protocolReactor_
                             , protocolRestartReactor_
                         );
@@ -124,7 +127,11 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                     th.detach();
                 }
             };
-            return M::importer(new LocalI(locator, topic, wireToUserHook, std::move(initialMessage), protocolReactor, protocolRestartReactor));
+            return M::importer(new LocalI(locator, topic, wireToUserHook, initialDataGenerator, protocolReactor, protocolRestartReactor));
+        }
+        template <class T>
+        static std::shared_ptr<typename M::template Importer<basic::TypedDataWithTopic<T>>> createTypedImporter(ConnectionLocator const &locator, std::variant<WebSocketComponent::NoTopicSelection, std::string, std::regex> const &topic=WebSocketComponent::NoTopicSelection(), std::optional<WireToUserHook> wireToUserHook=std::nullopt, std::vector<basic::ByteData> &&initialMessage={}, std::function<std::optional<basic::ByteData>(basic::ByteDataView const &)> const &protocolReactor = {}, std::function<void()> const &protocolRestartReactor = {}) {
+            return createTypedImporter<T>(locator, topic, wireToUserHook, [initialMessage=std::move(initialMessage)]() {return initialMessage;}, protocolReactor, protocolRestartReactor);
         }
         static std::shared_ptr<typename M::template Exporter<basic::ByteDataWithTopic>> createExporter(ConnectionLocator const &locator, std::optional<UserToWireHook> userToWireHook=std::nullopt, std::string const &heartbeatName = "", std::function<std::function<std::optional<basic::ByteData>(basic::ByteDataView const &, std::atomic<bool> &)>()> const &protocolReactorFactory = {}) {
             class LocalE final : public M::template AbstractExporter<basic::ByteDataWithTopic> {
@@ -266,6 +273,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                     }
                 }
                 , DefaultHookFactory<Env>::template supplyIncomingHook<T>(env, hook)
+                , std::function<std::vector<basic::ByteData>()> {}
             );
             return ret->get_future();
         }
