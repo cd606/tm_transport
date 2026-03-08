@@ -344,7 +344,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
                         std::get<1>(*parsed)
                         , MultiTransportBroadcastListenerTopicHelper<web_socket::WebSocketComponent>::parseTopic(getTopic_internal(std::get<0>(*parsed), topicDescription))
                         , hook
-                        , std::function<std::vector<basic::ByteData>>() {}
+                        , std::function<std::vector<basic::ByteData>()> {}
                     );
                     return sub;
                 } else {
