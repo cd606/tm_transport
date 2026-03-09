@@ -252,6 +252,12 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         BclDecimal abs() const {
             return BclDecimal(boost::multiprecision::abs(value_));
         }
+        int sign() const {
+            return boost::multiprecision::sign(value_);
+        }
+        BclDecimal neg() const {
+            return BclDecimal(-value_);
+        }
         static BclDecimal powerOf10(int exponent) {
             return BclDecimal(boost::multiprecision::pow(boost::multiprecision::cpp_dec_float_100(10), exponent));
         }
