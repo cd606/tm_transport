@@ -3,6 +3,7 @@
 
 #include <tm_kit/infra/AppClassifier.hpp>
 #include <tm_kit/basic/StructFieldInfoUtils.hpp>
+#include <tm_kit/transport/bcl_compat/BclStructs.hpp>
 #include <tm_kit/transport/db_table_importer_exporter/StructFieldInfoUtils_SociHelper.hpp>
 
 #include <boost/algorithm/string.hpp>
@@ -301,6 +302,13 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                     stmt.exchange(soci::use(*v, std::string(basic::StructFieldInfo<T>::FIELD_NAMES[FieldIndex])));
                     deletors.push_back([v]() {delete v;});
                 } else if constexpr (basic::IsFixedPrecisionShortDecimal<typename basic::StructFieldTypeInfo<T,FieldIndex>::TheType>::value) {
+                    auto *v = new double();
+                    *v = (double) (
+                        basic::StructFieldTypeInfo<T,FieldIndex>::constAccess(data)
+                    );
+                    stmt.exchange(soci::use(*v, std::string(basic::StructFieldInfo<T>::FIELD_NAMES[FieldIndex])));
+                    deletors.push_back([v]() {delete v;});
+                } else if constexpr (std::is_same_v<typename basic::StructFieldTypeInfo<T,FieldIndex>::TheType, tm::transport::bcl_compat::BclDecimal>) {
                     auto *v = new double();
                     *v = (double) (
                         basic::StructFieldTypeInfo<T,FieldIndex>::constAccess(data)

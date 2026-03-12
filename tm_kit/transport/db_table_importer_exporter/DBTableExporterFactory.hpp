@@ -3,6 +3,7 @@
 
 #include <tm_kit/basic/StructFieldInfoUtils.hpp>
 #include <tm_kit/basic/DateHolder.hpp>
+#include <tm_kit/transport/bcl_compat/BclStructs.hpp>
 #include <tm_kit/transport/db_table_importer_exporter/StructFieldInfoUtils_SociHelper.hpp>
 
 #include <soci/soci.h>
@@ -98,6 +99,11 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                     *v = (double) basic::StructFieldTypeInfo<T,FieldIndex>::constAccess(data);
                     stmt.exchange(soci::use(*v, std::string(basic::StructFieldInfo<T>::FIELD_NAMES[FieldIndex])));
                     deletors.push_back([v]() {delete v;});
+                } else if constexpr (std::is_same_v<typename basic::StructFieldTypeInfo<T,FieldIndex>::TheType, tm::transport::bcl_compat::BclDecimal>) {
+                    auto *v = new double();
+                    *v = (double) basic::StructFieldTypeInfo<T,FieldIndex>::constAccess(data);
+                    stmt.exchange(soci::use(*v, std::string(basic::StructFieldInfo<T>::FIELD_NAMES[FieldIndex])));
+                    deletors.push_back([v]() {delete v;});
                 } else if constexpr (basic::ConvertibleWithString<typename basic::StructFieldTypeInfo<T,FieldIndex>::TheType>::value) {
                     auto *s = new std::string();
                     *s = basic::ConvertibleWithString<typename basic::StructFieldTypeInfo<T,FieldIndex>::TheType>::toString(basic::StructFieldTypeInfo<T,FieldIndex>::constAccess(data));
@@ -143,6 +149,14 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                     stmt.exchange(soci::use(*v, std::string(basic::StructFieldInfo<T>::FIELD_NAMES[FieldIndex])));
                     deletors.push_back([v]() {delete v;});
                 } else if constexpr (basic::IsFixedPrecisionShortDecimal<typename basic::StructFieldTypeInfo<T,FieldIndex>::TheType>::value) {
+                    auto *v = new std::vector<double>();
+                    for (auto const &x : data) {
+                        auto const &y = basic::StructFieldTypeInfo<T,FieldIndex>::constAccess(x);
+                        v->push_back((double) y);
+                    }
+                    stmt.exchange(soci::use(*v, std::string(basic::StructFieldInfo<T>::FIELD_NAMES[FieldIndex])));
+                    deletors.push_back([v]() {delete v;});
+                } else if constexpr (std::is_same_v<typename basic::StructFieldTypeInfo<T,FieldIndex>::TheType, tm::transport::bcl_compat::BclDecimal>) {
                     auto *v = new std::vector<double>();
                     for (auto const &x : data) {
                         auto const &y = basic::StructFieldTypeInfo<T,FieldIndex>::constAccess(x);
@@ -292,6 +306,13 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                     stmt.exchange(soci::use(*v, std::string(basic::StructFieldInfo<T>::FIELD_NAMES[FieldIndex])));
                     deletors.push_back([v]() {delete v;});
                 } else if constexpr (basic::IsFixedPrecisionShortDecimal<typename basic::StructFieldTypeInfo<T,FieldIndex>::TheType>::value) {
+                    auto *v = new double();
+                    *v = (double) (
+                        basic::StructFieldTypeInfo<T,FieldIndex>::constAccess(data)
+                    );
+                    stmt.exchange(soci::use(*v, std::string(basic::StructFieldInfo<T>::FIELD_NAMES[FieldIndex])));
+                    deletors.push_back([v]() {delete v;});
+                } else if constexpr (std::is_same_v<typename basic::StructFieldTypeInfo<T,FieldIndex>::TheType, tm::transport::bcl_compat::BclDecimal>) {
                     auto *v = new double();
                     *v = (double) (
                         basic::StructFieldTypeInfo<T,FieldIndex>::constAccess(data)
