@@ -126,6 +126,10 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                         if (redisSetTimeout(ctx_, tv) != REDIS_OK) {
                             break;
                         }
+                        if (!ctx_ || ctx_->err) {
+                            throw std::runtime_error("Redis context error");
+                        }
+                        reply = nullptr;
                         int r = redisGetReply(ctx_, (void **) &reply);
                         if (r != REDIS_OK) {
                             if (ctx_->err == REDIS_ERR_EOF) {
@@ -254,6 +258,9 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             ConnectionLocator const &locator() const {
                 return locator_;
             }
+            std::string const &topic() const {
+                return topic_;
+            }
             std::thread::native_handle_type getThreadHandle() {
                 return th_.native_handle();
             }
@@ -319,6 +326,10 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                         if (redisSetTimeout(ctx_, tv) != REDIS_OK) {
                             break;
                         }
+                        if (!ctx_ || ctx_->err) {
+                            throw std::runtime_error("Redis context error");
+                        }
+                        reply = nullptr;
                         int r = redisGetReply(ctx_, (void **) &reply);
                         if (r != REDIS_OK) {
                             if (ctx_->err == REDIS_ERR_EOF) {
@@ -499,6 +510,10 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                     if (redisSetTimeout(ctx_, tv) != REDIS_OK) {
                         break;
                     }
+                    if (!ctx_ || ctx_->err) {
+                        throw std::runtime_error("Redis context error");
+                    }
+                    reply = nullptr;
                     int r = redisGetReply(ctx_, (void **) &reply);
                     if (r != REDIS_OK) {
                         if (ctx_->err == REDIS_ERR_EOF) {
@@ -647,7 +662,21 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 p->unsubscribe();
                 //std::cerr << p << " is being removed from subscriptionn map '" << p->locator().toPrintFormat() << "'\n";
                 ConnectionLocator hostAndPort {p->locator().host(), p->locator().port()};
-                subscriptions_.erase(hostAndPort);
+                auto iter = subscriptions_.find(hostAndPort);
+                if (iter != subscriptions_.end()) {
+                    auto innerIter = iter->second.find(p->topic());
+                    if (innerIter != iter->second.end()) {
+                        innerIter->second.release(); //deliberate leak
+                        iter->second.erase(innerIter);
+                        std::thread([p]() {
+                            std::this_thread::sleep_for(std::chrono::seconds(5));
+                            delete p;
+                        }).detach();
+                    }
+                    if (iter->second.empty()) {
+                        subscriptions_.erase(iter);
+                    }
+                }
                 //std::cerr << subscriptions_.size() << '\n';
             }
         }
@@ -776,7 +805,12 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             if (iter != rpcClientConnections_.end()) {
                 if (iter->second->removeClient(clientNumber) == 0) {
                     iter->second->unsubscribe();
+                    auto *p = iter->second.release(); //intentional
                     rpcClientConnections_.erase(iter);
+                    std::thread([p]() {
+                        std::this_thread::sleep_for(std::chrono::seconds(5));
+                        delete p;
+                    }).detach();
                 }
             }
         }

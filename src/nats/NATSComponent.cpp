@@ -177,6 +177,9 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             ConnectionLocator const &locator() const {
                 return locator_;
             }
+            std::string const &topic() const {
+                return topic_;
+            }
         };
         
         std::unordered_map<ConnectionLocator, std::unordered_map<std::string, std::unique_ptr<OneNATSSubscription>>> subscriptions_;
@@ -499,7 +502,21 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 p->unsubscribe();
                 //std::cerr << p << " is being removed from subscriptionn map '" << p->locator().toPrintFormat() << "'\n";
                 ConnectionLocator hostAndPort {p->locator().host(), p->locator().port()};
-                subscriptions_.erase(hostAndPort);
+                auto iter = subscriptions_.find(hostAndPort);
+                if (iter != subscriptions_.end()) {
+                    auto innerIter = iter->second.find(p->topic());
+                    if (innerIter != iter->second.end()) {
+                        innerIter->second.release(); //deliberate leak
+                        iter->second.erase(innerIter);
+                        std::thread([p]() {
+                            std::this_thread::sleep_for(std::chrono::seconds(5));
+                            delete p;
+                        }).detach();
+                    }
+                    if (iter->second.empty()) {
+                        subscriptions_.erase(iter);
+                    }
+                }
                 //std::cerr << subscriptions_.size() << '\n';
             }
         }
@@ -628,7 +645,12 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             if (iter != rpcClientConnections_.end()) {
                 if (iter->second->removeClient(clientNumber) == 0) {
                     iter->second->unsubscribe();
+                    auto *p = iter->second.release(); //deliberately release ownership
                     rpcClientConnections_.erase(iter);
+                    std::thread([p]() {
+                        std::this_thread::sleep_for(std::chrono::seconds(5));
+                        delete p;
+                    }).detach();
                 }
             }
         }
