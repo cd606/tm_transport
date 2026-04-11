@@ -16,6 +16,7 @@
 #include <tm_kit/basic/TimePointAsString.hpp>
 #include <tm_kit/basic/ConvertibleWithString.hpp>
 #include <tm_kit/basic/FixedPrecisionShortDecimal.hpp>
+#include <tm_kit/transport/bcl_compat/BclStructs.hpp>
 
 #include <soci/row.h>
 #include <soci/blob.h>
@@ -271,6 +272,32 @@ namespace dev::cd606::tm::transport::struct_field_info_utils::db_table_importer_
                     return T {std::string_view(row.get<std::string>(index))};
                 default:
                     throw std::runtime_error(std::string("cannot convert from '") + sociDataTypeString(props.get_data_type()) + "' to fixed precision short decimal value");
+                }
+            }
+        };
+
+        template <>
+        class SociValueExtractor<tm::transport::bcl_compat::BclDecimal, void>
+        {
+        public:
+            static constexpr bool HasSpecificExtractor = true;
+            static tm::transport::bcl_compat::BclDecimal extract(soci::row const &row, std::size_t index)
+            {
+                auto const &props = row.get_properties(index);
+                switch (props.get_data_type())
+                {
+                case soci::dt_integer:
+                    return tm::transport::bcl_compat::BclDecimal {row.get<int>(index)};
+                case soci::dt_long_long:
+                    return tm::transport::bcl_compat::BclDecimal {row.get<long long>(index)};
+                case soci::dt_unsigned_long_long:
+                    return tm::transport::bcl_compat::BclDecimal {row.get<unsigned long long>(index)};
+                case soci::dt_double:
+                    return tm::transport::bcl_compat::BclDecimal {row.get<double>(index)};
+                case soci::dt_string:
+                    return tm::transport::bcl_compat::BclDecimal {row.get<std::string>(index)};
+                default:
+                    throw std::runtime_error(std::string("cannot convert from '") + sociDataTypeString(props.get_data_type()) + "' to bcl decimal");
                 }
             }
         };
