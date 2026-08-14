@@ -1,6 +1,8 @@
 #include <thread>
 #include <mutex>
+#include <condition_variable>
 #include <atomic>
+#include <chrono>
 #include <cstring>
 #include <sstream>
 #include <unordered_map>
@@ -96,6 +98,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         private:
             ConnectionLocator locator_;
             std::string topic_;
+            TLSClientConfigurationComponent *tlsConf_;
             redisContext *ctx_;
             struct ClientCB {
                 uint32_t id;
@@ -106,6 +109,8 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             std::thread th_;
             std::mutex mutex_;
             std::atomic<bool> running_;
+            std::mutex reconnectMutex_;
+            std::condition_variable reconnectCondition_;
 
             inline void callClient(ClientCB const &c, basic::ByteDataWithTopic &&d) {
                 if (c.hook) {
@@ -118,98 +123,154 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 }
             }
 
-            void run() {
-                struct redisReply *reply = nullptr;
-                try {
-                    while (running_) {
-                        struct timeval tv = { 0, 1000 };
-                        if (redisSetTimeout(ctx_, tv) != REDIS_OK) {
-                            break;
-                        }
-                        if (!ctx_ || ctx_->err) {
-                            throw std::runtime_error("Redis context error");
-                        }
-                        reply = nullptr;
-                        int r = redisGetReply(ctx_, (void **) &reply);
-                        if (r != REDIS_OK) {
-                            if (ctx_->err == REDIS_ERR_EOF) {
-                                break;
-                            }
-                            if (ctx_->err == REDIS_ERR_IO && errno == EAGAIN) {
-                                ctx_->err = 0;
-                                continue;
-                            }
-                            if (ctx_->err == 0) {
-                                if (reply != nullptr) {
-                                    freeReplyObject((void *) &reply);
-                                }
-                            }
-                            continue;
-                        }
-                        if (!running_) {
-                            break;
-                        }
-                        if (reply == nullptr) {
-                            continue;
-                        }
-                        if (reply->type != REDIS_REPLY_ARRAY || (reply->elements != 4 /*&& reply->elements != 3*/)) {
-                            freeReplyObject((void *) reply);
-                            continue;
-                        }
-                        //std::cerr << "get good type reply 1\n";
-                        if (reply->element[0]->type != REDIS_REPLY_STRING
-                            ||
-                            std::string(reply->element[0]->str, reply->element[0]->len) != "pmessage") {
-                            freeReplyObject((void *) reply);
-                            continue;
-                        }
-                        //std::cerr << "get good type reply 2\n";
-                        std::string topic(reply->element[2]->str, reply->element[2]->len);
-                        std::string content(reply->element[3]->str, reply->element[3]->len);
-                        freeReplyObject((void *) reply);
-
-                        if (!running_) {
-                            break;
-                        }
-                        std::lock_guard<std::mutex> _(mutex_);
-                        for (auto const &cb : clients_) {
-                            callClient(cb, {topic, content});
-                        }
+            redisContext *createSubscribedContext() {
+                struct timeval connectTimeout = {2, 0};
+                redisContext *ctx = redisConnectWithTimeout(
+                    locator_.host().c_str(), locator_.port(), connectTimeout
+                );
+                if (ctx == nullptr || ctx->err) {
+                    if (ctx != nullptr) {
+                        redisFree(ctx);
                     }
-                } catch (...) {}
+                    return nullptr;
+                }
+                try {
+                    redisSetTimeout(ctx, connectTimeout);
+                    RedisComponentImpl::auth(locator_, ctx, tlsConf_);
+                    redisReply *reply = (redisReply *) redisCommand(
+                        ctx, "PSUBSCRIBE %s", topic_.c_str()
+                    );
+                    if (reply == nullptr || reply->type == REDIS_REPLY_ERROR) {
+                        if (reply != nullptr) {
+                            freeReplyObject((void *) reply);
+                        }
+                        redisFree(ctx);
+                        return nullptr;
+                    }
+                    freeReplyObject((void *) reply);
+                } catch (...) {
+                    redisFree(ctx);
+                    return nullptr;
+                }
+                if (ctx->err) {
+                    redisFree(ctx);
+                    return nullptr;
+                }
+                return ctx;
             }
-        public:
-            OneRedisSubscription(ConnectionLocator const &locator, std::string const &topic, TLSClientConfigurationComponent *tlsConf) 
-                : locator_(locator)
-                , topic_(topic)
-                , ctx_(nullptr)
-                , clients_()
-                , th_()
-                , mutex_()
-                , running_(true)
-            {
-                ctx_ = redisConnect(locator.host().c_str(), locator.port());
-                if (ctx_ != nullptr) {
-                    RedisComponentImpl::auth(locator, ctx_, tlsConf);
-                    redisReply *r = (redisReply *) redisCommand(ctx_, "PSUBSCRIBE %s", topic.c_str());
-                    freeReplyObject((void *) r);
-                    th_ = std::thread(&OneRedisSubscription::run, this);
-                    th_.detach();
+            bool waitBeforeReconnect(std::chrono::seconds delay) {
+                std::unique_lock<std::mutex> lock(reconnectMutex_);
+                return reconnectCondition_.wait_for(lock, delay, [this]() {
+                    return !running_;
+                });
+            }
+            static void increaseReconnectDelay(std::chrono::seconds &delay) {
+                delay *= 2;
+                if (delay > std::chrono::seconds(60)) {
+                    delay = std::chrono::seconds(60);
                 }
             }
-            ~OneRedisSubscription() {
-                //std::cerr << this << ": being released\n";
+            void run() {
+                std::chrono::seconds reconnectDelay(1);
+                while (running_) {
+                    ctx_ = createSubscribedContext();
+                    if (ctx_ == nullptr) {
+                        if (waitBeforeReconnect(reconnectDelay)) {
+                            break;
+                        }
+                        increaseReconnectDelay(reconnectDelay);
+                        continue;
+                    }
+
+                    reconnectDelay = std::chrono::seconds(1);
+                    struct timeval receiveTimeout = {0, 100000};
+                    redisSetTimeout(ctx_, receiveTimeout);
+                    redisReply *reply = nullptr;
+                    try {
+                        while (running_) {
+                            reply = nullptr;
+                            int result = redisGetReply(ctx_, (void **) &reply);
+                            if (result != REDIS_OK) {
+                                if (ctx_->err == REDIS_ERR_IO && errno == EAGAIN) {
+                                    ctx_->err = 0;
+                                    continue;
+                                }
+                                break;
+                            }
+                            if (!running_ || reply == nullptr) {
+                                if (reply != nullptr) {
+                                    freeReplyObject((void *) reply);
+                                    reply = nullptr;
+                                }
+                                continue;
+                            }
+                            if (reply->type != REDIS_REPLY_ARRAY || reply->elements != 4) {
+                                freeReplyObject((void *) reply);
+                                reply = nullptr;
+                                continue;
+                            }
+                            if (reply->element[0]->type != REDIS_REPLY_STRING
+                                || std::string(reply->element[0]->str, reply->element[0]->len) != "pmessage") {
+                                freeReplyObject((void *) reply);
+                                reply = nullptr;
+                                continue;
+                            }
+                            std::string topic(reply->element[2]->str, reply->element[2]->len);
+                            std::string content(reply->element[3]->str, reply->element[3]->len);
+                            freeReplyObject((void *) reply);
+                            reply = nullptr;
+
+                            if (!running_) {
+                                break;
+                            }
+                            std::lock_guard<std::mutex> lock(mutex_);
+                            for (auto const &cb : clients_) {
+                                callClient(cb, {topic, content});
+                            }
+                        }
+                    } catch (...) {
+                    }
+                    if (reply != nullptr) {
+                        freeReplyObject((void *) reply);
+                    }
+                    redisFree(ctx_);
+                    ctx_ = nullptr;
+
+                    if (running_) {
+                        if (waitBeforeReconnect(reconnectDelay)) {
+                            break;
+                        }
+                        increaseReconnectDelay(reconnectDelay);
+                    }
+                }
+            }
+            void stop() {
                 running_ = false;
+                reconnectCondition_.notify_all();
                 if (th_.joinable()) {
                     try {
                         th_.join();
                     } catch (std::system_error const &) {
                     }
                 }
-                //std::cerr << this << ": redis subscription really exiting\n";
-                if (ctx_ && !ctx_->err) {
-                    redisFree(ctx_);
-                }
+            }
+        public:
+            OneRedisSubscription(ConnectionLocator const &locator, std::string const &topic, TLSClientConfigurationComponent *tlsConf) 
+                : locator_(locator)
+                , topic_(topic)
+                , tlsConf_(tlsConf)
+                , ctx_(nullptr)
+                , clients_()
+                , th_()
+                , mutex_()
+                , running_(true)
+                , reconnectMutex_()
+                , reconnectCondition_()
+            {
+                th_ = std::thread(&OneRedisSubscription::run, this);
+            }
+            ~OneRedisSubscription() {
+                stop();
             }
             void addSubscription(
                 uint32_t id
@@ -239,21 +300,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 }
             }
             void unsubscribe() {
-                //std::cerr << this << ": calling unsubscribe\n";
-                running_ = false;
-                if (th_.joinable()) {
-                    try {
-                        th_.join();
-                    } catch (std::system_error const &) {
-                    }
-                }
-                //std::cerr << this << ": unsubscribing on server level\n";
-                if (ctx_ && !ctx_->err) {
-                    redisReply *r = (redisReply *) redisCommand(ctx_, "PUNSUBSCRIBE %s", topic_.c_str());
-                    if (r) {
-                        freeReplyObject((void *) r);
-                    }
-                }
+                stop();
             }
             ConnectionLocator const &locator() const {
                 return locator_;
@@ -270,22 +317,137 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
 
         class OneRedisSender {
         private:
+            ConnectionLocator locator_;
+            TLSClientConfigurationComponent *tlsConf_;
             redisContext *ctx_;
             std::mutex mutex_;
+            std::condition_variable reconnectCondition_;
+            std::thread reconnectThread_;
+            bool connected_;
+            bool stopping_;
+            std::chrono::seconds reconnectDelay_;
+            std::chrono::steady_clock::time_point nextReconnectAttempt_;
+
+            redisContext *createConnection() {
+                struct timeval connectTimeout = {2, 0};
+                redisContext *ctx = redisConnectWithTimeout(
+                    locator_.host().c_str(), locator_.port(), connectTimeout
+                );
+                if (ctx == nullptr || ctx->err) {
+                    if (ctx != nullptr) {
+                        redisFree(ctx);
+                    }
+                    return nullptr;
+                }
+                try {
+                    // Also bound AUTH so that the reconnect worker cannot hang
+                    // indefinitely on an unresponsive peer.
+                    redisSetTimeout(ctx, connectTimeout);
+                    RedisComponentImpl::auth(locator_, ctx, tlsConf_);
+                } catch (...) {
+                    redisFree(ctx);
+                    return nullptr;
+                }
+                if (ctx->err) {
+                    redisFree(ctx);
+                    return nullptr;
+                }
+                return ctx;
+            }
+            void resetReconnectDelayLocked() {
+                reconnectDelay_ = std::chrono::seconds(1);
+            }
+            void scheduleReconnectLocked() {
+                nextReconnectAttempt_ = std::chrono::steady_clock::now()+reconnectDelay_;
+                if (reconnectDelay_ < std::chrono::seconds(60)) {
+                    reconnectDelay_ *= 2;
+                    if (reconnectDelay_ > std::chrono::seconds(60)) {
+                        reconnectDelay_ = std::chrono::seconds(60);
+                    }
+                }
+            }
+            void markDisconnectedLocked() {
+                if (ctx_ != nullptr) {
+                    redisFree(ctx_);
+                    ctx_ = nullptr;
+                }
+                if (connected_) {
+                    connected_ = false;
+                    resetReconnectDelayLocked();
+                    scheduleReconnectLocked();
+                }
+                reconnectCondition_.notify_one();
+            }
+            void reconnectLoop() {
+                std::unique_lock<std::mutex> lock(mutex_);
+                while (!stopping_) {
+                    if (connected_) {
+                        reconnectCondition_.wait(lock, [this]() {
+                            return stopping_ || !connected_;
+                        });
+                        continue;
+                    }
+                    if (reconnectCondition_.wait_until(
+                        lock, nextReconnectAttempt_, [this]() {
+                            return stopping_ || connected_;
+                        }
+                    )) {
+                        continue;
+                    }
+
+                    lock.unlock();
+                    redisContext *newContext = createConnection();
+                    lock.lock();
+                    if (stopping_) {
+                        if (newContext != nullptr) {
+                            redisFree(newContext);
+                        }
+                        break;
+                    }
+                    if (newContext != nullptr) {
+                        ctx_ = newContext;
+                        connected_ = true;
+                        resetReconnectDelayLocked();
+                    } else {
+                        scheduleReconnectLocked();
+                    }
+                }
+            }
         public:
             OneRedisSender(ConnectionLocator const &locator, TLSClientConfigurationComponent *tlsConf)
-                : ctx_(nullptr), mutex_()
+                : locator_(locator), tlsConf_(tlsConf), ctx_(nullptr), mutex_()
+                , reconnectCondition_(), reconnectThread_(), connected_(false)
+                , stopping_(false), reconnectDelay_(1), nextReconnectAttempt_()
             {
-                ctx_ = redisConnect(locator.host().c_str(), locator.port());
-                RedisComponentImpl::auth(locator, ctx_, tlsConf);
+                ctx_ = createConnection();
+                connected_ = (ctx_ != nullptr);
+                if (!connected_) {
+                    scheduleReconnectLocked();
+                }
+                reconnectThread_ = std::thread(&OneRedisSender::reconnectLoop, this);
             }
             ~OneRedisSender() {
-                if (ctx_ && !ctx_->err) {
+                {
+                    std::lock_guard<std::mutex> lock(mutex_);
+                    stopping_ = true;
+                    reconnectCondition_.notify_one();
+                }
+                if (reconnectThread_.joinable()) {
+                    reconnectThread_.join();
+                }
+                if (ctx_ != nullptr) {
                     redisFree(ctx_);
+                    ctx_ = nullptr;
                 }
             }
             void publish(basic::ByteDataWithTopic &&data) {
-                std::lock_guard<std::mutex> _(mutex_);
+                std::lock_guard<std::mutex> lock(mutex_);
+                if (!connected_ || ctx_ == nullptr || ctx_->err) {
+                    if (connected_) {
+                        markDisconnectedLocked();
+                    }
+                    return;
+                }
                 redisReply *r = (redisReply *) redisCommand(
                     ctx_
                     , "PUBLISH %s %b"
@@ -295,6 +457,9 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 ); 
                 if (r != nullptr) {
                     freeReplyObject((void *) r);
+                } else {
+                    // This message has already failed. Do not retain or retry it.
+                    markDisconnectedLocked();
                 }
             }
         };

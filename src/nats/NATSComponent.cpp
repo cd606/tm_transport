@@ -1,6 +1,8 @@
 #include <thread>
 #include <mutex>
+#include <condition_variable>
 #include <atomic>
+#include <chrono>
 #include <cstring>
 #include <sstream>
 #include <unordered_map>
@@ -58,6 +60,75 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             };
             std::vector<ClientCB> clients_;
             std::mutex mutex_;
+            std::thread reconnectThread_;
+            std::mutex reconnectMutex_;
+            std::condition_variable reconnectCondition_;
+            std::atomic<bool> running_;
+
+            static int64_t reconnectDelay(natsConnection *, int attempts, void *) {
+                int exponent = attempts > 1 ? attempts-1 : 0;
+                if (exponent > 5) {
+                    return 60000;
+                }
+                return ((int64_t) 1000) << exponent;
+            }
+
+            bool connectAndSubscribe() {
+                natsConnection *newConnection = nullptr;
+                if (natsConnection_Connect(&newConnection, opts_) != NATS_OK
+                    || newConnection == nullptr) {
+                    if (newConnection != nullptr) {
+                        natsConnection_Destroy(newConnection);
+                    }
+                    return false;
+                }
+
+                conn_ = newConnection;
+                natsSubscription *newSubscription = nullptr;
+                natsStatus status = natsConnection_Subscribe(
+                    &newSubscription, conn_, topic_.c_str(),
+                    &OneNATSSubscription::onReply, (void *) this
+                );
+                if (status != NATS_OK || newSubscription == nullptr) {
+                    conn_ = nullptr;
+                    if (newSubscription != nullptr) {
+                        natsSubscription_Destroy(newSubscription);
+                    }
+                    natsConnection_Destroy(newConnection);
+                    return false;
+                }
+                sub_ = newSubscription;
+                return true;
+            }
+
+            void reconnectInitialConnection() {
+                std::chrono::seconds delay(1);
+                while (running_) {
+                    {
+                        std::unique_lock<std::mutex> lock(reconnectMutex_);
+                        if (reconnectCondition_.wait_for(lock, delay, [this]() {
+                            return !running_;
+                        })) {
+                            return;
+                        }
+                    }
+                    if (connectAndSubscribe()) {
+                        return;
+                    }
+                    delay *= 2;
+                    if (delay > std::chrono::seconds(60)) {
+                        delay = std::chrono::seconds(60);
+                    }
+                }
+            }
+
+            void stopReconnectThread() {
+                running_ = false;
+                reconnectCondition_.notify_all();
+                if (reconnectThread_.joinable()) {
+                    reconnectThread_.join();
+                }
+            }
 
             inline void callClient(ClientCB const &c, basic::ByteDataWithTopic &&d) {
                 if (c.hook) {
@@ -104,6 +175,10 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 , sub_(nullptr)
                 , clients_()
                 , mutex_()
+                , reconnectThread_()
+                , reconnectMutex_()
+                , reconnectCondition_()
+                , running_(true)
             {
                 natsOptions_Create(&opts_);
                 std::ostringstream oss;
@@ -111,12 +186,19 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 natsOptions_SetURL(opts_, oss.str().c_str());
                 NATSComponentImpl::auth(locator, tlsConf, opts_);
 
-                natsConnection_Connect(&conn_, opts_);
+                // NATS restores subscriptions automatically after reconnect. Keep
+                // trying forever, with exponential delay capped at one minute.
+                natsOptions_SetMaxReconnect(opts_, -1);
+                natsOptions_SetCustomReconnectDelay(opts_, &OneNATSSubscription::reconnectDelay, nullptr);
 
-                natsConnection_Subscribe(&sub_, conn_, topic_.c_str(), &OneNATSSubscription::onReply, (void *) this);
+                if (!connectAndSubscribe()) {
+                    reconnectThread_ = std::thread(
+                        &OneNATSSubscription::reconnectInitialConnection, this
+                    );
+                }
             }
             ~OneNATSSubscription() {
-                //std::cerr << this << ": being released\n";
+                stopReconnectThread();
                 if (sub_) {
                     natsSubscription_Unsubscribe(sub_);
                     natsSubscription_Destroy(sub_);
@@ -159,6 +241,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 }
             }
             void unsubscribe() {
+                stopReconnectThread();
                 if (sub_) {
                     natsSubscription_Unsubscribe(sub_);
                     natsSubscription_Destroy(sub_);
@@ -189,9 +272,90 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             natsOptions *opts_;
             natsConnection *conn_;
             std::mutex mutex_;
+            std::condition_variable reconnectCondition_;
+            std::thread reconnectThread_;
+            bool connected_;
+            bool stopping_;
+            std::chrono::seconds reconnectDelay_;
+            std::chrono::steady_clock::time_point nextReconnectAttempt_;
+
+            bool createConnection(natsConnection **newConnection) {
+                *newConnection = nullptr;
+                natsStatus status = natsConnection_Connect(newConnection, opts_);
+                if (status != NATS_OK || *newConnection == nullptr) {
+                    if (*newConnection != nullptr) {
+                        natsConnection_Destroy(*newConnection);
+                        *newConnection = nullptr;
+                    }
+                    return false;
+                }
+                return true;
+            }
+            void resetReconnectDelayLocked() {
+                reconnectDelay_ = std::chrono::seconds(1);
+            }
+            void scheduleReconnectLocked() {
+                nextReconnectAttempt_ = std::chrono::steady_clock::now()+reconnectDelay_;
+                if (reconnectDelay_ < std::chrono::seconds(60)) {
+                    reconnectDelay_ *= 2;
+                    if (reconnectDelay_ > std::chrono::seconds(60)) {
+                        reconnectDelay_ = std::chrono::seconds(60);
+                    }
+                }
+            }
+            void markDisconnectedLocked() {
+                if (conn_ != nullptr) {
+                    natsConnection_Destroy(conn_);
+                    conn_ = nullptr;
+                }
+                if (connected_) {
+                    connected_ = false;
+                    resetReconnectDelayLocked();
+                    scheduleReconnectLocked();
+                }
+                reconnectCondition_.notify_one();
+            }
+            void reconnectLoop() {
+                std::unique_lock<std::mutex> lock(mutex_);
+                while (!stopping_) {
+                    if (connected_) {
+                        reconnectCondition_.wait(lock, [this]() {
+                            return stopping_ || !connected_;
+                        });
+                        continue;
+                    }
+                    if (reconnectCondition_.wait_until(
+                        lock, nextReconnectAttempt_, [this]() {
+                            return stopping_ || connected_;
+                        }
+                    )) {
+                        continue;
+                    }
+
+                    lock.unlock();
+                    natsConnection *newConnection = nullptr;
+                    bool success = createConnection(&newConnection);
+                    lock.lock();
+                    if (stopping_) {
+                        if (newConnection != nullptr) {
+                            natsConnection_Destroy(newConnection);
+                        }
+                        break;
+                    }
+                    if (success) {
+                        conn_ = newConnection;
+                        connected_ = true;
+                        resetReconnectDelayLocked();
+                    } else {
+                        scheduleReconnectLocked();
+                    }
+                }
+            }
         public:
             OneNATSSender(ConnectionLocator const &locator, TLSClientConfigurationComponent *tlsConf)
                 : opts_(nullptr), conn_(nullptr), mutex_()
+                , reconnectCondition_(), reconnectThread_(), connected_(false)
+                , stopping_(false), reconnectDelay_(1), nextReconnectAttempt_()
             {
                 natsOptions_Create(&opts_);
                 std::ostringstream oss;
@@ -199,9 +363,24 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 natsOptions_SetURL(opts_, oss.str().c_str());
                 NATSComponentImpl::auth(locator, tlsConf, opts_);
 
-                natsConnection_Connect(&conn_, opts_);                
+                // Built-in reconnect buffers messages for later delivery. Manage
+                // reconnects here instead so outage-time publishes are dropped.
+                natsOptions_SetAllowReconnect(opts_, false);
+                connected_ = createConnection(&conn_);
+                if (!connected_) {
+                    scheduleReconnectLocked();
+                }
+                reconnectThread_ = std::thread(&OneNATSSender::reconnectLoop, this);
             }
             ~OneNATSSender() {
+                {
+                    std::lock_guard<std::mutex> lock(mutex_);
+                    stopping_ = true;
+                    reconnectCondition_.notify_one();
+                }
+                if (reconnectThread_.joinable()) {
+                    reconnectThread_.join();
+                }
                 if (conn_) {
                     natsConnection_Destroy(conn_);
                     conn_ = nullptr;
@@ -212,8 +391,21 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 }
             }
             void publish(basic::ByteDataWithTopic &&data) {
-                std::lock_guard<std::mutex> _(mutex_);
-                natsConnection_Publish(conn_, data.topic.c_str(), data.content.data(), data.content.length());
+                std::lock_guard<std::mutex> lock(mutex_);
+                if (!connected_ || conn_ == nullptr
+                    || natsConnection_Status(conn_) != NATS_CONN_STATUS_CONNECTED) {
+                    if (connected_) {
+                        markDisconnectedLocked();
+                    }
+                    return;
+                }
+                natsStatus status = natsConnection_Publish(
+                    conn_, data.topic.c_str(), data.content.data(), data.content.length()
+                );
+                if (status != NATS_OK) {
+                    // This message has already failed. Do not retain or retry it.
+                    markDisconnectedLocked();
+                }
             }
         };
 
