@@ -44,7 +44,9 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         // The default sender_mode is "sync". Set locator property sender_mode=async
         // for a bounded, batched sender. Optional async properties are
         // queue_capacity (default 16384) and batch_size (default 128). Async
-        // messages are dropped on overflow, disconnection, and shutdown.
+        // messages are dropped on overflow, disconnection, and shutdown. A
+        // detected moodycamel BlockingConcurrentQueue is used when available;
+        // otherwise the sender uses its built-in std::deque implementation.
         std::function<void(basic::ByteDataWithTopic &&)> redis_getPublisher(ConnectionLocator const &locator, std::optional<UserToWireHook> userToWireHook = std::nullopt);
         //for RPC, host, queue and an RPC channel name (as identifier) are needed in the locator
         std::function<void(basic::ByteDataWithID &&)> redis_setRPCClient(ConnectionLocator const &locator,
