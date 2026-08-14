@@ -4,6 +4,8 @@
 #include <atomic>
 #include <chrono>
 #include <cstring>
+#include <deque>
+#include <iostream>
 #include <sstream>
 #include <unordered_map>
 
@@ -89,8 +91,18 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             } else {
                 r = (redisReply *) redisCommand(ctx, "AUTH %s", locator.password().c_str());
             }
-            if (!r || r->type == REDIS_REPLY_ERROR) {
-                throw std::runtime_error("Failure to authenticate with Redis server for "+locator.toSerializationFormat());
+            if (r == nullptr) {
+                throw std::runtime_error(
+                    "Failure to authenticate with Redis server "
+                    +locator.host()+":"+std::to_string(locator.port())
+                );
+            }
+            if (r->type == REDIS_REPLY_ERROR) {
+                freeReplyObject((void *) r);
+                throw std::runtime_error(
+                    "Failure to authenticate with Redis server "
+                    +locator.host()+":"+std::to_string(locator.port())
+                );
             }
             freeReplyObject((void *) r);
         }
@@ -210,7 +222,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                                 continue;
                             }
                             if (reply->element[0]->type != REDIS_REPLY_STRING
-                                || std::string(reply->element[0]->str, reply->element[0]->len) != "pmessage") {
+                                || std::string_view(reply->element[0]->str, reply->element[0]->len) != "pmessage") {
                                 freeReplyObject((void *) reply);
                                 reply = nullptr;
                                 continue;
@@ -317,16 +329,55 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
 
         class OneRedisSender {
         private:
+            static constexpr std::size_t DEFAULT_ASYNC_QUEUE_CAPACITY = 16384;
+            static constexpr std::size_t DEFAULT_ASYNC_BATCH_SIZE = 128;
+            static constexpr std::size_t MAX_ASYNC_QUEUE_CAPACITY = 1048576;
+            static constexpr std::size_t MAX_ASYNC_BATCH_SIZE = 65536;
+
             ConnectionLocator locator_;
             TLSClientConfigurationComponent *tlsConf_;
             redisContext *ctx_;
             std::mutex mutex_;
             std::condition_variable reconnectCondition_;
             std::thread reconnectThread_;
+            bool async_;
+            std::size_t queueCapacity_;
+            std::size_t batchSize_;
+            std::deque<basic::ByteDataWithTopic> queue_;
             bool connected_;
             bool stopping_;
             std::chrono::seconds reconnectDelay_;
             std::chrono::steady_clock::time_point nextReconnectAttempt_;
+
+            static void reportPublishError(redisReply const *reply) {
+                std::cerr << "[RedisComponent] PUBLISH command failed";
+                if (reply != nullptr && reply->str != nullptr && reply->len > 0) {
+                    std::cerr << ": " << std::string_view(reply->str, reply->len);
+                }
+                std::cerr << '\n';
+            }
+
+            static std::size_t readPositiveSizeProperty(
+                ConnectionLocator const &locator,
+                std::string const &name,
+                std::size_t defaultValue,
+                std::size_t maximumValue
+            ) {
+                std::string value = locator.query(name, std::to_string(defaultValue));
+                try {
+                    std::size_t parsedCharacters = 0;
+                    unsigned long long parsed = std::stoull(value, &parsedCharacters);
+                    if (parsedCharacters != value.size() || parsed == 0 || parsed > maximumValue) {
+                        throw std::invalid_argument("out of range");
+                    }
+                    return static_cast<std::size_t>(parsed);
+                } catch (...) {
+                    throw RedisComponentException(
+                        "Invalid Redis locator property '"+name+"': expected an integer from 1 to "
+                        +std::to_string(maximumValue)
+                    );
+                }
+            }
 
             redisContext *createConnection() {
                 struct timeval connectTimeout = {2, 0};
@@ -342,10 +393,15 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 try {
                     // Also bound AUTH so that the reconnect worker cannot hang
                     // indefinitely on an unresponsive peer.
-                    redisSetTimeout(ctx, connectTimeout);
+                    if (redisSetTimeout(ctx, connectTimeout) != REDIS_OK) {
+                        redisFree(ctx);
+                        return nullptr;
+                    }
                     RedisComponentImpl::auth(locator_, ctx, tlsConf_);
                 } catch (...) {
-                    redisFree(ctx);
+                    if (ctx != nullptr) {
+                        redisFree(ctx);
+                    }
                     return nullptr;
                 }
                 if (ctx->err) {
@@ -413,18 +469,148 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                     }
                 }
             }
+            bool publishBatch(
+                redisContext *ctx,
+                std::vector<basic::ByteDataWithTopic> const &batch
+            ) {
+                for (auto const &data : batch) {
+                    if (redisAppendCommand(
+                        ctx, "PUBLISH %s %b", data.topic.c_str(),
+                        data.content.data(), data.content.length()
+                    ) != REDIS_OK) {
+                        return false;
+                    }
+                }
+
+                bool connectionHealthy = true;
+                for (std::size_t ii=0; ii<batch.size(); ++ii) {
+                    redisReply *reply = nullptr;
+                    int result = redisGetReply(ctx, (void **) &reply);
+                    if (result != REDIS_OK || reply == nullptr) {
+                        if (reply != nullptr) {
+                            freeReplyObject((void *) reply);
+                        }
+                        connectionHealthy = false;
+                        break;
+                    }
+                    // A command-level error drops that message but does not make
+                    // the connection unusable. Continue consuming every reply so
+                    // the pipeline remains synchronized.
+                    if (reply->type == REDIS_REPLY_ERROR) {
+                        reportPublishError(reply);
+                    }
+                    freeReplyObject((void *) reply);
+                }
+                return connectionHealthy && !ctx->err;
+            }
+            void asyncSenderLoop() {
+                std::vector<basic::ByteDataWithTopic> batch;
+                batch.reserve(batchSize_);
+                std::unique_lock<std::mutex> lock(mutex_);
+
+                while (!stopping_) {
+                    if (!connected_) {
+                        queue_.clear();
+                        if (reconnectCondition_.wait_until(
+                            lock, nextReconnectAttempt_, [this]() {
+                                return stopping_ || connected_;
+                            }
+                        )) {
+                            continue;
+                        }
+
+                        lock.unlock();
+                        redisContext *newContext = createConnection();
+                        lock.lock();
+                        if (stopping_) {
+                            if (newContext != nullptr) {
+                                redisFree(newContext);
+                            }
+                            break;
+                        }
+                        if (newContext != nullptr) {
+                            ctx_ = newContext;
+                            connected_ = true;
+                            resetReconnectDelayLocked();
+                        } else {
+                            scheduleReconnectLocked();
+                        }
+                        continue;
+                    }
+
+                    reconnectCondition_.wait(lock, [this]() {
+                        return stopping_ || !connected_ || !queue_.empty();
+                    });
+                    if (stopping_) {
+                        break;
+                    }
+                    if (!connected_) {
+                        continue;
+                    }
+
+                    batch.clear();
+                    while (!queue_.empty() && batch.size() < batchSize_) {
+                        batch.push_back(std::move(queue_.front()));
+                        queue_.pop_front();
+                    }
+                    redisContext *activeContext = ctx_;
+                    lock.unlock();
+                    bool connectionHealthy = publishBatch(activeContext, batch);
+                    lock.lock();
+
+                    if (!connectionHealthy) {
+                        // The attempted batch and every item still queued are
+                        // deliberately dropped. Nothing is replayed after recovery.
+                        if (ctx_ != nullptr) {
+                            redisFree(ctx_);
+                            ctx_ = nullptr;
+                        }
+                        queue_.clear();
+                        connected_ = false;
+                        resetReconnectDelayLocked();
+                        scheduleReconnectLocked();
+                    }
+                }
+                queue_.clear();
+            }
         public:
             OneRedisSender(ConnectionLocator const &locator, TLSClientConfigurationComponent *tlsConf)
                 : locator_(locator), tlsConf_(tlsConf), ctx_(nullptr), mutex_()
-                , reconnectCondition_(), reconnectThread_(), connected_(false)
+                , reconnectCondition_(), reconnectThread_(), async_(false)
+                , queueCapacity_(0), batchSize_(0), queue_(), connected_(false)
                 , stopping_(false), reconnectDelay_(1), nextReconnectAttempt_()
             {
+                std::string senderMode = locator.query("sender_mode", "sync");
+                if (senderMode == "async") {
+                    async_ = true;
+                    queueCapacity_ = readPositiveSizeProperty(
+                        locator, "queue_capacity", DEFAULT_ASYNC_QUEUE_CAPACITY,
+                        MAX_ASYNC_QUEUE_CAPACITY
+                    );
+                    batchSize_ = readPositiveSizeProperty(
+                        locator, "batch_size", DEFAULT_ASYNC_BATCH_SIZE,
+                        MAX_ASYNC_BATCH_SIZE
+                    );
+                    if (batchSize_ > queueCapacity_) {
+                        throw RedisComponentException(
+                            "Invalid Redis locator properties: 'batch_size' cannot exceed 'queue_capacity'"
+                        );
+                    }
+                } else if (senderMode != "sync") {
+                    throw RedisComponentException(
+                        "Invalid Redis locator property 'sender_mode': expected 'sync' or 'async'"
+                    );
+                }
+
                 ctx_ = createConnection();
                 connected_ = (ctx_ != nullptr);
                 if (!connected_) {
                     scheduleReconnectLocked();
                 }
-                reconnectThread_ = std::thread(&OneRedisSender::reconnectLoop, this);
+                reconnectThread_ = std::thread(
+                    async_ ? &OneRedisSender::asyncSenderLoop : &OneRedisSender::reconnectLoop,
+                    this
+                );
             }
             ~OneRedisSender() {
                 {
@@ -442,6 +628,14 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             }
             void publish(basic::ByteDataWithTopic &&data) {
                 std::lock_guard<std::mutex> lock(mutex_);
+                if (async_) {
+                    if (stopping_ || !connected_ || queue_.size() >= queueCapacity_) {
+                        return;
+                    }
+                    queue_.push_back(std::move(data));
+                    reconnectCondition_.notify_one();
+                    return;
+                }
                 if (!connected_ || ctx_ == nullptr || ctx_->err) {
                     if (connected_) {
                         markDisconnectedLocked();
@@ -456,6 +650,11 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                     , data.content.length()
                 ); 
                 if (r != nullptr) {
+                    // A REDIS_REPLY_ERROR is a command-level failure, not a
+                    // transport failure. The message is dropped either way.
+                    if (r->type == REDIS_REPLY_ERROR) {
+                        reportPublishError(r);
+                    }
                     freeReplyObject((void *) r);
                 } else {
                     // This message has already failed. Do not retain or retry it.
@@ -523,12 +722,11 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                         }
                         if (reply->element[0]->type != REDIS_REPLY_STRING
                             ||
-                            std::string(reply->element[0]->str, reply->element[0]->len) != "message") {
+                            std::string_view(reply->element[0]->str, reply->element[0]->len) != "message") {
                             freeReplyObject((void *) reply);
                             continue;
                         }
-                        std::string topic(reply->element[1]->str, reply->element[1]->len);
-                        if (topic != myCommunicationID_) {
+                        if (std::string_view(reply->element[1]->str, reply->element[1]->len) != myCommunicationID_) {
                             freeReplyObject((void *) reply);
                             continue;
                         }
@@ -707,12 +905,11 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                     }
                     if (reply->element[0]->type != REDIS_REPLY_STRING
                         ||
-                        std::string(reply->element[0]->str, reply->element[0]->len) != "message") {
+                        std::string_view(reply->element[0]->str, reply->element[0]->len) != "message") {
                         freeReplyObject((void *) reply);
                         continue;
                     }
-                    std::string topic(reply->element[1]->str, reply->element[1]->len);
-                    if (topic != rpcTopic_) {
+                    if (std::string_view(reply->element[1]->str, reply->element[1]->len) != rpcTopic_) {
                         freeReplyObject((void *) reply);
                         continue;
                     }
@@ -850,10 +1047,10 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             return getOrStartSenderNoLock(d, tlsConf);
         }
         OneRedisSender *getOrStartSenderNoLock(ConnectionLocator const &d, TLSClientConfigurationComponent *tlsConf) {
-            ConnectionLocator hostAndPort {d.host(), d.port()};
-            auto senderIter = senders_.find(hostAndPort);
+            ConnectionLocator senderKey = d.copyOfBasicPortionWithProperties();
+            auto senderIter = senders_.find(senderKey);
             if (senderIter == senders_.end()) {
-                senderIter = senders_.insert({hostAndPort, std::make_unique<OneRedisSender>(d, tlsConf)}).first;
+                senderIter = senders_.insert({senderKey, std::make_unique<OneRedisSender>(d, tlsConf)}).first;
             }
             return senderIter->second.get();
         }
