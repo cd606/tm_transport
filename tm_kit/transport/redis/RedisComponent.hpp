@@ -48,7 +48,10 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         // detected moodycamel BlockingConcurrentQueue is used when available;
         // otherwise the sender uses its built-in std::deque implementation.
         std::function<void(basic::ByteDataWithTopic &&)> redis_getPublisher(ConnectionLocator const &locator, std::optional<UserToWireHook> userToWireHook = std::nullopt);
-        //for RPC, host, queue and an RPC channel name (as identifier) are needed in the locator
+        // For RPC, host, port and an RPC channel name (as identifier) are needed
+        // in the locator. RPC receive connections reconnect with exponential
+        // backoff; requests, replies and correlation state from an outage are
+        // dropped rather than replayed after recovery.
         std::function<void(basic::ByteDataWithID &&)> redis_setRPCClient(ConnectionLocator const &locator,
                         std::function<std::string()> clientCommunicationIDCreator,
                         std::function<void(bool, basic::ByteDataWithID &&)> client,
