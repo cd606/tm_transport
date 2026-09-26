@@ -82,17 +82,33 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
 
                         std::lock_guard<std::mutex> _(mutex_);
                         
-                        for (auto const &f : noFilterClients_) {
-                            callClient(f, basic::ByteDataWithTopic {data});
-                        }
-                        for (auto const &f : stringMatchClients_) {
-                            if (data.topic == std::get<0>(f)) {
-                                callClient(std::get<1>(f), basic::ByteDataWithTopic {data});
+                        if (noFilterClients_.size()+stringMatchClients_.size()+regexMatchClients_.size() == 1) {
+                            if (!noFilterClients_.empty()) {
+                                callClient(noFilterClients_.front(), std::move(data));
+                            } else if (!stringMatchClients_.empty()) {
+                                auto const &f = stringMatchClients_.front();
+                                if (data.topic == std::get<0>(f)) {
+                                    callClient(std::get<1>(f), std::move(data));
+                                }
+                            } else {
+                                auto const &f = regexMatchClients_.front();
+                                if (std::regex_match(data.topic, std::get<0>(f))) {
+                                    callClient(std::get<1>(f), std::move(data));
+                                }
                             }
-                        }
-                        for (auto const &f : regexMatchClients_) {
-                            if (std::regex_match(data.topic, std::get<0>(f))) {
-                                callClient(std::get<1>(f), basic::ByteDataWithTopic {data});
+                        } else {
+                            for (auto const &f : noFilterClients_) {
+                                callClient(f, basic::ByteDataWithTopic {data});
+                            }
+                            for (auto const &f : stringMatchClients_) {
+                                if (data.topic == std::get<0>(f)) {
+                                    callClient(std::get<1>(f), basic::ByteDataWithTopic {data});
+                                }
+                            }
+                            for (auto const &f : regexMatchClients_) {
+                                if (std::regex_match(data.topic, std::get<0>(f))) {
+                                    callClient(std::get<1>(f), basic::ByteDataWithTopic {data});
+                                }
                             }
                         }
                     }  
