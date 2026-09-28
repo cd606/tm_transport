@@ -3,6 +3,8 @@ tm_transport_json_rest_headers = [
     'ComplexInput.hpp',
     'JsonRESTComponentException.hpp',
     'JsonRESTComponent.hpp',
+    'JsonRESTSSEPublisher.hpp',
+    'JsonRESTSSEExporter.hpp',
     'JsonRESTFacilityWrapper.hpp',
     'JsonRESTClientFacility.hpp',
     'JsonRESTClientFacilityUtils.hpp'

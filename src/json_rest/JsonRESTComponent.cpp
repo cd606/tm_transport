@@ -21,11 +21,13 @@
 #include <openssl/ssl.h>
 
 #include <thread>
+#include <algorithm>
 #include <mutex>
 #include <unordered_map>
 #include <iostream>
 #include <fstream>
 #include <sstream>
+#include <deque>
 #ifdef _MSC_VER
 #include <locale>
 #include <codecvt>
@@ -58,6 +60,13 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         mutable std::mutex handlerMapMutex_;
         std::unordered_map<int, std::filesystem::path> docRootMap_;
         mutable std::mutex docRootMapMutex_;
+        struct SSEPublisherState {
+            std::string latestFrame;
+        };
+        std::unordered_map<int, std::unordered_map<std::string, SSEPublisherState>> sseMap_;
+        mutable std::mutex sseMapMutex_;
+        std::unordered_map<int, boost::asio::ip::address> bindAddressMap_;
+        mutable std::mutex bindAddressMapMutex_;
         std::atomic<bool> started_;
 
         class OneClient : public std::enable_shared_from_this<OneClient> {
@@ -879,8 +888,11 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
 
             boost::asio::ip::tcp::acceptor acceptor_;
             std::string realm_;
+            class OneHandler;
+            std::unordered_map<std::string, std::vector<std::weak_ptr<OneHandler>>> sseClients_;
 
             class OneHandler : public std::enable_shared_from_this<OneHandler> {
+                friend class Acceptor;
             private:
                 Acceptor *parent_;
                 std::variant<
@@ -890,6 +902,11 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 > stream_;
                 boost::beast::flat_buffer buffer_;
                 boost::beast::http::request<boost::beast::http::string_body> req_;
+                std::deque<std::string> sseWriteQueue_;
+                std::size_t sseQueuedBytes_ = 0;
+                bool sseWriting_ = false;
+                bool sseClosed_ = false;
+                boost::asio::steady_timer sseHeartbeat_;
             public:
                 OneHandler(
                     Acceptor *parent
@@ -900,6 +917,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                     , stream_()
                     , buffer_()
                     , req_()
+                    , sseHeartbeat_(parent->svc_)
                 {
                     if (sslCtx) {
                         stream_.emplace<2>(std::move(socket), *sslCtx);
@@ -1108,6 +1126,9 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                     if (req_.method() == boost::beast::http::verb::post || req_.method() == boost::beast::http::verb::get) {
                         handler = parent_->parent()->getHandler(parent_->port(), pathStr);
                     }
+                    auto sseInitialFrame = (req_.method() == boost::beast::http::verb::get)
+                        ? parent_->parent()->getSSEPublisher(parent_->port(), pathStr)
+                        : std::nullopt;
 
                     auto auth = req_[boost::beast::http::field::authorization];
                     std::string authStr {auth.data(), auth.size()};
@@ -1163,7 +1184,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                         //if token authentication is needed, but the request is for a static file
                         //, we don't enforce authentication.
                         //on the other hand, for dynamic content, we do enforce that.
-                        if (handler) {
+                        if (handler || sseInitialFrame) {
                             auto *res = new boost::beast::http::response<boost::beast::http::string_body> {boost::beast::http::status::unauthorized, req_.version()};
                             res->set(boost::beast::http::field::server, BOOST_BEAST_VERSION_STRING);
                             res->set(boost::beast::http::field::www_authenticate, "Bearer realm=\""+parent_->realm()+"\"");
@@ -1218,6 +1239,10 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                         return;
                     }
 
+                    if (sseInitialFrame) {
+                        startSSE(pathStr, *sseInitialFrame);
+                        return;
+                    }
                     if (!handler) {
                         std::optional<std::tuple<std::filesystem::path,std::string>> fileMappingRes = std::nullopt;
                         if (req_.method() == boost::beast::http::verb::get || req_.method() == boost::beast::http::verb::head) {
@@ -1423,6 +1448,73 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                         );
                     }
                 }
+                void startSSE(std::string const &path, std::string const &initialFrame) {
+                    enqueueSSE("HTTP/1.1 200 OK\r\n"
+                        "Content-Type: text/event-stream; charset=utf-8\r\n"
+                        "Cache-Control: no-cache, no-transform\r\n"
+                        "X-Accel-Buffering: no\r\n"
+                        "Transfer-Encoding: chunked\r\n"
+                        "Connection: keep-alive\r\n\r\n");
+                    if (!initialFrame.empty()) {
+                        enqueueSSE(initialFrame);
+                    }
+                    parent_->addSSEClient(path, shared_from_this());
+                    scheduleSSEHeartbeat();
+                }
+                void scheduleSSEHeartbeat() {
+                    sseHeartbeat_.expires_after(std::chrono::seconds(15));
+                    sseHeartbeat_.async_wait([x=shared_from_this()](boost::system::error_code ec) {
+                        if (!ec && !x->sseClosed_) {
+                            x->enqueueSSE("6\r\n: hb\n\n\r\n");
+                            x->scheduleSSEHeartbeat();
+                        }
+                    });
+                }
+                void enqueueSSE(std::string frame) {
+                    if (sseClosed_) { return; }
+                    if (sseQueuedBytes_ + frame.size() > 1024*1024) {
+                        closeSSE();
+                        return;
+                    }
+                    sseQueuedBytes_ += frame.size();
+                    sseWriteQueue_.push_back(std::move(frame));
+                    if (!sseWriting_) { writeNextSSE(); }
+                }
+                void writeNextSSE() {
+                    if (sseClosed_ || sseWriteQueue_.empty()) {
+                        sseWriting_ = false;
+                        return;
+                    }
+                    sseWriting_ = true;
+                    auto done = [x=shared_from_this()](boost::system::error_code ec, std::size_t) {
+                        if (ec || x->sseClosed_) {
+                            x->closeSSE();
+                            return;
+                        }
+                        x->sseQueuedBytes_ -= x->sseWriteQueue_.front().size();
+                        x->sseWriteQueue_.pop_front();
+                        x->writeNextSSE();
+                    };
+                    if (stream_.index() == 1) {
+                        boost::asio::async_write(std::get<1>(stream_).socket(),
+                            boost::asio::buffer(sseWriteQueue_.front()), std::move(done));
+                    } else {
+                        boost::asio::async_write(std::get<2>(stream_),
+                            boost::asio::buffer(sseWriteQueue_.front()), std::move(done));
+                    }
+                }
+                void closeSSE() {
+                    if (sseClosed_) { return; }
+                    sseClosed_ = true;
+                    sseHeartbeat_.cancel();
+                    boost::system::error_code ec;
+                    if (stream_.index() == 1) {
+                        std::get<1>(stream_).socket().close(ec);
+                    } else {
+                        boost::beast::get_lowest_layer(std::get<2>(stream_)).socket().close(ec);
+                    }
+                }
+                void publishSSE(std::string const &frame) { enqueueSSE(frame); }
                 void doClose(boost::beast::error_code ec) {
                     if (stream_.index() == 1) {
                         std::get<1>(stream_).socket().shutdown(boost::asio::ip::tcp::socket::shutdown_send, ec);
@@ -1441,6 +1533,7 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             Acceptor(
                 JsonRESTComponentImpl *parent
                 , int port
+                , boost::asio::ip::address const &bindAddress
                 , std::optional<TLSServerInfo> const &sslInfo
                 , basic::LoggingComponentBase *logger
             )
@@ -1458,12 +1551,11 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                 , acceptor_(svc_)
                 , realm_(std::string("tm_kit_json_rest_")+std::to_string(port)+"@"+hostname_util::hostname())
             {
-                auto addr = boost::asio::ip::make_address("0.0.0.0");
                 if (sslCtx_) {
                     sslCtx_->use_certificate_chain_file(sslInfo->serverCertificateFile);
                     sslCtx_->use_private_key_file(sslInfo->serverKeyFile, boost::asio::ssl::context::file_format::pem);
                 }
-                boost::asio::ip::tcp::endpoint ep(addr, port_);
+                boost::asio::ip::tcp::endpoint ep(bindAddress, port_);
                 boost::beast::error_code ec;
 
                 acceptor_.open(ep.protocol(), ec);
@@ -1508,6 +1600,26 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                         , shared_from_this()
                     )
                 );
+            }
+            void addSSEClient(std::string const &path, std::shared_ptr<OneHandler> const &client) {
+                auto &clients = sseClients_[path];
+                clients.erase(std::remove_if(clients.begin(), clients.end(),
+                    [](auto const &weak) { return weak.expired(); }), clients.end());
+                clients.push_back(client);
+            }
+            void publishSSE(std::string path, std::string frame) {
+                boost::asio::post(svc_, [self=shared_from_this(), path=std::move(path), frame=std::move(frame)]() {
+                    auto &clients = self->sseClients_[path];
+                    for (auto iter=clients.begin(); iter != clients.end();) {
+                        auto client = iter->lock();
+                        if (!client || client->sseClosed_) {
+                            iter = clients.erase(iter);
+                        } else {
+                            client->publishSSE(frame);
+                            ++iter;
+                        }
+                    }
+                });
             }
             void onAccept(boost::beast::error_code ec, boost::asio::ip::tcp::socket socket) {
                 if (!running_) {
@@ -1566,17 +1678,20 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         mutable std::mutex allPasswordsMutex_;
 
         void startAcceptor(int port, TLSServerConfigurationComponent const *tlsConfig, basic::LoggingComponentBase *logger) {
+            std::lock_guard<std::mutex> _(acceptorMapMutex_);
+            if (acceptorMap_.find(port) != acceptorMap_.end()) { return; }
             auto sslInfo = (tlsConfig?(tlsConfig->getConfigurationItem(
                 TLSServerInfoKey {port}
             )):std::nullopt);
-            std::lock_guard<std::mutex> _(acceptorMapMutex_);
-            auto iter = acceptorMap_.insert({port, std::make_shared<Acceptor>(
-                this
-                , port
-                , sslInfo
-                , logger
-            )}).first;
-            iter->second->run();
+            boost::asio::ip::address bindAddress = boost::asio::ip::address_v4::any();
+            {
+                std::lock_guard<std::mutex> bindLock(bindAddressMapMutex_);
+                auto iter = bindAddressMap_.find(port);
+                if (iter != bindAddressMap_.end()) { bindAddress = iter->second; }
+            }
+            auto acceptor = std::make_shared<Acceptor>(this, port, bindAddress, sslInfo, logger);
+            acceptorMap_.emplace(port, acceptor);
+            acceptor->run();
         }
 
         struct OneTokenReq {
@@ -1889,6 +2004,13 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             if (!boost::starts_with(path, "/")) {
                 path = std::string("/")+path;
             }
+            {
+                std::lock_guard<std::mutex> sseLock(sseMapMutex_);
+                auto sseIter = sseMap_.find(port);
+                if (sseIter != sseMap_.end() && sseIter->second.find(path) != sseIter->second.end()) {
+                    throw JsonRESTComponentException("SSE publisher already registered at "+path);
+                }
+            }
             auto innerIter = iter->second.find(path);
             if (innerIter == iter->second.end()) {
                 iter->second.insert({path, handler});
@@ -1953,6 +2075,82 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
             std::lock_guard<std::mutex> _(docRootMapMutex_);
             docRootMap_[port] = docRoot;
         }
+        void setBindAddress(int port, std::string const &address) {
+            auto parsed = boost::asio::ip::make_address(address);
+            std::lock_guard<std::mutex> acceptorLock(acceptorMapMutex_);
+            if (acceptorMap_.find(port) != acceptorMap_.end()) {
+                throw JsonRESTComponentException("Cannot change bind address after starting port "+std::to_string(port));
+            }
+            std::lock_guard<std::mutex> bindLock(bindAddressMapMutex_);
+            bindAddressMap_[port] = parsed;
+        }
+        void registerSSEPublisher(ConnectionLocator const &locator, TLSServerConfigurationComponent const *tlsConfig, basic::LoggingComponentBase *logger) {
+            int port = locator.port();
+            if (port == 0) { port = tlsConfig ? 443 : 80; }
+            if (locator.userName() != "") {
+                addBasicAuthentication(port, locator.userName(),
+                    locator.password().empty() ? std::nullopt : std::optional<std::string> {locator.password()});
+            }
+            std::string path = locator.identifier();
+            if (!boost::starts_with(path, "/")) { path = "/"+path; }
+            if (path == JsonRESTComponent::TOKEN_AUTHENTICATION_REQUEST) {
+                throw JsonRESTComponentException("SSE path is reserved: "+path);
+            }
+            std::lock_guard<std::mutex> handlerLock(handlerMapMutex_);
+            auto iter = handlerMap_.find(port);
+            if (iter != handlerMap_.end() && iter->second.find(path) != iter->second.end()) {
+                throw JsonRESTComponentException("JSON handler already registered at "+path);
+            }
+            std::lock_guard<std::mutex> sseLock(sseMapMutex_);
+            if (!sseMap_[port].emplace(path, SSEPublisherState {}).second) {
+                throw JsonRESTComponentException("SSE publisher already registered at "+path);
+            }
+            if (started_) { startAcceptor(port, tlsConfig, logger); }
+        }
+        std::optional<std::string> getSSEPublisher(int port, std::string const &path) const {
+            std::lock_guard<std::mutex> _(sseMapMutex_);
+            auto portIter = sseMap_.find(port);
+            if (portIter == sseMap_.end()) { return std::nullopt; }
+            auto pathIter = portIter->second.find(path);
+            if (pathIter == portIter->second.end()) { return std::nullopt; }
+            return pathIter->second.latestFrame;
+        }
+        void publishSSE(ConnectionLocator const &locator, std::string const &data, std::string const &eventName, TLSServerConfigurationComponent const *tlsConfig) {
+            int port = locator.port();
+            if (port == 0) { port = tlsConfig ? 443 : 80; }
+            std::string path = locator.identifier();
+            if (!boost::starts_with(path, "/")) { path = "/"+path; }
+            if (eventName.empty() || eventName.find_first_of("\r\n") != std::string::npos) {
+                throw JsonRESTComponentException("Invalid SSE event name");
+            }
+            std::string payload = "event: "+eventName+"\n";
+            std::size_t begin = 0;
+            do {
+                auto end = data.find_first_of("\r\n", begin);
+                payload += "data: "+data.substr(begin, end == std::string::npos ? end : end-begin)+"\n";
+                if (end == std::string::npos) { break; }
+                begin = end+((data[end] == '\r' && end+1 < data.size() && data[end+1] == '\n') ? 2 : 1);
+            } while (true);
+            payload += '\n';
+            std::ostringstream chunk;
+            chunk << std::hex << payload.size() << "\r\n" << payload << "\r\n";
+            auto frame = chunk.str();
+            {
+                std::lock_guard<std::mutex> _(sseMapMutex_);
+                auto portIter = sseMap_.find(port);
+                if (portIter == sseMap_.end() || portIter->second.find(path) == portIter->second.end()) {
+                    throw JsonRESTComponentException("No SSE publisher registered at "+path);
+                }
+                portIter->second[path].latestFrame = frame;
+            }
+            std::shared_ptr<Acceptor> acceptor;
+            {
+                std::lock_guard<std::mutex> _(acceptorMapMutex_);
+                auto iter = acceptorMap_.find(port);
+                if (iter != acceptorMap_.end()) { acceptor = iter->second; }
+            }
+            if (acceptor) { acceptor->publishSSE(std::move(path), std::move(frame)); }
+        }
 
         void finalizeEnvironment(TLSServerConfigurationComponent const *tlsConfig, basic::LoggingComponentBase *logger) {
             std::lock_guard<std::mutex> _(handlerMapMutex_);
@@ -1965,6 +2163,8 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
                     startAcceptor(item.first, tlsConfig, logger);
                 }
             }
+            std::lock_guard<std::mutex> _m3(sseMapMutex_);
+            for (auto const &item : sseMap_) { startAcceptor(item.first, tlsConfig, logger); }
             started_ = true;
         }
         std::unordered_map<ConnectionLocator, std::thread::native_handle_type> json_rest_threadHandles() {
@@ -2343,6 +2543,15 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
     }
     void JsonRESTComponent::setDocRoot(int port, std::filesystem::path const &docRoot) {
         impl_->setDocRoot(port, docRoot);
+    }
+    void JsonRESTComponent::setBindAddress(int port, std::string const &address) {
+        impl_->setBindAddress(port, address);
+    }
+    void JsonRESTComponent::registerSSEPublisher(ConnectionLocator const &locator) {
+        impl_->registerSSEPublisher(locator, dynamic_cast<TLSServerConfigurationComponent const *>(this), dynamic_cast<basic::LoggingComponentBase *>(this));
+    }
+    void JsonRESTComponent::publishSSE(ConnectionLocator const &locator, std::string const &data, std::string const &eventName) {
+        impl_->publishSSE(locator, data, eventName, dynamic_cast<TLSServerConfigurationComponent const *>(this));
     }
     void JsonRESTComponent::finalizeEnvironment() {
         impl_->finalizeEnvironment(dynamic_cast<TLSServerConfigurationComponent const *>(this), dynamic_cast<basic::LoggingComponentBase *>(this));

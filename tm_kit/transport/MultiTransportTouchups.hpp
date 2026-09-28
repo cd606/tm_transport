@@ -8,6 +8,7 @@
 namespace dev { namespace cd606 { namespace tm { namespace transport { namespace multi_transport_touchups {
 
     struct PublisherTouchupSpec {
+        // A json_rest_sse:// locator publishes JSON at its HTTP path; subscribers use EventSource.
         std::string channelSpec;
         std::optional<UserToWireHook> hook = std::nullopt;
         bool threaded = false;
@@ -52,7 +53,13 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         PublisherTouchupWithProtocol(R &r, PublisherTouchupSpec const &spec) {
             auto publisherName = ((spec.publisherName=="")?(std::string("__publisher_touchup_")+typeid(T).name()):spec.publisherName);
             using W = basic::WrapFacilitioidConnectorForSerializationHelpers::WrappedType<ProtocolWrapper,T>;
-            if constexpr(std::is_same_v<W,T>) {
+            if (boost::starts_with(spec.channelSpec, "json_rest_sse://")) {
+                auto pub = MultiTransportBroadcastPublisherManagingUtils<R>
+                    ::template oneBroadcastPublisher<T>(
+                        r, publisherName, spec.channelSpec, spec.hook, spec.threaded
+                    );
+                r.template connectTypedSinkToAllNodes<basic::TypedDataWithTopic<T>>(pub);
+            } else if constexpr(std::is_same_v<W,T>) {
                 auto pub = MultiTransportBroadcastPublisherManagingUtils<R>
                     ::template oneBroadcastPublisher<T>
                     (

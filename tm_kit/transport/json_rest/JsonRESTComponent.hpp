@@ -42,6 +42,11 @@ namespace dev { namespace cd606 { namespace tm { namespace transport { namespace
         void addTokenAuthentication(int port, std::string const &login, std::string const &password);
         void addTokenAuthentication_salted(int port, std::string const &login, std::string const &saltedPassword);
         void setDocRoot(int port, std::filesystem::path const &docRoot);
+        // Register a GET endpoint. A new subscriber receives the most recently published event.
+        void registerSSEPublisher(ConnectionLocator const &locator);
+        void publishSSE(ConnectionLocator const &locator, std::string const &data, std::string const &eventName="message");
+        // Must be called before the listener on this port starts. Defaults to 0.0.0.0.
+        void setBindAddress(int port, std::string const &address);
         void finalizeEnvironment();
         std::unordered_map<ConnectionLocator, std::thread::native_handle_type> json_rest_threadHandles();
 

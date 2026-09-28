@@ -77,3 +77,11 @@ On Ubuntu 18.04 at least, if Offscale Etcd C++ client library is built through v
 The Typescript code included in this package has been tested with Nodejs 14.12.0 and Typescript 3.9.3. (For possible issues with etcd3 package, please refer to the comment at the beginning of TMTransport_Chains.ts)
 
 The Python code included in this package has been tested with Python 3.9.0rc1.
+
+## JSON REST event streams
+
+`JsonRESTComponent` can serve static files, JSON handlers, and Server-Sent Events on the same port. Register an SSE GET path with `registerSSEPublisher(locator)` and send an already encoded payload with `publishSSE(locator, payload, eventName)`. The transport frames the event, caches the latest one for new subscribers, sends heartbeat comments, and disconnects clients whose pending output exceeds 1 MiB. `JsonRESTSSEPublisher<R>::create(r, name, locator, eventName)` provides an AppRunner sink for `std::string` payloads.
+
+Call `setBindAddress(port, address)` before the listener starts to limit which local IP receives connections. The default remains `0.0.0.0`; the address applies to every path on that port. Existing `setDocRoot` and `registerHandler` calls can use the same port as the SSE publisher.
+
+`JsonRESTSSEExporter<Env>` provides typed and pre-encoded tm-kit exporters. For an AppRunner broadcast sink, use `json_rest_sse://:23457:::/api/events[event=snapshot]` as the channel specification in `MultiTransportBroadcastPublisherManagingUtils` or `PublisherTouchupSpec`. `oneBroadcastPublisher<T>` JSON-encodes a JSON-wrappable `T`; `oneByteDataBroadcastPublisher` sends its content as already encoded text. The `event` locator property sets the SSE event name. Without it, the input topic is the event name, or `message` if the topic is empty. Protocol-based publisher helpers also use JSON encoding for `json_rest_sse://` channels. Different paths can share one IP and port with each other, JSON handlers, and static files. The locator host does not set the listener bind address; use `setBindAddress` for that.

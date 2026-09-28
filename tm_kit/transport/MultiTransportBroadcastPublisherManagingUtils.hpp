@@ -11,6 +11,7 @@
 #include <tm_kit/transport/shared_memory_broadcast/SharedMemoryBroadcastImporterExporter.hpp>
 #include <tm_kit/transport/websocket/WebSocketImporterExporter.hpp>
 #include <tm_kit/transport/singlecast/SinglecastImporterExporter.hpp>
+#include <tm_kit/transport/json_rest/JsonRESTSSEExporter.hpp>
 
 #include <tm_kit/basic/CommonFlowUtils.hpp>
 #include <tm_kit/basic/AppRunnerUtils.hpp>
@@ -33,6 +34,29 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
             , bool threaded = false
         ) -> typename R::template Sink<basic::TypedDataWithTopic<OutputType>>
         {
+            if (boost::starts_with(channelSpec, "json_rest_sse://")) {
+                if (threaded) {
+                    auto wrapper = M::template kleisli<basic::TypedDataWithTopic<OutputType>>(
+                        basic::CommonFlowUtilComponents<M>::template idFunc<basic::TypedDataWithTopic<OutputType>>()
+                        , typename infra::LiftParameters<typename M::TimePoint>().SuggestThreaded(true)
+                    );
+                    auto sink = oneBroadcastPublisher<OutputType>(r, name, channelSpec, hook, false);
+                    r.registerAction(name+":threadWrapper", wrapper);
+                    r.connect(r.actionAsSource(wrapper), sink);
+                    return r.actionAsSink(wrapper);
+                }
+                if constexpr (
+                    std::is_convertible_v<Env *, json_rest::JsonRESTComponent *>
+                    && basic::nlohmann_json_interop::JsonWrappable<OutputType>::value
+                ) {
+                    auto locator = ConnectionLocator::parse(channelSpec.substr(std::string("json_rest_sse://").size()));
+                    auto pub = json_rest::JsonRESTSSEExporter<Env>::template createTypedExporter<OutputType>(locator, hook);
+                    r.registerExporter(name, pub);
+                    return r.exporterAsSink(pub);
+                } else {
+                    throw std::runtime_error("JSON SSE publisher requires JsonRESTComponent and a JSON-wrappable payload type");
+                }
+            }
             if constexpr (!basic::bytedata_utils::DirectlySerializableChecker<OutputType>::IsDirectlySerializable()) {
                 auto s = oneBroadcastPublisher<basic::CBOR<OutputType>>(
                     r, name, channelSpec, hook, false
@@ -179,6 +203,26 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
             , bool threaded = false
         ) -> typename R::template Sink<basic::ByteDataWithTopic>
         {
+            if (boost::starts_with(channelSpec, "json_rest_sse://")) {
+                if (threaded) {
+                    auto wrapper = M::template kleisli<basic::ByteDataWithTopic>(
+                        basic::CommonFlowUtilComponents<M>::template idFunc<basic::ByteDataWithTopic>()
+                        , typename infra::LiftParameters<typename M::TimePoint>().SuggestThreaded(true)
+                    );
+                    auto sink = oneByteDataBroadcastPublisher(r, name, channelSpec, hook, false);
+                    r.registerAction(name+":threadWrapper", wrapper);
+                    r.connect(r.actionAsSource(wrapper), sink);
+                    return r.actionAsSink(wrapper);
+                }
+                if constexpr (std::is_convertible_v<Env *, json_rest::JsonRESTComponent *>) {
+                    auto locator = ConnectionLocator::parse(channelSpec.substr(std::string("json_rest_sse://").size()));
+                    auto pub = json_rest::JsonRESTSSEExporter<Env>::createExporter(locator, hook);
+                    r.registerExporter(name, pub);
+                    return r.exporterAsSink(pub);
+                } else {
+                    throw std::runtime_error("JSON SSE publisher requires JsonRESTComponent in the environment");
+                }
+            }
             if (threaded) {
                 auto wrapper = M::template kleisli<basic::ByteDataWithTopic>(
                     basic::CommonFlowUtilComponents<M>::template idFunc<basic::ByteDataWithTopic>()
@@ -307,6 +351,9 @@ namespace dev { namespace cd606 { namespace tm { namespace transport {
             , bool threaded = false
         ) -> typename R::template Sink<basic::TypedDataWithTopic<OutputType>>
         {
+            if (boost::starts_with(channelSpec, "json_rest_sse://")) {
+                return oneBroadcastPublisher<OutputType>(r, name, channelSpec, hook, threaded);
+            }
             if constexpr (std::is_same_v<basic::WrapFacilitioidConnectorForSerializationHelpers::WrappedType<
                 ProtocolWrapper, OutputType
             >, OutputType>) {
